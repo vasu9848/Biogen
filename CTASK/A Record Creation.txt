@@ -1,0 +1,629 @@
+1. Get Ticket
+
+Pre Execution:
+
+Process.url = "https://"+Process.SNOW_Env+".service-now.com/api/now/table/change_task?number="+Process.CTASK_Number
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket details fetched successfully"
+  Process.Output=Process[OpName].HTTPResponseContent
+  
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure fetching ticket details"
+}
+
+2. Second Operator (Read)
+
+Inline:
+
+var str =Process.Output
+var start=str.indexOf('[')+2;
+var end=str.indexOf(']')-1;
+var res = str.substring(start,end);
+var out1= res.split(',');
+for(var i=0;i < out1.length;i++)
+{
+  out1[i]=out1[i].replace(/\"/g,"");
+  if(out1[i].indexOf('active')>=0)
+  {Process.active=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('sys_id')>=0)
+  {Process.Sys_Id=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('description')>=0)
+  {Process.description=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('state')>=0)
+  {Process.state=(out1[i].split(':'))[1]}
+  out1[i]=(out1[i].split(':'))[1]
+}
+
+Post Execution:
+
+if(Process.active=='true')
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket is active.";
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Ticket is inactive.";
+}
+
+3.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.SNOW_Env+".service-now.com/api/now/table/change_task/"+Process.Sys_Id+""
+Process.payload = "<request><entry><assigned_to>d2f5f34bdb5efb8036c73c9b7c961900</assigned_to><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+"</work_notes><state>2</state></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  if(Process[OpName].HTTPResponseContent.indexOf("state\":\"")>=0)
+  {
+	Process.ReturnCode=0;
+	Process.ReturnMessage="Ticket updated successfully ";
+  }
+  else
+  {
+	Process.ReturnCode=2;
+	Process.ReturnMessage="Error occurred while  updating ticket";
+  }
+}
+else
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Failure occurred while updating ticket."
+}
+
+4. Script
+
+Inline:
+
+####"Bulk_A_record_creation"
+
+param(
+$Number,
+$user,
+#$pass,
+$snowkey,
+#$snowp,
+#$snowpa,
+$SNOW_Env,
+$infoblox_server,
+$Bulk_hostname,
+$Bulk_newip
+)
+
+$Number
+$user
+#$pass
+$snowkey
+#$snowp
+#$snowpa
+$SNOW_Env
+$infoblox_server
+$Bulk_hostname
+$Bulk_newip
+    
+$DNS = "10.106.17.10"
+$hostName = $Bulk_hostname.ToLower()
+$table = "change_task"
+$script_name = "A_record_creation"
+#$Document_Results = "DNS"
+$log = @()
+$path = "D:\Network\$script_name\$Number"
+$log_path = "$path\Logs"
+$network = "238994d1db0caf00fa0f8e5c29961941"
+$snowpass = "V2!RfaRE#%4GQ*J_"
+
+$pwd = ConvertTo-SecureString "n398ttGt1MHXoXYvkv31UA63" -AsPlainText -Force
+$creds = New-Object Management.Automation.PSCredential ($user, $pwd) -ErrorAction stop
+
+
+$DNS_exist             = @()
+$DNS_doesnt_exist      = @()
+$ptr_created           = @()
+$ptr_failed            = @()
+$A_created             = @()
+$A_failed              = @()
+$servers               = @()
+$Post_DNS_exist        = @()
+$Post_DNS_doesnt_exist = @()
+
+#Creating File path for logs
+$filePaths = "$path\Logs", "$path\Command_Output", "$path\Evidence"
+foreach($filePath in $filePaths)
+{
+    If(!(test-path $filePath))
+    {
+          New-Item -ItemType Directory -Force -Path $filePath 
+    }
+}
+
+If(!(test-path "$log_path\log.txt"))
+{
+    New-Item -ItemType File -Name "Log.txt" -Path $log_path
+}
+
+$host_Name = $hostName.split(",")
+$ipv4_Addr =$Bulk_newip.split(",")
+
+
+Add-Content -Path "$log_path\Log.txt" -Value "-----------------"
+Add-Content -Path "$log_path\Log.txt" -Value "Service Account used for execution is Svc-linux-snow"
+
+#Importing biogen module
+Try
+{
+    Import-Module "D:\Wave 1 Scripts\Biogen_Module\Biogen_Module.psm1"
+}
+catch
+{
+	Write-Host "Failed to import module"
+    Exit
+}
+
+function timestamp{
+    Get-Date -Format "dd_MMM_yyyy_HH:mm:ss tt"
+}
+
+#Fetching SYSID of the ticket
+try
+{
+    [Net.ServicePointManager]::SecurityProtocol = "tls12, tls11, tls"
+    $global:headers = @{"Authorization" = "Basic "+[System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($snowkey+":"+$snowpass))}
+
+    [Net.ServicePointManager]::SecurityProtocol = "tls12, tls11, tls"
+    $get_inc = "https://$SNOW_Env.service-now.com/api/now/v2/table/$($table)?number=$Number"
+    $inc_result = Invoke-WebRequest -Uri $get_inc -Headers $global:headers -Method Get -ContentType "application/json" -UseBasicParsing
+    $incout = $inc_result | ConvertFrom-JSON
+    $inc_sysid = $incout.result.sys_id
+    $description = $incout.result.u_document_results
+}
+catch
+{
+    Write-Host "Failed to fetch Ticket details"
+    Add-Content -Path "$log_path\Log.txt" -Value "Failed to fetch Ticket details"
+    Exit
+}
+
+Add-Content -Path "$log_path\Log.txt" -Value "Script Execution Started at $(timestamp)"
+
+Try
+{
+    Update-Start -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -table $table
+    Add-Content -Path "$log_path\Log.txt" -Value "Updated Start"
+}
+catch
+{
+	Write-Host "Failed to update start"
+    Add-Content -Path "$log_path\Log.txt" -Value "Failed to update start"
+    try{Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass  -work_notes "Failed to update start" -table $table -asign_grp $network}
+    catch{Write-Host "Failed to Route Ticket"; End-log -logcontent $log -logpath $log_path; Exit}
+    Exit
+}
+
+if($host_Name.Count -gt 0)
+{
+
+   if($host_Name.count -eq $ipv4_Addr.Count)
+   {
+        $count=0
+        foreach($new_host in $host_Name)
+        {
+            $servers += [PSCustomObject]@{
+            "Hostname"= $new_host
+            "IP"=$ipv4_Addr[$count]
+            }
+            $count+=1
+        }
+    }
+    else
+    {
+        Write-Host "Please provide correct inputs"
+        try{Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass  -work_notes "Invalid inputs" -table $table -asign_grp $network}
+        catch{Write-Host "Failed to Route Ticket"; End-log -logcontent $log -logpath $log_path; Exit}
+        exit
+
+    }
+}
+write-host "Server `n $servers"
+
+#Setting Certs Policy
+try
+{
+    Write-Host "Adding TrustAllCertsPolicy type." -ForegroundColor White
+Add-Type -TypeDefinition @"
+using System.Net;
+using System.Security.Cryptography.X509Certificates;
+public class TrustAllCertsPolicy : ICertificatePolicy
+{
+public bool CheckValidationResult(
+ServicePoint srvPoint, X509Certificate certificate,
+WebRequest request, int certificateProblem)
+{
+return true;
+}
+}
+"@
+    Write-Host "TrustAllCertsPolicy type added." -ForegroundColor White
+}
+catch
+{
+    Write-Host $_ -ForegroundColor "Yellow"
+}
+
+[System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+$pre_pdf = "$path\Evidence\pre_check_dns_resolve_logs.txt"
+#Generating Pre-evidence
+Start-Transcript -Path $pre_pdf
+
+foreach($server in $servers)
+{
+    Write-Host "Hostname $($server.hostname)"
+    Write-Host "Ip $($server.ip)"
+    try
+    {
+        $Error.Clear()
+        $DNS_output_hostname = Resolve-DnsName -Server $DNS -Name $($server.Hostname) -Type ALL
+        $DNS_output_ip = Resolve-DnsName -Server $DNS -Name $($server.ip) -Type ALL
+
+        #Checking if the DNS entry already exists
+        if(($Error -like "*DNS name does not exist*").Count -eq 2)
+        {
+            "DNS entry does not exist for $($server.ip), proceeding to create"
+            Add-Content -Path "$log_path\Log.txt" -Value "DNS entry does not exist for $($server.ip), proceeding to create"
+            #Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "A Record does exists IP: $($server.ip) and it is available for usage." -table $table
+            $DNS_doesnt_exist += $server
+        }
+        elseif($Error -like "*DNS operation refused*")
+        {
+            write-host "DNS entry check failed $server"
+            Add-Content -Path "$log_path\Log.txt" -Value "DNS entry check failed for $server"
+            $DNS_doesnt_exist += $server
+        }
+        elseif($DNS_output_hostname)
+        {
+            "DNS entry already exists for $($server.Hostname)"
+            #Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "A Record exists IP: $($server.Hostname)." -table $table
+            Add-Content -Path "$log_path\Log.txt" -Value "DNS entry already exists for $($server.Hostname)"
+            $DNS_exist += $server
+        }
+        elseif($DNS_output_ip)
+        {
+            "DNS entry already exists for $($server.ip)"
+            #Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "A Record exists IP: $($server.ip)." -table $table
+            Add-Content -Path "$log_path\Log.txt" -Value "DNS entry already exists for $($server.ip)"
+            $DNS_exist += $server
+        }
+        else
+        {
+            "All conditions didnt match, else in Pre evidence for $server"
+            Add-Content -Path "$log_path\Log.txt" -Value "All conditions didnt match, else in Pre evidence for $server"
+            $DNS_doesnt_exist += $server
+        }
+    }
+    Catch 
+    {
+        Write-Host $_
+        Write-host "Some error occurred.. while Resolve the A Record $($server.ip)"
+        Add-Content -Path "$log_path\Log.txt" -Value "Some error occurred.. while Resolve the A Record $($server.ip)"
+        Add-Content -Path "$log_path\Log.txt" -Value "$_"
+        $DNS_doesnt_exist += $server
+    }
+}
+
+Stop-Transcript
+
+#Checking and routing ticket if DNS exist
+if($DNS_exist.Count -eq $servers.Count)
+{
+    #Route-ticket
+    $Dnsexists = $DNS_exist.hostname -join "`n"
+    # $Dnsexists=$DNS_exist.hostname -join ","
+    "Failed"
+    Add-Content -Path "$log_path\Log.txt" -Value "DNS entry exists for all servers"
+    try{Route-Ticket -number $Number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "A Record already Exist for `n $DNSexists. `nRouting change request to Network Assignment Group" -table $table -asign_grp $network}
+    catch{Write-Host "Failed to Route Ticket"; Exit}
+    Exit
+}
+elseif($DNS_exist -ne $null)
+{
+    $Dnsexists = $DNS_exist.hostname -join "`n"
+    $Dnsdoesnotexists = $DNS_doesnt_exist.hostname -join "`n"
+    Add-Content -Path "$log_path\Log.txt" -Value "DNS entry exists for $DNSexists servers"
+    Add-Content -Path "$log_path\Log.txt" -Value "DNS entry doesn't exists $Dnsdoesnotexists for all servers"
+    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "A Record already exists for: $DNSexists" -table $table
+    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "A Record does not exists for: $Dnsdoesnotexists `nproceeding to create" -table $table
+}
+else
+{
+    Add-Content -Path "$log_path\Log.txt" -Value "DNS entry doesn't exists for all servers"
+    $Dnsdoesnotexists = $DNS_doesnt_exist.hostname -join "`n"
+    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "A Record does not exists for: $Dnsdoesnotexists `nproceeding to create" -table $table
+} 
+
+
+#Attaching Pre-edivence
+$pre_pdf       = Get-ChildItem -Path $pre_pdf
+$pre_FullName  = $pre_pdf.FullName               
+$pre_Name      = $pre_pdf.Name
+try
+{
+    Upload-PreAttachment -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -pre_Name $pre_Name -pre_FullName $pre_FullName -table $table
+    $log += "Uploaded Pre Attachement"
+}
+catch
+{
+    write-Host "Failed to Upload Pre Attachment"
+    $Log += "Failed to Upload Pre Attachment"
+    try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Failed to Upload Pre Attachment" -table $table -asign_grp $storage_sysID}
+    catch{Write-Host "Failed to Route Ticket"}
+    Exit
+}
+
+foreach($server in $DNS_doesnt_exist)
+{
+    #Creating a PTR record
+    try 
+    {
+        $url = "https://$infoblox_server/wapi/v1.2/record:ptr?_return_as_object=1"
+        $data = @{
+                    ipv4addr = $($server.ip)
+			        name = $($server.hostname)
+                    ptrdname = $($server.hostname)
+		        }
+        $json = $data | ConvertTo-Json
+        $output = $null
+        $output = Invoke-WebRequest -Uri $url -Method POST -Credential $creds -ContentType 'application/json' -Body $json -UseBasicParsing  -ErrorAction Stop
+        if($output.StatusCode -eq 201)
+        {
+            Write-host "PTR record created successfully."
+            #Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "PTR Record $($server.ip) points to $($server.hostname) created successfully.. `n `nPTR record created successfully." -table $table
+            $ptr_created += $server
+            Add-Content -Path "$log_path\Log.txt" -Value "PTR record created successfully $($server.hostname)."
+            #Creating A record
+            try 
+            {
+                $url = "https://$infoblox_server/wapi/v1.2/record:a?_return_as_object=1"
+                $a_record_details = @{
+                                        name=$($server.hostname)
+                                        ipv4addr=$($server.ip)
+                                    }
+                $body = $a_record_details | ConvertTo-Json
+                $output = Invoke-WebRequest -Uri $url -Method POST -Credential $creds -ContentType 'application/json' -Body $body -UseBasicParsing  -ErrorAction Stop
+                if($output.StatusCode -eq 201)
+                {
+                    Write-host "A record created successfully."
+                    #Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "A Record for $($server.hostname) points to $($server.ip) created successfully.. `n `nA record created successfully." -table $table
+                    $A_created += $server
+                    Add-Content -Path "$log_path\Log.txt" -Value "A record created successfully $($server.hostname)."
+                }
+                else 
+                {
+                    Write-Host "Some error occurred during A record creation"
+                    $A_failed += $server
+                    Add-Content -Path "$log_path\Log.txt" -Value "Some error occurred during A record creation"
+                    
+                }
+            }
+            Catch 
+            {
+                Write-Host $_.
+                Write-host "Failed to update during A record creation"
+                $A_failed += $server
+                Add-Content -Path "$log_path\Log.txt" -Value "Failed to update during A record creation"
+                Add-Content -Path "$log_path\Log.txt" -Value "$_"
+            }
+        }
+        else
+        {
+            Write-Host "Some error occurred during PTR creation"
+            Add-Content -Path "$log_path\Log.txt" -Value "Some error occurred during PTR record creation"
+            $ptr_failed += $server
+        }
+    }
+    Catch 
+    {
+        Write-Host $_.
+        Write-host "Failed to update during PTR creation"
+        Add-Content -Path "$log_path\Log.txt" -Value "Failed to update during A record creation"
+        $ptr_failed += $server
+        Add-Content -Path "$log_path\Log.txt" -Value "$_"
+    }
+}
+
+if($ptr_failed.Count -eq $Dnsdoesnotexists.count)
+{
+    $ptrfail = $ptr_failed.hostname -join "`n"
+    Write-Host "Ptr creation failed for $ptr_failed.hostname"
+    try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "PTR creation failed for $ptr_failed, Hence routing the ticket" -table $table -asign_grp $network}
+    catch{Write-Host "Failed to Route Ticket"}
+    Exit
+}
+elseif($ptr_failed -ne $null)
+{
+    $ptrfail = $ptr_failed.hostname -join "`n"
+    Write-Host "Ptr creation failed for $ptrfail"
+    Add-Content -Path "$log_path\Log.txt" -Value "PTR record failed for $ptrfail"
+    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Ptr creation failed for $ptrfail" -table $table
+    <#try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "PTR creation failed for $ptr_failed, Hence routing the ticket" -table $table -asign_grp $network}
+    catch{Write-Host "Failed to Route Ticket"}
+    Exit#>
+}
+else
+{
+    $ptr = $ptr_created.hostname -join "`n"
+    "PTR record created successfully for $ptr"
+    Add-Content -Path "$log_path\Log.txt" -Value "PTR record created successfully for $ptr"
+    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "PTR record created successfully for `n $ptr" -table $table
+}
+
+if($A_failed.Count -eq $Dnsdoesnotexists.count)
+{
+    $Afail = $A_failed.hostname -join "`n"
+    Write-Host "A record creation failed for Afail"
+    Add-Content -Path "A record creation failed for Afail"
+    try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "A record creation failed for $Afail, Hence routing the ticket" -table $table -asign_grp $network}
+    catch{Write-Host "Failed to Route Ticket"}
+    Exit
+}
+if($A_failed -ne $null)
+{
+    $Afail = $A_failed.hostname -join "`n"
+    Write-Host "A record creation failed for Afail"
+    Add-Content -Path "$log_path\Log.txt" -Value "A record creation failed for Afail"
+    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Ptr creation failed for $Afail" -table $table
+}
+else
+{
+    $A_create = $A_created.hostname -join "`n"
+    Add-Content -Path "$log_path\Log.txt" -Value "A record created successfully for $A_create"
+    "A record created successfully for $A_create"
+    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "A record created successfully for `n $A_create" -table $table
+}
+
+Start-sleep -seconds 30
+#Generating Post-evidence
+$post_pdf = "$path\Evidence\post_check_dns_resolve_logs.txt"
+Start-Transcript -Path $post_pdf
+
+foreach($server in $DNS_doesnt_exist)
+{
+    try
+    {
+        $Error.Clear()
+        Resolve-DnsName -Server $DNS -Name $($server.Hostname) -Type ALL
+        #Checking if the DNS entry already exists
+        if($Error -like "*DNS name does not exist*")
+        {
+            "DNS entry does not exist for $($server.hostname)"
+            $Post_DNS_doesnt_exist += $server
+            Add-Content -Path "$log_path\Log.txt" -Value "DNS entry does not exist for  $($server.Hostname)"
+        }
+        elseif($Error -like "*DNS operation refused*")
+        {
+            write-host "DNS entry check failed $server"
+            Add-Content -Path "$log_path\Log.txt" -Value "DNS entry check failed for $server"
+            $Post_DNS_doesnt_exist += $server
+        }
+        else
+        {
+            "DNS entry exists for  $($server.hostname)"
+            $Post_DNS_exist += $server
+            Add-Content -Path "$log_path\Log.txt" -Value "DNS entry exists for $($server.hostname)"
+        }
+    }
+    Catch 
+    {
+        Write-Host $_.
+        Write-host "Failed to update using InfoBlox API"
+        Add-Content -Path "$log_path\Log.txt" -Value "Failed to update using InfoBlox API"
+        Add-Content -Path "$log_path\Log.txt" -Value "$_"
+        $Post_DNS_doesnt_exist += $server
+    }
+}
+
+Stop-Transcript
+
+if($Post_DNS_exist.Count -eq ($servers.Count))
+{
+    #Attaching Post-edivence
+    $post_pdf       = Get-ChildItem -Path $post_pdf
+    $post_FullName  = $post_pdf.FullName               
+    $post_Name      = $post_pdf.Name
+    try
+    {
+        Upload-PostAttachment -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass  -post_Name $post_Name -post_FullName $post_FullName -table $table
+        Add-Content -Path "$log_path\Log.txt" -Value "Uploaded Pre Attachement"
+    }
+    catch
+    {
+        write-Host "Failed to Upload Post Attachment"
+        Add-Content -Path "$log_path\Log.txt" -Value "Failed to Upload Post Attachment"
+        try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Failed to Upload Post Attachment" -table $table -asign_grp $storage_sysID}
+        catch{Write-Host "Failed to Route Ticket"}
+        Exit
+    }
+    "A record created successfully for $Post_DNS_exist"
+	#$Document_Results = $description+ "`n" + "`n" + "A record has been Added successfully"
+    Add-Content -Path "$log_path\Log.txt" -Value "A record created successfully for `n $($Post_DNS_exist.Hostname)"
+    #Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "A record created successfully for `n $Post_DNS_exist" -table $table
+    try{Resolve-Ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -close_Notes "CR implemented successfully" -work_notes "A Record(s) Created Successfully. Hence Closing the ticket." -table $table -Document_Results "A record created successfully" }
+    catch{Add-Content -Path "$log_path\Log.txt" -Value "Unable to update ticket `n"; Write-Host "Failed to Route Ticket"; Exit}
+    Exit
+}
+elseif($Post_DNS_exist -eq $null)
+{
+    "Route"
+    Add-Content -Path "$log_path\Log.txt" -Value "Route $Post_DNS_exist"  
+    try{Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to create the A record(s). Hence routing the ticket." -asign_grp $network -table $table}
+    catch{Add-Content -Path "$log_path\Log.txt" -Value "Unable to update ticket `n"; Write-Host "Failed to Route Ticket"; Exit}
+    Exit
+}
+else
+{
+    #Attaching Post-edivence
+    $post_pdf       = Get-ChildItem -Path $post_pdf
+    $post_FullName  = $post_pdf.FullName               
+    $post_Name      = $post_pdf.Name
+    try
+    {
+        Upload-PostAttachment -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass  -post_Name $post_Name -post_FullName $post_FullName -table $table
+        Add-Content -Path "$log_path\Log.txt" -Value "Uploaded Pre Attachement"
+    }
+    catch
+    {
+        write-Host "Failed to Upload Post Attachment"
+        Add-Content -Path "$log_path\Log.txt" -Value "Failed to Upload Post Attachment"
+        try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Failed to Upload Post Attachment" -table $table -asign_grp $storage_sysID}
+        catch{Write-Host "Failed to Route Ticket"}
+        Exit
+    }
+    "A record created successfully for $Post_DNS_exist"
+    $Postexists = $Post_DNS_exist.hostname -join "`n"
+    Add-Content -Path "$log_path\Log.txt" -Value "A record created successfully for `n $($Postexists.Hostname)"
+    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "A record created successfully for `n $Postexists" -table $table
+    $Postdoesntexists = $Post_DNS_doesnt_exist.hostname -join "`n"
+    Add-Content -Path "$log_path\Log.txt" -Value "A record created successfully for `n $($Postdoesntexists.Hostname)"
+	#$Document_Results = $description+ "`n" + "`n" + "A record has been Created successfully"
+    try{Route-Ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "A record creation failed for `n $Postexists" -table $table}
+    catch{Add-Content -Path "$log_path\Log.txt" -Value "Unable to update ticket `n"; Write-Host "Failed to Route Ticket"; Exit}
+    Exit
+}
+
+
+Post Execution:
+
+if(Process.Ping_check.scriptOutput.indexOf("Ticket Resolved Successfully")>=0)
+{
+  Process.ReturnCode=1
+  Process.ReturnMessage="Ticket Resolved Successfully. "
+}
+else if(Process.Ping_check.scriptOutput.indexOf("Assignment Group updated successfully")>=0)
+{
+  Process.ReturnCode=1
+  Process.ReturnMessage="Assignment Group updated successfully"
+}
+else
+{
+Process.ReturnCode=3
+Process.returnMessage = "Failed to perform the activity"
+}
+
+5. Fatal Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.SNOW_Env+".service-now.com/api/now/table/sc_task/"+Process.Sys_Id+""
+Process.FatalErrorPayLoad ="<request><entry><u_automation_result>Unsuccessful</u_automation_result><state>1</state><work_notes>"+Process.returnMessage+"Hence Routing the ticket.</work_notes></entry></request>"

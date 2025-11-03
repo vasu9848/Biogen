@@ -1,0 +1,810 @@
+1. Get Ticket
+
+Pre Execution:
+
+Process.RunbookName = Process.InstanceName
+Process.RunbookID = Process.RuntimeROID
+var uri="https://"+Process.Instance+".service-now.com/api/now/table/task?sysparm_fields=number%2Cactive%2Csys_id%2Cincident_state%2Cdescription%2Cu_document_results%2Cassigned_to=SVC-itpam@biogen.com&sysparm_limit=1&number="+Process.CTASK_Number
+Process.url=uri
+
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+Process.ReturnCode=0;
+Process.ReturnMessage="Ticket details fetched successfully"
+Process.Output=Process[OpName].HTTPResponseContent
+
+} else if(Process.Fetch_ticket.Reason.indexOf('non-success') >= 0){
+Process.ReturnCode =2;
+Process.ReturnMessage = Process[OpName].HTTPResponseContent
+// Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+Process.Output=Process[OpName].HTTPResponseContent
+}
+else if(Process.Fetch_ticket.Reason.indexOf('failure') >= 0){
+Process.ReturnCode =2;
+Process.ReturnMessage = Process[OpName].HTTPResponseContent
+//Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+Process.Output=Process[OpName].HTTPResponseContent
+}
+else
+{
+Process.ReturnCode=2;
+Process.ReturnMessage="Failure fetching ticket details"
+// Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+
+2. Second Operator (Read)
+
+Inline:
+
+var str =Process.Output
+var start=str.indexOf('[')+2;
+var end=str.indexOf(']')-1;
+var res = str.substring(start,end);
+var out1= res.split(',');
+for(var i=0;i < out1.length;i++)
+{
+  out1[i]=out1[i].replace(/\"/g,"");
+  if(out1[i].indexOf('active')>=0)
+  {Process.active=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('sys_id')>=0)
+  {Process.Sys_Id=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('description')>=0)
+  {Process.description=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('incident_state')>=0)
+  {Process.Incidentstate=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('u_document_results')>=0)
+  {Process.document_results=(out1[i].split(':'))[1]}
+  out1[i]=(out1[i].split(':'))[1]
+}
+
+Post Execution:
+
+if(Process.active)
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket is active.";
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Ticket is inactive.";
+}
+
+3.Script
+
+Inline:
+
+Param(
+[string]$Sys_id,
+[string]$instance
+)
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls, [Net.SecurityProtocolType]::Tls11, [Net.SecurityProtocolType]::Tls12, [Net.SecurityProtocolType]::Ssl3
+[Net.ServicePointManager]::SecurityProtocol = "Tls, Tls11, Tls12, Ssl3"
+
+$password = ConvertTo-SecureString "V2!RfaRE#%4GQ*J_" -AsPlainText -Force
+$Cred = New-Object System.Management.Automation.PSCredential ("svc_itpam", $password)
+$actual_start_date = Get-Date
+$update_ctask_work_start_uri = "https://$instance.service-now.com/api/now/table/change_task/$Sys_id"
+
+$Body1 = @{
+    "work_start"="$actual_start_date"
+}
+
+$BodyJson1 = $Body1 | ConvertTo-Json
+
+try{
+$result = Invoke-WebRequest -Uri $update_ctask_work_start_uri -Body $BodyJson1 -Credential $Cred -Method "PUT" -ContentType "application/json" -UseBasicParsing
+Write-host "successfully update work start date to Service NOW"
+} catch {
+	Write-host "failed to update work start date to Service NOW"
+}
+
+Post Execution:
+
+if(Process.start_time_CR.scriptOutput.indexOf('failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "failed to update actual start date CTASK"
+}else if(Process.start_time_CR.scriptOutput.indexOf('successfully') >= 0){
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "CTASK actual start date updated successfully."
+  }else {
+	Process.ReturnCode = 2
+	Process.ReturnMessage = "Some error occurred while updating CTASK work in progress state in Service Now"
+}
+
+4.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/change_task/"+Process.Sys_Id
+Process.updateWorkNotes = "<request><entry><incident_state>2</incident_state><state>2</state><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+" </work_notes></entry></request>"
+
+Post Execution:
+
+if(Process.start_time_update.HTTPResponseReasonPhrase=="OK" && Process.start_time_update.HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket worknotes updated successfully"
+
+
+}else if(Process.start_time_update.Reason.indexOf('non-success') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+
+}
+else if(Process.start_time_update.Reason.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure updating ticket details"
+}
+
+5.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand = "ansible-playbook ~/ELB_prod/final.yml -e 'av_zone="+Process.available_zone+" aws_account_id="+Process.Account_name+" aws_environment="+Process.env+" alb_name="+Process.ALB_name+" auto_scaling="+Process.Target_Group_Name+" ctask_number="+Process.CTASK_Number+"'"
+
+Post Execution:
+
+ if(Process.ELB_exec.outresult.indexOf('Failed to fetch the Load Balencer Information') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to fetch the Load Balancer Information"
+}
+else if(Process.ELB_exec.outresult.indexOf('Failed to Fetch Cloud Trail Event Name') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Cloud Trail Event Name"
+}
+else if(Process.ELB_exec.outresult.indexOf('Failed to Fetch Cloud Trail Event Time') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Cloud Trail Event Time"
+}
+else if(Process.ELB_exec.outresult.indexOf('Failed to Fetch Cloud Trail Event User Name') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Cloud Trail Event User Name"
+}
+else if(Process.ELB_exec.outresult.indexOf('Failed to Fetch Tags Keys') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Tags Keys"
+}
+else if(Process.ELB_exec.outresult.indexOf('Failed to Fetch Tags Values') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Tags Values"
+}
+else if(Process.ELB_exec.outresult.indexOf('Failed to Fetch Target Groups') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Target Groups"
+}
+else if(Process.ELB_exec.outresult.indexOf('Failed to Fetch Target Health') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Target Health"
+}
+else if(Process.ELB_exec.outresult.indexOf('Failed to Fetch Instance ID') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Instance ID"
+}
+else if(Process.ELB_exec.outresult.indexOf('Failed to Fetch Availability Zone 1') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Availability Zone 1"
+}
+else if(Process.ELB_exec.outresult.indexOf('Failed to Fetch Availability Zone 2') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Availability Zone 2"
+}
+else if(Process.ELB_exec.outresult.indexOf('Failed to Fetch Max Size') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Max Size"
+}
+else if(Process.ELB_exec.outresult.indexOf('Failed to Fetch Min Size') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Min Size"
+}
+else if(Process.ELB_exec.outresult.indexOf('Failed to Fetch Auto Scaling Desired Capacity') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Auto Scaling Desired Capacity"
+}
+else if(Process.ELB_exec.outresult.indexOf('Failed to Fetch Listeners Port') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Listeners Port"
+}
+else if(Process.ELB_exec.outresult.indexOf('Failed to Fetch Listeners Protocol') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Listeners Protocol"
+}
+else if(Process.ELB_exec.outresult.indexOf('Failed to Create Directory') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Create Directory"
+}
+else if(Process.ELB_exec.outresult.indexOf('Failed to Generate HTML Report') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Generate HTML Report"
+}
+else if(Process.ELB_exec.outresult.indexOf('Generating PDF Report Failed') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Generating PDF Report Failed"
+}
+else if(Process.ELB_exec.outresult.indexOf('No such file or directory') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "No such file or directory"
+}
+else if(Process.ELB_exec.outresult.indexOf('Turbot: ERROR: Failed to retrieve AWS credentials') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Turbot: ERROR: Failed to retrieve AWS credentials"
+}
+else if(Process.ELB_exec.outresult.indexOf('Failed to Generate PDF Report') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Generate PDF Report"
+}
+else if((Process.ELB_exec.outresult.indexOf('PDF Generated Successfully') >= 0)&&(Process.ELB_exec.outresult.indexOf('Target group is Unhealthy') >= 0))
+{
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "ELB change evidence has been generated and attached successfully."
+  Process.health_Status_update =  "Target group health status Unhealthy"
+}
+else if(Process.ELB_exec.outresult.indexOf('PDF Generated Successfully') >= 0)
+{
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "ELB change evidence has been generated successfully."
+   Process.health_Status_update =  "Target group is healthy"
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook"
+}
+
+
+6.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand = "ansible-playbook ~/ELB_prod/final.yml -e 'av_zone="+Process.available_zone+" aws_account_id="+Process.Account_name+" aws_environment="+Process.env+" alb_name="+Process.ALB_name+" auto_scaling="+Process.Target_Group_Name+" ctask_number="+Process.CTASK_Number+"'"
+
+Post Execution:
+
+ if(Process.ELB_exec_1.outresult.indexOf('Failed to fetch the Load Balencer Information') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to fetch the Load Balencer Information"
+}
+else if(Process.ELB_exec_1.outresult.indexOf('Failed to Fetch Cloud Trail Event Name') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Cloud Trail Event Name"
+}
+else if(Process.ELB_exec_1.outresult.indexOf('Failed to Fetch Cloud Trail Event Time') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Cloud Trail Event Time"
+}
+else if(Process.ELB_exec_1.outresult.indexOf('Failed to Fetch Cloud Trail Event User Name') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Cloud Trail Event User Name"
+}
+else if(Process.ELB_exec_1.outresult.indexOf('Failed to Fetch Tags Keys') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Tags Keys"
+}
+else if(Process.ELB_exec_1.outresult.indexOf('Failed to Fetch Tags Values') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Tags Values"
+}
+else if(Process.ELB_exec_1.outresult.indexOf('Failed to Fetch Target Groups') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Target Groups"
+}
+else if(Process.ELB_exec_1.outresult.indexOf('Failed to Fetch Target Health') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Target Health"
+}
+else if(Process.ELB_exec_1.outresult.indexOf('Failed to Fetch Instance ID') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Instance ID"
+}
+else if(Process.ELB_exec_1.outresult.indexOf('Failed to Fetch Availability Zone 1') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Availability Zone 1"
+}
+else if(Process.ELB_exec_1.outresult.indexOf('Failed to Fetch Availability Zone 2') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Availability Zone 2"
+}
+else if(Process.ELB_exec_1.outresult.indexOf('Failed to Fetch Max Size') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Max Size"
+}
+else if(Process.ELB_exec_1.outresult.indexOf('Failed to Fetch Min Size') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Min Size"
+}
+else if(Process.ELB_exec_1.outresult.indexOf('Failed to Fetch Auto Scaling Desired Capacity') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Auto Scaling Desired Capacity"
+}
+else if(Process.ELB_exec_1.outresult.indexOf('Failed to Fetch Listeners Port') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Listeners Port"
+}
+else if(Process.ELB_exec_1.outresult.indexOf('Failed to Fetch Listeners Protocol') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Listeners Protocol"
+}
+else if(Process.ELB_exec_1.outresult.indexOf('Failed to Create Directory') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Create Directory"
+}
+else if(Process.ELB_exec_1.outresult.indexOf('Failed to Generate HTML Report') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Generate HTML Report"
+}
+else if(Process.ELB_exec_1.outresult.indexOf('Generating PDF Report Failed') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Generating PDF Report Failed"
+}
+else if(Process.ELB_exec_1.outresult.indexOf('No such file or directory') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "No such file or directory"
+}
+else if(Process.ELB_exec_1.outresult.indexOf('Turbot: ERROR: Failed to retrieve AWS credentials') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Turbot: ERROR: Failed to retrieve AWS credentials"
+}
+else if(Process.ELB_exec_1.outresult.indexOf('Failed to Generate PDF Report') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Generate PDF Report"
+}
+else if(Process.ELB_exec_1.outresult.indexOf('PDF Generated Successfully') >= 0)
+{
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "PDF Generated Successfully."
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook"
+}
+
+7.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand = "ansible-playbook ~/ELB_prod/final.yml -e 'av_zone="+Process.available_zone+" aws_account_id="+Process.Account_name+" aws_environment="+Process.env+" alb_name="+Process.ALB_name+" auto_scaling="+Process.Target_Group_Name+" ctask_number="+Process.CTASK_Number+"'"
+
+Post Execution:
+
+ if(Process.ELB_exec_2.outresult.indexOf('Failed to fetch the Load Balencer Information') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to fetch the Load Balencer Information"
+}
+else if(Process.ELB_exec_2.outresult.indexOf('Failed to Fetch Cloud Trail Event Name') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Cloud Trail Event Name"
+}
+else if(Process.ELB_exec_2.outresult.indexOf('Failed to Fetch Cloud Trail Event Time') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Cloud Trail Event Time"
+}
+else if(Process.ELB_exec_2.outresult.indexOf('Failed to Fetch Cloud Trail Event User Name') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Cloud Trail Event User Name"
+}
+else if(Process.ELB_exec_2.outresult.indexOf('Failed to Fetch Tags Keys') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Tags Keys"
+}
+else if(Process.ELB_exec_2.outresult.indexOf('Failed to Fetch Tags Values') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Tags Values"
+}
+else if(Process.ELB_exec_2.outresult.indexOf('Failed to Fetch Target Groups') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Target Groups"
+}
+else if(Process.ELB_exec_2.outresult.indexOf('Failed to Fetch Target Health') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Target Health"
+}
+else if(Process.ELB_exec_2.outresult.indexOf('Failed to Fetch Instance ID') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Instance ID"
+}
+else if(Process.ELB_exec_2.outresult.indexOf('Failed to Fetch Availability Zone 1') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Availability Zone 1"
+}
+else if(Process.ELB_exec_2.outresult.indexOf('Failed to Fetch Availability Zone 2') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Availability Zone 2"
+}
+else if(Process.ELB_exec_2.outresult.indexOf('Failed to Fetch Max Size') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Max Size"
+}
+else if(Process.ELB_exec_2.outresult.indexOf('Failed to Fetch Min Size') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Min Size"
+}
+else if(Process.ELB_exec_2.outresult.indexOf('Failed to Fetch Auto Scaling Desired Capacity') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Auto Scaling Desired Capacity"
+}
+else if(Process.ELB_exec_2.outresult.indexOf('Failed to Fetch Listeners Port') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Listeners Port"
+}
+else if(Process.ELB_exec_2.outresult.indexOf('Failed to Fetch Listeners Protocol') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Listeners Protocol"
+}
+else if(Process.ELB_exec_2.outresult.indexOf('Failed to Create Directory') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Create Directory"
+}
+else if(Process.ELB_exec_2.outresult.indexOf('Failed to Generate HTML Report') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Generate HTML Report"
+}
+else if(Process.ELB_exec_2.outresult.indexOf('Generating PDF Report Failed') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Generating PDF Report Failed"
+}
+else if(Process.ELB_exec_2.outresult.indexOf('No such file or directory') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "No such file or directory"
+}
+else if(Process.ELB_exec_2.outresult.indexOf('Turbot: ERROR: Failed to retrieve AWS credentials') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Turbot: ERROR: Failed to retrieve AWS credentials"
+}
+else if(Process.ELB_exec_2.outresult.indexOf('Failed to Generate PDF Report') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Generate PDF Report"
+}
+else if(Process.ELB_exec_2.outresult.indexOf('PDF Generated Successfully') >= 0)
+{
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "PDF Generated Successfully."
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook"
+}
+
+
+
+8.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/change_task/"+Process.Sys_Id
+Process.ELB_update = "<request><entry><incident_state>2</incident_state><work_notes>"+Process.ReturnMessage+"</work_notes></entry></request>"
+
+Post Execution:
+
+if(Process.ELB_status_update.HTTPResponseReasonPhrase=="OK" && Process.ELB_status_update.HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket worknotes updated successfully"
+
+}else if(Process.ELB_status_update.HTTPResponseContent.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure updating ticket details"
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+9.Script
+
+Inline:
+
+param($number)
+$Linux_path = "\\usawsgabb0082\Linux_Prod\ELB\$($number)\*.pdf"
+
+#"\\usawsgabb0082\Linux_Prod\EC2_Stop\$($number)\*.pdf"
+
+$dest = "D:\ELB\$($number)"
+
+
+if(!(Test-Path -path $dest)){
+New-Item -Path $dest -ItemType directory | out-null
+}
+try {
+Copy-Item $Linux_path $dest -ErrorAction stop
+} Catch {
+Write-host "File copy failed"
+}try
+{
+$file=Get-ChildItem -Force -Recurse -File -Path "$dest" -ErrorAction stop
+$name=$file.Name
+if($name -like "*ELB*"){
+write-host "PDF exist"
+if($($file.FullName -like "*ELB*"))
+{
+$prefullPath = $file.FullName
+$prefileName = $file.Name
+$prefullPath
+$prefileName
+}
+
+
+
+}else {
+write-host "Pre Check PDF Report not found"
+}
+}
+catch
+{
+Write-Host "Some Error Occured while uploading pre and post check pdf report"
+}
+
+
+Post Execution:
+
+if(Process.Pre_Attach_file.scriptOutput.indexOf("PDF exist")>=0)
+{
+Process.ReturnCode = 0
+Process.ReturnMessage = "PDF Generated successfully"
+Process.Data = Process.Pre_Attach_file.scriptOutput
+}
+else
+{
+Process.ReturnCode=2
+Process.ReturnMessage = "Error occurred while executing the verification script."
+}
+
+
+10.Ticket Update (Post)
+
+Pre Execution:
+
+Process.dat=Process.Pre_Attach_file.scriptOutput.split('\n')
+Process.fname=Process.dat[2]
+Process.pdffile=Process.dat[1]
+Process.putURL= "https://"+Process.Instance+".service-now.com/api/now/attachment/file?table_name=change_task&table_sys_id="+Process.Sys_Id+"&file_name="+Process.fname
+//Process.payload = "<request><entry><assigned_to>d2f5f34bdb5efb8036c73c9b7c961900</assigned_to><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+"</work_notes><state>2</state></entry></request>"
+
+
+Post Execution:
+
+if(Process.Pre_Attach_update.HTTPResponseReasonPhrase=="Created" && Process.Pre_Attach_update.HTTPResponseStatusCode==201 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="PDF updated successfully"
+  Process.Output=Process.Pre_Attach_update.HTTPResponseContent
+
+}else if(Process.Pre_Attach_update.Reason.indexOf('non-success') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = "Unable to upload Pre Evidence PDF File"
+
+}
+else if(Process.Pre_Attach_update.Reason.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = "Unable to upload Pre Evidence PDF File"
+  
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Error occurred while uploading PDF file to Service Now. "
+}
+
+11.Script
+
+Inline:
+
+Param(
+[String]$Sys_id,
+[String]$Instance
+)
+$sys_id = $Sys_id
+
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls, [Net.SecurityProtocolType]::Tls11, [Net.SecurityProtocolType]::Tls12, [Net.SecurityProtocolType]::Ssl3
+[Net.ServicePointManager]::SecurityProtocol = "Tls, Tls11, Tls12, Ssl3"
+$SNOWPassword="V2!RfaRE#%4GQ*J_"
+$password = ConvertTo-SecureString $SNOWPassword -AsPlainText -Force
+$Cred = New-Object System.Management.Automation.PSCredential ("svc_itpam", $password)
+
+$actual_start_date = Get-Date
+
+$update_ctask_work_start_uri = "https://$Instance.service-now.com/api/now/table/change_task/$sys_id"
+
+$Body1 = @{
+    "work_end"="$actual_start_date"
+}
+
+$BodyJson1 = $Body1 | ConvertTo-Json
+try {
+ Invoke-WebRequest -Uri $update_ctask_work_start_uri -Body $BodyJson1 -Credential $Cred -Method "PUT" -ContentType "application/json" -UseBasicParsing -ErrorAction stop
+ Write-host "Actual Start Date updated successfully"
+} catch {
+	Write-host $_.
+	Write-host "Update Actual Start Date Service NOW API failed"
+}
+
+
+Post Execution:
+
+if(Process.End_time_cr.scriptOutput.indexOf('failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "failed to update actual start date CTASK"
+}else if(Process.End_time_cr.scriptOutput.indexOf('successfully') >= 0){
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "CTASK actual start date updated successfully."
+}else {
+	Process.ReturnCode = 2
+	Process.ReturnMessage = "Some error occurred while updating CTASK work in progress state in Service Now"
+}
+
+12.Ticket Update
+
+Pre Execution:
+
+//Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/change_task/"+Process.Sys_Id
+//Process.create_update = "<request><entry><state>3</state><close_notes>Change executed successfully</close_notes><u_close_code>successful</u_close_code><work_notes>PDF uploaded successfully</work_notes></entry></request>"
+//Process.create_update = "<request><entry><u_document_results>ELB change evidence has been generated and attached successfully.</u_document_results><u_close_code>successful</u_close_code><close_notes>ELB change evidence has been generated and attached successfully.</close_notes><work_notes>Evidence attached to the ticket successfully.</work_notes><state>3</state></entry></request>"
+
+
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/change_task/"+Process.Sys_Id
+if( Process.health_Status_update == 'Target group health status Unhealthy'){
+
+Process.create_update="<request><entry><work_start></work_start><work_end></work_end><u_document_results>Target group health status - Unhealthy. Reassigning CTASK for manual fulfillment.</u_document_results><close_notes></close_notes><work_notes>Target group health status - Unhealthy. Reassigning CTASK for manual fulfillment.</work_notes><assigned_to></assigned_to><assignment_group>4a22c6b4db806f00fa0f8e5c2996199e</assignment_group><state>1</state></entry></request>"
+
+}
+else
+{
+
+Process.create_update = "<request><entry><u_document_results>ELB change evidence has been generated and attached successfully.</u_document_results><u_close_code>successful</u_close_code><close_notes>ELB change evidence has been generated and attached successfully.</close_notes><work_notes>ELB change evidence has been attached successfully.</work_notes><state>3</state></entry></request>"
+
+}
+
+Post Execution:
+
+if(Process.Close_CTASK.HTTPResponseReasonPhrase=="OK" && Process.Close_CTASK.HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=1;
+  Process.ReturnMessage="Ticket worknotes updated successfully"
+
+}else if(Process.Close_CTASK.HTTPResponseContent.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process.Close_CTASK.HTTPResponseContent
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure updating ticket details"
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+
+13.Fatal Ticket Update
+
+Pre Execution:
+
+
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/table/change_task/"+Process.Sys_Id+""
+Process.FatalErrorPayLoad ="<request><entry><work_start></work_start><assigned_to></assigned_to><assignment_group>4a22c6b4db806f00fa0f8e5c2996199e</assignment_group><u_document_results>"+Process.ReturnMessage+"</u_document_results><work_notes>"+Process.ReturnMessage+". Hence routing the ticket</work_notes><state>1</state></entry></request>"
+
+
+Post Execution:
+
+if(Process.Route_ticket_update.HTTPResponseReasonPhrase=="OK" && Process.Route_ticket_update.HTTPResponseStatusCode==200 )
+{
+Process.ReturnCode=0;
+Process.ReturnMessage="Ticket worknotes updated successfully"
+
+}else if(Process.Route_ticket_update.HTTPResponseContent.indexOf('failure') >= 0){
+Process.ReturnCode =2;
+Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else
+{
+Process.ReturnCode=2;
+Process.ReturnMessage="Failure updating ticket details"
+Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+
+
+Ansible Playbook
+
+ELB_prod/final.yml 
+
+-------------------------------------------------------------------------------------------------------------------------------------------
+
+ELB_prod/final.yml 
+
+-------------------------------------------------------------------------------------------------------------------------------------------
+
+ELB_prod/final.yml 
+
+-------------------------------------------------------------------------------------------------------------------------------------------
+
+ELB_prod/final.yml 
+
+-------------------------------------------------------------------------------------------------------------------------------------------
+
+ELB_prod/final.yml 
+
+-------------------------------------------------------------------------------------------------------------------------------------------
+
+ELB_prod/final.yml 
+
+-------------------------------------------------------------------------------------------------------------------------------------------
+
+ELB_prod/final.yml 
+
+-------------------------------------------------------------------------------------------------------------------------------------------

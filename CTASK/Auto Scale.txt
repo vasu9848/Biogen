@@ -1,0 +1,4500 @@
+1. Get Ticket
+
+Pre Execution:
+
+Process.RunbookName = Process.InstanceName
+Process.RunbookID = Process.RuntimeROID
+var uri="https://"+Process.Instance+".service-now.com/api/now/table/task?sysparm_fields=number%2Cactive%2Csys_id%2Cincident_state%2Cdescription%2Cu_document_results%2Cassigned_to=SVC-itpam@biogen.com&sysparm_limit=1&number="+Process.CTASK_Number
+Process.url=uri
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  	Process.ReturnCode=0;
+	Process.ReturnMessage="Ticket details fetched successfully."
+   Process.Output=Process[OpName].HTTPResponseContent
+} 
+else if(Process[OpName].Reason.indexOf('non-success') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent  
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent
+
+}
+else
+{
+  	Process.ReturnCode=2;
+  	Process.ReturnMessage="Failure fetching ticket details."
+
+}
+
+2.Second Operator (Read)
+
+Inline:
+
+var str =Process.Output
+var start=str.indexOf('[')+2;
+var end=str.indexOf(']')-1;
+var res = str.substring(start,end);
+var out1= res.split(',');
+for(var i=0;i < out1.length;i++)
+{
+  out1[i]=out1[i].replace(/\"/g,"");
+  if(out1[i].indexOf('active')>=0)
+  {Process.active=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('sys_id')>=0)
+  {Process.Sys_Id=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('description')>=0)
+  {Process.description=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('incident_state')>=0)
+  {Process.Incidentstate=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('u_document_results')>=0)
+  {Process.document_results=(out1[i].split(':'))[1]}
+  out1[i]=(out1[i].split(':'))[1]
+}
+
+Post Execution:
+
+if(Process.active)
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket is active.";
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Ticket is inactive.";
+}
+
+3.Script
+
+Inline:
+
+Param(
+[String]$Sys_id,
+[String]$Instance
+)
+$sys_id = $Sys_id
+
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls, [Net.SecurityProtocolType]::Tls11, [Net.SecurityProtocolType]::Tls12, [Net.SecurityProtocolType]::Ssl3
+[Net.ServicePointManager]::SecurityProtocol = "Tls, Tls11, Tls12, Ssl3"
+$SNOWPassword="V2!RfaRE#%4GQ*J_"
+$password = ConvertTo-SecureString $SNOWPassword -AsPlainText -Force
+$Cred = New-Object System.Management.Automation.PSCredential ("svc_itpam", $password)
+
+$actual_start_date = Get-Date
+
+$update_ctask_work_start_uri = "https://$Instance.service-now.com/api/now/table/change_task/$sys_id"
+
+$Body1 = @{
+    "work_start"="$actual_start_date"
+}
+
+$BodyJson1 = $Body1 | ConvertTo-Json
+try {
+ Invoke-WebRequest -Uri $update_ctask_work_start_uri -Body $BodyJson1 -Credential $Cred -Method "PUT" -ContentType "application/json" -UseBasicParsing -ErrorAction stop
+ Write-host "Actual Start Date updated successfully"
+} catch {
+	Write-host $_.
+	Write-host "Update Actual Start Date Service NOW API failed"
+}
+
+Post Execution:
+
+if(Process[OpName].scriptOutput.indexOf('successfully') >= 0)
+{
+
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "CTASK actual start date updated successfully."
+
+}
+
+else if(Process[OpName].scriptOutput.indexOf('failed') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to update actual start date CTASK."
+
+}
+else 
+{
+	Process.ReturnCode = 2
+	Process.ReturnMessage = "Some error occurred while updating CTASK work in progress state in Service Now."
+	
+}
+
+4.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/change_task/"+Process.Sys_Id
+Process.updateWorkNotes = "<request><entry><state>2</state><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+" </work_notes></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket worknotes updated successfully."
+
+}
+else if(Process[OpName].Reason.indexOf('non-success') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else
+{
+    Process.ReturnCode=2;
+    Process.ReturnMessage="Failure updating ticket details."
+
+}
+
+5.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand = "ansible-playbook ~/ALB_Prod/alb.yml -e 'av_zone="+Process.available_zone+" aws_account_id="+Process.Account_name+" aws_environment="+Process.env+" alb_name="+Process.ALB_name+" auto_scaling="+Process.auto_scaling+" ctask_number="+Process.CTASK_Number+"'"
+
+Post Execution:
+
+ if(Process.scaling.output.indexOf('Failed to fetch the Load Balencer Information') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to fetch the Load Balancer Information"
+}
+else if(Process.scaling.output.indexOf('Failed to Fetch Cloud Trail Event Name') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Cloud Trail Event Name"
+}
+else if(Process.scaling.output.indexOf('Failed to Fetch Cloud Trail Event Time') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Cloud Trail Event Time"
+}
+else if(Process.scaling.output.indexOf('Failed to Fetch Cloud Trail Event User Name') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Cloud Trail Event User Name"
+}
+else if(Process.scaling.output.indexOf('Failed to Fetch Tags Keys') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Tags Keys"
+}
+else if(Process.scaling.output.indexOf('Failed to Fetch Tags Values') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Tags Values"
+}
+else if(Process.scaling.output.indexOf('Failed to Fetch Target Groups') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Target Groups"
+}
+else if(Process.scaling.output.indexOf('Failed to Fetch Target Health') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Target Health"
+}
+else if(Process.scaling.output.indexOf('Failed to Fetch Instance ID') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Instance ID"
+}
+else if(Process.scaling.output.indexOf('Failed to Fetch Availability Zone 1') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Availability Zone 1"
+}
+else if(Process.scaling.output.indexOf('Failed to Fetch Availability Zone 2') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Availability Zone 2"
+}
+else if(Process.scaling.output.indexOf('Failed to Fetch Max Size') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Max Size"
+}
+else if(Process.scaling.output.indexOf('Failed to Fetch Min Size') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Min Size"
+}
+else if(Process.scaling.output.indexOf('Failed to Fetch Auto Scaling Desired Capacity') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Auto Scaling Desired Capacity"
+}
+else if(Process.scaling.output.indexOf('Failed to Fetch Listeners Port') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Listeners Port"
+}
+else if(Process.scaling.output.indexOf('Failed to Fetch Listeners Protocol') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Listeners Protocol"
+}
+else if(Process.scaling.output.indexOf('Failed to Create Directory') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Create Directory"
+}
+else if(Process.scaling.output.indexOf('Failed to Generate HTML Report') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Generate HTML Report"
+}
+else if(Process.scaling.output.indexOf('Generating PDF Report Failed') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Generating PDF Report Failed"
+}
+else if(Process.scaling.output.indexOf('No such file or directory') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "No such file or directory"
+}
+else if(Process.scaling.output.indexOf('Turbot: ERROR: Failed to retrieve AWS credentials') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Turbot: ERROR: Failed to retrieve AWS credentials"
+}
+else if(Process.scaling.output.indexOf('Failed to Generate PDF Report') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Generate PDF Report"
+}
+else if((Process.scaling.output.indexOf('PDF Generated Successfully') >= 0)&&(Process.scaling.output.indexOf('Target group is Unhealthy') >= 0))
+{
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "ALB change evidence has been generated and attached successfully."
+  Process.health_Status_update =  "Target group health status Unhealthy"
+}
+else if(Process.scaling.output.indexOf('PDF Generated Successfully') >= 0)
+{
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "ALB change evidence has been generated successfully."
+   Process.health_Status_update =  "Target group is healthy"
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook"
+}
+
+
+6.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand = "ansible-playbook ~/autoscaling/alb.yml -e 'av_zone="+Process.available_zone+" aws_account_id="+Process.Account_name+" aws_environment="+Process.env+" alb_name="+Process.ALB_name+" auto_scaling="+Process.auto_scaling+" ctask_number="+Process.CTASK_Number+"'"
+
+Post Execution:
+
+ if(Process.scaling2.output.indexOf('Failed to fetch the Load Balencer Information') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to fetch the Load Balencer Information"
+}
+else if(Process.scaling2.output.indexOf('Failed to Fetch Cloud Trail Event Name') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Cloud Trail Event Name"
+}
+else if(Process.scaling2.output.indexOf('Failed to Fetch Cloud Trail Event Time') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Cloud Trail Event Time"
+}
+else if(Process.scaling2.output.indexOf('Failed to Fetch Cloud Trail Event User Name') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Cloud Trail Event User Name"
+}
+else if(Process.scaling2.output.indexOf('Failed to Fetch Tags Keys') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Tags Keys"
+}
+else if(Process.scaling2.output.indexOf('Failed to Fetch Tags Values') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Tags Values"
+}
+else if(Process.scaling2.output.indexOf('Failed to Fetch Target Groups') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Target Groups"
+}
+else if(Process.scaling2.output.indexOf('Failed to Fetch Target Health') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Target Health"
+}
+else if(Process.scaling2.output.indexOf('Failed to Fetch Instance ID') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Instance ID"
+}
+else if(Process.scaling2.output.indexOf('Failed to Fetch Availability Zone 1') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Availability Zone 1"
+}
+else if(Process.scaling2.output.indexOf('Failed to Fetch Availability Zone 2') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Availability Zone 2"
+}
+else if(Process.scaling2.output.indexOf('Failed to Fetch Max Size') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Max Size"
+}
+else if(Process.scaling2.output.indexOf('Failed to Fetch Min Size') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Min Size"
+}
+else if(Process.scaling2.output.indexOf('Failed to Fetch Auto scaling2 Desired Capacity') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Auto scaling2 Desired Capacity"
+}
+else if(Process.scaling2.output.indexOf('Failed to Fetch Listeners Port') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Listeners Port"
+}
+else if(Process.scaling2.output.indexOf('Failed to Fetch Listeners Protocol') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Listeners Protocol"
+}
+else if(Process.scaling2.output.indexOf('Failed to Create Directory') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Create Directory"
+}
+else if(Process.scaling2.output.indexOf('Failed to Generate HTML Report') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Generate HTML Report"
+}
+else if(Process.scaling2.output.indexOf('Generating PDF Report Failed') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Generating PDF Report Failed"
+}
+else if(Process.scaling2.output.indexOf('No such file or directory') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "No such file or directory"
+}
+else if(Process.scaling2.output.indexOf('Turbot: ERROR: Failed to retrieve AWS credentials') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Turbot: ERROR: Failed to retrieve AWS credentials"
+}
+else if(Process.scaling2.output.indexOf('Failed to Generate PDF Report') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Generate PDF Report"
+}
+else if((Process.scaling2.output.indexOf('PDF Generated Successfully') >= 0)&&(Process.scaling2.output.indexOf('Target group is Unhealthy') >= 0))
+{
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "ELB change evidence has been generated and attached successfully."
+  Process.health_Status_update =  "Target group health status Unhealthy"
+}
+else if(Process.scaling2.output.indexOf('PDF Generated Successfully') >= 0)
+{
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "ELB change evidence has been generated successfully."
+   Process.health_Status_update =  "Target group is healthy"
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook"
+}
+
+
+7.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand = "ansible-playbook ~/autoscaling/alb.yml -e 'av_zone="+Process.available_zone+" aws_account_id="+Process.Account_name+" aws_environment="+Process.env+" alb_name="+Process.ALB_name+" auto_scaling="+Process.auto_scaling+" ctask_number="+Process.CTASK_Number+"'"
+
+Post Execution:
+
+ if(Process.scaling4.output.indexOf('Failed to fetch the Load Balencer Information') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to fetch the Load Balencer Information"
+}
+else if(Process.scaling4.output.indexOf('Failed to Fetch Cloud Trail Event Name') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Cloud Trail Event Name"
+}
+else if(Process.scaling4.output.indexOf('Failed to Fetch Cloud Trail Event Time') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Cloud Trail Event Time"
+}
+else if(Process.scaling4.output.indexOf('Failed to Fetch Cloud Trail Event User Name') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Cloud Trail Event User Name"
+}
+else if(Process.scaling4.output.indexOf('Failed to Fetch Tags Keys') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Tags Keys"
+}
+else if(Process.scaling4.output.indexOf('Failed to Fetch Tags Values') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Tags Values"
+}
+else if(Process.scaling4.output.indexOf('Failed to Fetch Target Groups') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Target Groups"
+}
+else if(Process.scaling4.output.indexOf('Failed to Fetch Target Health') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Target Health"
+}
+else if(Process.scaling4.output.indexOf('Failed to Fetch Instance ID') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Instance ID"
+}
+else if(Process.scaling4.output.indexOf('Failed to Fetch Availability Zone 1') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Availability Zone 1"
+}
+else if(Process.scaling4.output.indexOf('Failed to Fetch Availability Zone 2') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Availability Zone 2"
+}
+else if(Process.scaling4.output.indexOf('Failed to Fetch Max Size') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Max Size"
+}
+else if(Process.scaling4.output.indexOf('Failed to Fetch Min Size') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Min Size"
+}
+else if(Process.scaling4.output.indexOf('Failed to Fetch Auto scaling4 Desired Capacity') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Auto scaling4 Desired Capacity"
+}
+else if(Process.scaling4.output.indexOf('Failed to Fetch Listeners Port') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Listeners Port"
+}
+else if(Process.scaling4.output.indexOf('Failed to Fetch Listeners Protocol') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch Listeners Protocol"
+}
+else if(Process.scaling4.output.indexOf('Failed to Create Directory') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Create Directory"
+}
+else if(Process.scaling4.output.indexOf('Failed to Generate HTML Report') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Generate HTML Report"
+}
+else if(Process.scaling4.output.indexOf('Generating PDF Report Failed') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Generating PDF Report Failed"
+}
+else if(Process.scaling4.output.indexOf('No such file or directory') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "No such file or directory"
+}
+else if(Process.scaling4.output.indexOf('Turbot: ERROR: Failed to retrieve AWS credentials') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Turbot: ERROR: Failed to retrieve AWS credentials"
+}
+else if(Process.scaling4.output.indexOf('Failed to Generate PDF Report') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Generate PDF Report"
+}
+else if((Process.scaling4.output.indexOf('PDF Generated Successfully') >= 0)&&(Process.scaling4.output.indexOf('Target group is Unhealthy') >= 0))
+{
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "ELB change evidence has been generated and attached successfully."
+  Process.health_Status_update =  "Target group health status Unhealthy"
+}
+else if(Process.scaling4.output.indexOf('PDF Generated Successfully') >= 0)
+{
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "ELB change evidence has been generated successfully."
+   Process.health_Status_update =  "Target group is healthy"
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook"
+}
+
+
+8.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/change_task/"+Process.Sys_Id
+Process.ALB_update = "<request><entry><incident_state>2</incident_state><work_notes>"+Process.ReturnMessage+"</work_notes></entry></request>"
+
+Post Execution:
+
+if(Process.ALB_status_update.HTTPResponseReasonPhrase=="OK" && Process.ALB_status_update.HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket worknotes updated successfully"
+
+}else if(Process.ALB_status_update.HTTPResponseContent.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure updating ticket details"
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+9.Script
+
+Inline:
+
+param($number)
+$Linux_path = "\\usawsgabb0082\Linux_Prod\ALB\$($number)\*.pdf"
+$dest = "D:\ALB\$($number)"
+
+
+if(!(Test-Path -path $dest)){
+New-Item -Path $dest -ItemType directory | out-null
+}
+try {
+Copy-Item $Linux_path $dest -ErrorAction stop
+} Catch {
+Write-host "File copy failed"
+}try
+{
+$file=Get-ChildItem -Force -Recurse -File -Path "$dest" -ErrorAction stop
+$name=$file.Name
+if($name -like "*ALB*"){
+write-host "PDF exist"
+if($($file.FullName -like "*ALB*"))
+{
+$prefullPath = $file.FullName
+$prefileName = $file.Name
+$prefullPath
+$prefileName
+}
+
+
+
+}else {
+write-host "Pre Check PDF Report not found"
+}
+}
+catch
+{
+Write-Host "Some Error Occured while uploading pre and post check pdf report"
+}
+
+Post Execution:
+
+if(Process[OpName].scriptOutput.indexOf("PDF exist")>=0)
+{
+Process.ReturnCode = 0
+Process.ReturnMessage = "PDF Generated successfully"
+Process.Data = Process[OpName].scriptOutput
+}
+else if(Process[OpName].scriptOutput.indexOf("Pre Check PDF Report not found")>=0)
+{
+Process.ReturnCode = 2
+Process.ReturnMessage = "Pre Check PDF Report not found."
+
+}
+else
+{
+Process.ReturnCode=2
+Process.ReturnMessage = "Error occurred while executing the verification script."
+}
+
+
+10.Ticket Update:
+
+Pre Execution:
+
+Process.dat=Process.pre_evi.scriptOutput.split('\n')
+Process.fname=Process.dat[2]
+Process.pdffile=Process.dat[1]
+Process.putURL= "https://"+Process.Instance+".service-now.com/api/now/attachment/file?table_name=change_task&table_sys_id="+Process.Sys_Id+"&file_name="+Process.fname
+//Process.payload = "<request><entry><assigned_to>d2f5f34bdb5efb8036c73c9b7c961900</assigned_to><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+"</work_notes><state>2</state></entry></request>"
+
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="Created" && Process[OpName].HTTPResponseStatusCode==201 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="PDF updated successfully"
+  
+
+}
+else if(Process[OpName].Reason.indexOf('non-success') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Error occurred while uploading PDF file to Service Now. "
+  
+}
+
+11.Script
+
+Inline:
+
+Param(
+[String]$Sys_id,
+[String]$Instance
+)
+$sys_id = $Sys_id
+
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls, [Net.SecurityProtocolType]::Tls11, [Net.SecurityProtocolType]::Tls12, [Net.SecurityProtocolType]::Ssl3
+[Net.ServicePointManager]::SecurityProtocol = "Tls, Tls11, Tls12, Ssl3"
+$SNOWPassword="V2!RfaRE#%4GQ*J_"
+$password = ConvertTo-SecureString $SNOWPassword -AsPlainText -Force
+$Cred = New-Object System.Management.Automation.PSCredential ("svc_itpam", $password)
+
+$actual_start_date = Get-Date
+
+$update_ctask_work_start_uri = "https://$Instance.service-now.com/api/now/table/change_task/$sys_id"
+
+$Body1 = @{
+    "work_end"="$actual_start_date"
+}
+
+$BodyJson1 = $Body1 | ConvertTo-Json
+try {
+ Invoke-WebRequest -Uri $update_ctask_work_start_uri -Body $BodyJson1 -Credential $Cred -Method "PUT" -ContentType "application/json" -UseBasicParsing -ErrorAction stop
+ Write-host "Actual Start Date updated successfully"
+} catch {
+	Write-host $_.
+	Write-host "Update Actual Start Date Service NOW API failed"
+}
+
+Post Execution:
+
+if(Process[OpName].scriptOutput.indexOf('successfully') >= 0)
+{
+
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "CTASK actual end date updated successfully."
+
+}
+
+else if(Process[OpName].scriptOutput.indexOf('failed') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to update actual end date CTASK."
+
+}
+else 
+{
+	Process.ReturnCode = 2
+	Process.ReturnMessage = "Some error occurred while updating CTASK work in progress state in Service Now."
+
+}
+
+12.Ticket Update
+
+Pre Execution:
+
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/change_task/"+Process.Sys_Id
+if( Process.health_Status_update == 'Target group health status Unhealthy'){
+
+Process.update_status="<request><entry><work_start></work_start><work_end></work_end><u_document_results>Autoscaling group health status - Unhealthy. Reassigning CTASK for manual fulfillment.</u_document_results><close_notes></close_notes><work_notes>ALB change evidence has been generated and attached successfully.</work_notes><assigned_to></assigned_to><assignment_group>4a22c6b4db806f00fa0f8e5c2996199e</assignment_group><state>1</state></entry></request>"
+
+}
+else
+{
+
+Process.update_status ="<request><entry><u_document_results>ALB autoscaling change evidence has been generated and attached successfully</u_document_results><u_close_code>successful</u_close_code><close_notes>ALB autoscaling change evidence has been generated and attached successfully.</close_notes><work_notes>ALB autoscaling change evidence has been attached successfully.</work_notes><state>3</state></entry></request>"
+
+}
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=1;
+  Process.ReturnMessage="Ticket worknotes updated successfully."
+
+}
+else if(Process[OpName].Reason.indexOf('non-success') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else
+{
+    Process.ReturnCode=2;
+    Process.ReturnMessage="Failure updating ticket details."
+
+}
+
+13.Fatal Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/table/change_task/"+Process.Sys_Id+""
+Process.FatalErrorPayLoad ="<request><entry><work_start></work_start><assigned_to></assigned_to><assignment_group>4a22c6b4db806f00fa0f8e5c2996199e</assignment_group><u_document_results>"+Process.ReturnMessage+"</u_document_results><work_notes>"+Process.ReturnMessage+". Hence routing the ticket</work_notes><state>1</state></entry></request>"
+
+
+
+Ansible Playbook
+
+ALB_Prod/1
+
+---
+- name: VPC Provision
+  hosts: localhost
+  gather_facts: no
+  become_method: sudo
+  become_user: root
+  connection: local
+  tasks:
+    - set_fact:
+        # aws_environment: "non-prod"
+        aws_account_type: "aws_environment[0]"
+        # av_zone: "us-east-1" #"{{ az }}"
+        # aws_account_id: "aau"
+        # aws_environment: "non-prod"
+        # alb_name: "aau-Biogen-Dev-ALB-0001598"
+        # auto_scaling: "aau-Biogen-Dev-ALB-0001598"
+        # ctask_number: "Testing"
+      tags: variables
+
+    - set_fact:
+        env: "dev"
+      when: aws_account_type != "P"
+
+    - set_fact:
+        env: "prod"
+      when: aws_account_type == "P"
+
+    - name: AWS Prod keys information
+      include_vars: prod.yml
+      when: aws_account_type == "P"
+      delegate_to: localhost
+      tags: aws_configure_keys
+    - name: AWS Non-Prod keys information
+      include_vars: non_prod.yml
+      when: aws_account_type != "P"
+      delegate_to: localhost
+      tags: aws_configure_keys
+
+    - name: Setting up turbot aws cli for Prod servers
+      command:  "{{ item }}"
+      with_items:
+        - aws configure set default.turbot_host console.prod.amazon.biogen.com
+        - aws configure set default.turbot_access_key_id {{ turbot_access_key_id }}
+        - aws configure set default.turbot_secret_access_key {{ turbot_secret_access_key }}
+        - aws configure set default.turbot_account_id {{ aws_account_id }}
+      register: set_aws_cli
+      delegate_to: localhost
+      when: aws_account_type == "P"
+     # no_log: true
+      tags: aws_configure
+
+    - name: Setting up turbot aws cli for Non Prod servers
+      command:  "{{ item }}"
+      with_items:
+        - aws configure set default.turbot_host console.nonprod.amazon.biogen.com
+        - aws configure set default.turbot_access_key_id {{ turbot_access_key_id }}
+        - aws configure set default.turbot_secret_access_key {{ turbot_secret_access_key }}
+        - aws configure set default.turbot_account_id {{ aws_account_id }}
+#      no_log: true
+      when: aws_account_type != "P"
+      register: set_aws_cli
+      tags: aws_configure
+
+# turbot-aws -a aau --role-name=admin elbv2 describe-load-balancers --names  aau-Biogen-Dev-ALB-0001615 --region us-east-1 --output text --query 'LoadBalancers[0].LoadBalancerArn'
+    # Describe Load Balancers
+    - name: Describe Load Balancers
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-load-balancers --names {{ alb_name }} --region {{ av_zone }} --output text --query 'LoadBalancers[0].LoadBalancerArn'
+      register: describe_load
+
+    - fail:
+        msg: "Failed to fetch the Load Balencer Information"
+      when: describe_load.stderr != ""
+
+    - set_fact:
+        alb_arn: "{{ describe_load.stdout }}"
+
+    - debug:
+        msg: "{{ alb_arn }}"
+
+    # Cloud Trail Event Name
+    - name: Cloud Trail event name
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin cloudtrail lookup-events --lookup-attributes AttributeKey=ResourceName,AttributeValue={{ alb_arn }} AttributeKey=EventName,AttributeValue=CreateLoadBalancer --region {{ av_zone }} --query 'Events[*].EventName' --output json
+      register: event_name
+
+    - fail:
+        msg: "Failed to Fetch Cloud Trail Event Name"
+      when: event_name.stderr != ""
+
+    - set_fact:
+        et_name: "{{ event_name.stdout }}"
+    - set_fact:
+        final_name: "<TD>'{{ et_name | replace('[', '') | replace(']', '') }}'</TD>"
+    - debug:
+        msg: "Final Name: {{ final_name }}"
+
+    # Cloud Trail Event Time
+    - name: cloud trail event time
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin cloudtrail lookup-events --lookup-attributes AttributeKey=ResourceName,AttributeValue={{ alb_arn }} AttributeKey=EventName,AttributeValue=CreateLoadBalancer --region {{ av_zone }} --query 'Events[*].EventTime' --output json
+      register: event_time
+
+    - fail:
+        msg: "Failed to Fetch Cloud Trail Event Time"
+      when: event_time.stderr != ""
+
+    - set_fact:
+        et_time: "{{ event_time.stdout }}"
+
+    - set_fact:
+        final_time: "<TD>'{{ et_time | replace('[', '') | replace(']', '') }}'</TD>"
+
+    - debug:
+        msg: "Final Time: {{ final_time }}"
+
+    # Cloud Trail Username
+    - name: Cloud Trail username
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin cloudtrail lookup-events --lookup-attributes AttributeKey=ResourceName,AttributeValue={{ alb_arn }} AttributeKey=EventName,AttributeValue=CreateLoadBalancer --region {{ av_zone }} --query 'Events[*].Username' --output json
+      register: event_username
+
+    - fail:
+        msg: "Failed to Fetch Cloud Trail Event User Name"
+      when: event_username.stderr != ""
+
+    - set_fact:
+        et_username: "{{ event_username.stdout }}"
+
+    - set_fact:
+        final_username: "<TD>'{{ et_username | replace('[', '') | replace(']', '') }}'</TD>"
+
+    - debug:
+        msg: "Final UserName: {{ final_username }}"
+
+    # Tags Keys
+    - name: Tags Keys
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-tags --resource-arns {{ alb_arn }} --region {{ av_zone }} --query 'TagDescriptions[*].Tags[].Key' --output json
+      register: tags_keys
+
+    - fail:
+        msg: "Failed to Fetch Tags Keys"
+      when: tags_keys.stderr != ""
+
+    - set_fact:
+        et_keys: "{{ tags_keys.stdout }}"
+
+    - set_fact:
+        final_keys: "<TD>'{{ et_keys | replace('[', '') | replace(']', '') }}'</TD>"
+
+    - set_fact:
+        final: "{{ final_keys | replace(' ', '_') | replace(',_', ',') }}"
+
+    - debug:
+        msg: "Tags Values: {{ et_keys }}"
+
+    - debug:
+        msg: "Tags Keys: {{ final }}"
+
+    # Tags Values
+    - name: Tags Values
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-tags --resource-arns {{ alb_arn }} --region {{ av_zone }} --query 'TagDescriptions[*].Tags[].Value'  --output json
+      register: tags_values
+
+    - fail:
+        msg: "Failed to Fetch Tags Values"
+      when: tags_values.stderr != ""
+
+    - set_fact:
+        et_values: "{{ tags_values.stdout }}"
+
+    - set_fact:
+        final_values: "<TD>'{{ et_values | replace('[', '') | replace(']', '') }}'</TD>"
+
+    - set_fact:
+        values_final: "{{ final_values | replace(' ', '_') | replace(',_', ', ') }}"
+
+    - debug:
+        msg: "Tags Values: {{ final_values }}"
+
+    # Target Groups
+    - name: Target groups
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-target-groups --region {{ av_zone }} --load-balancer-arn {{ alb_arn }} --query 'TargetGroups[0].TargetGroupArn' --output json
+      register: target_groups
+
+    - fail:
+        msg: "Failed to Fetch Target Groups"
+      when: target_groups.stderr != ""
+
+    - set_fact:
+        tg: "{{ target_groups.stdout }}"
+
+    - debug:
+        msg: "{{ tg }}"
+
+    # Describe Target Health
+    - name: Target health status
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-target-health --region {{ av_zone }} --target-group-arn {{ tg }} --query 'TargetHealthDescriptions[*].TargetHealth.State' --output json
+      register: target_health
+
+    - fail:
+        msg: "Failed to Fetch Target Health"
+      when: target_health.stderr != ""
+
+    - debug:
+        msg: "Target group is Unhealthy"
+      when: "'unhealthy' in target_health.stdout"
+
+    - set_fact:
+        tg_health: "{{ target_health.stdout }}"
+
+    - set_fact:
+        final_target_health: "<TD>'{{ tg_health | replace('[', '') | replace(']', '') }}'</TD>"
+
+    - debug:
+        msg: "{{ final_target_health }}"
+
+    # Instance Details
+    - name: get the instance details
+      command:  turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-target-health --region {{ av_zone }} --target-group-arn {{ tg }} --query 'TargetHealthDescriptions[*].Target.Id' --output json
+      register: instance_id
+
+    - fail:
+        msg: "Failed to Fetch Instance ID"
+      when: instance_id.stderr != ""
+
+    - set_fact:
+        instance_ids: "{{ instance_id.stdout }}"
+
+    - debug:
+        msg: "First Instance: {{ instance_ids[0] }}"
+
+    - debug:
+        msg: "Second Instance: {{ instance_ids[1] }}"
+
+    - set_fact:
+        First_Instance: "{{ instance_ids[0] }}"
+        Second_Instance: "{{ instance_ids[1] }}"
+
+    # Get the Availability Zone
+    - name: Get the Availability Zone of the Instances
+      command: turbot-aws -a {{ aws_account_id }} ec2 describe-instance-status --instance-id {{ First_Instance }} --region {{ av_zone }} --query 'InstanceStatuses[].AvailabilityZone' --output text
+      register: availability_zone1
+
+    - fail:
+        msg: "Failed to Fetch Availability Zone 1"
+      when: availability_zone1.stderr != ""
+
+    - set_fact:
+        zone1: "{{ availability_zone1.stdout }}"
+
+    # Get the Availability Zone
+    - name: Get the Availability Zone of the Instances
+      command: turbot-aws -a {{ aws_account_id }} ec2 describe-instance-status --instance-id {{ Second_Instance }} --region {{ av_zone }} --query 'InstanceStatuses[].AvailabilityZone' --output text
+      register: availability_zone2
+
+    - fail:
+        msg: "Failed to Fetch Availability Zone 2"
+      when: availability_zone2.stderr != ""
+
+    - set_fact:
+        zone2: "{{ availability_zone2.stdout }}"
+
+    - set_fact:
+        final_instance_ID: "<TD>' {{ First_Instance }}, {{ Second_Instance }} '</TD>"
+        final_zones: "<TD>' {{ zone1 }}, {{ zone2 }} '</TD>"
+
+    - debug:
+        msg:
+          - instance_ID: "Instance ID's: {{ First_Instance }}, {{ Second_Instance }}"
+          - zones: "Instance Zones: {{ zone1 }}, {{ zone2 }}"
+
+    # Describe Auto Scaling Groups Max size
+    - name: Describe Auto Scaling Groups Max Size
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[*].MaxSize' --output text
+      register: auto_scaling_max_size
+
+    - fail:
+        msg: "Failed to Fetch Max Size"
+      when: auto_scaling_max_size.stderr != ""
+
+    - set_fact:
+        max_size: "{{ auto_scaling_max_size.stdout }}"
+
+    - debug:
+        msg: "{{ max_size }}"
+
+    # Describe Auto Scaling Groups Min size
+    - name: Describe Auto Scaling Groups Min Size
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[*].MinSize' --output text
+      register: auto_scaling_min_size
+
+    - fail:
+        msg: "Failed to Fetch Min Size"
+      when: auto_scaling_min_size.stderr != ""
+
+    - set_fact:
+        min_size: "{{ auto_scaling_min_size.stdout }}"
+
+    - debug:
+        msg: "{{ min_size }}"
+
+    # Describe Auto Scaling Groups desired Capacity
+    - name: Describe Auto Scaling Groups Desired Capacity
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[*].DesiredCapacity' --output text
+      register: auto_scaling_desired_capacity
+
+    - fail:
+        msg: "Failed to Fetch Auto Scaling Desired Capacity"
+      when: auto_scaling_desired_capacity.stderr != ""
+
+    - set_fact:
+        desired_capacity: "{{ auto_scaling_desired_capacity.stdout }}"
+
+    - debug:
+        msg: "{{ desired_capacity }}"
+
+    # Describe Auto Scaling Groups InstanceType
+    - name: Describe Auto Scaling Groups InstanceType
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[].Instances[].InstanceType' --output json
+      register: auto_scaling_Instance_type
+    
+    - fail: 
+        msg: "Failed to Fetch Instance Type"
+      when: auto_scaling_Instance_type.stderr != ""
+
+    - set_fact: 
+        Auto_Instance: "{{ auto_scaling_Instance_type.stdout }}"
+
+    - set_fact:
+        Instance_type: "<TD>'{{ Auto_Instance | replace('[', '') | replace(']', '') }}'</TD>"        
+
+    - debug:
+        msg: "{{ Instance_type }}"
+
+
+    # Describe Auto Scaling Groups LaunchTemplate ID
+    - name: Describe Auto Scaling Groups LaunchTemplate ID
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[].LaunchTemplate[].LaunchTemplateId' --output text
+      register: auto_scaling_template_id
+    
+    - fail: 
+        msg: "Failed to Fetch LaunchTemplate ID"
+      when: auto_scaling_template_id.stderr != ""
+
+    - set_fact: 
+        template_id: "{{ auto_scaling_template_id.stdout }}"
+
+    - debug:
+        msg: "{{ template_id }}"
+
+    # Describe Auto Scaling Groups LaunchTemplate Name
+    - name: Describe Auto Scaling Groups LaunchTemplate Name
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[].LaunchTemplate[].LaunchTemplateName' --output text
+      register: auto_scaling_template_name
+    
+    - fail: 
+        msg: "Failed to Fetch LaunchTemplate Name"
+      when: auto_scaling_template_name.stderr != ""
+
+    - set_fact: 
+        template_name: "{{ auto_scaling_template_name.stdout }}"
+
+    - debug:
+        msg: "{{ template_name }}"
+
+    # Describe Auto Scaling Groups Health
+    - name: Describe Auto Scaling Groups health status
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }}  --query 'AutoScalingGroups[].Instances[].HealthStatus' --output json
+      register: autoscale_health
+    
+    - fail: 
+        msg: "Failed to Fetch Target Health"
+      when: autoscale_health.stderr != ""
+
+    - set_fact: 
+        as_health: "{{ autoscale_health.stdout }}"
+    
+    - set_fact:
+        final_auto_health: "<TD>'{{ as_health | replace('[', '') | replace(']', '') }}'</TD>"
+
+    - debug:
+        msg: "{{ final_auto_health }}"
+
+    # activity description
+    - name: get the activity description
+      command:  turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-scaling-activities --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }}  --query 'Activities[].Description' --output json
+      register: activity_Des
+
+    - fail:
+        msg: "Failed to Fetch Instance ID"
+      when: activity_Des.stderr != "" 
+
+    - set_fact:
+        activity_description: "{{ activity_Des.stdout }}"
+
+    - debug:
+        msg: "First : {{ activity_description[0] }}"
+
+    - debug:
+        msg: "Second : {{ activity_description[1] }}"
+
+    - set_fact:
+        First_Des: "{{ activity_description[0] }}"
+        Second_Des: "{{ activity_description[1] }}"
+ 
+    # Activiy statuscode
+    - name: Describe Activiy statuscode
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }}  --query 'Activities[].StatusCode' --output json
+      register: activity_status
+
+    - fail:
+        msg: "Failed to Fetch Target Health"
+      when: activity_status.stderr != ""
+
+    - set_fact:
+        activity_statuscode: "{{ activity_status.stdout }}"
+
+    - debug:
+        msg: "First : {{ activity_statuscode[0] }}"
+
+    - debug:
+        msg: "Second : {{ activity_statuscode[1] }}"
+
+    - set_fact:
+        First_statuscode: "{{ activity_statuscode[0] }}"
+        Second_statuscode: "{{ activity_statuscode[1] }}"
+
+    # start time
+    - name: get the activity details
+      command:  turbot-aws -a aau --role-name=admin autoscaling describe-scaling-activities --auto-scaling-group-name aau-Biogen-Dev-ALB-0001762 --region us-east-1 --query 'Activities[].StartTime' --output json
+      register: Act_start_time
+
+    - fail:
+        msg: "Failed to Fetch Instance ID"
+      when: Act_start_time.stderr != ""
+
+    - set_fact:
+        start_time_activity: "{{ Act_start_time.stdout }}"
+
+    - debug:
+        msg: "start time: {{ start_time_activity[0] }}"
+
+    - debug:
+        msg: "start time: {{ start_time_activity[1] }}"
+
+    - set_fact:
+        first_start_time: "{{ start_time_activity[0] }}"
+        second_start_time: "{{ start_time_activity[1] }}"
+
+    # End time
+    - name: get the activity details
+      command:  turbot-aws -a aau --role-name=admin autoscaling describe-scaling-activities --auto-scaling-group-name aau-Biogen-Dev-ALB-0001762 --region us-east-1 --query 'Activities[].EndTime' --output json
+      register: Act_end_time
+
+    - fail:
+        msg: "Failed to Fetch Instance ID"
+      when: Act_end_time.stderr != ""
+
+    - set_fact:
+        end_time_activity: "{{ Act_end_time.stdout }}"
+
+    - debug:
+        msg: "End time: {{ end_time_activity[0] }}"
+
+    - debug:
+        msg: "End time: {{ end_time_activity[1] }}"
+
+    - set_fact:
+        first_end_time: "{{ end_time_activity[0] }}"
+        second_end_time: "{{ end_time_activity[1] }}"
+
+    - set_fact:
+        first_activity: "<TD>' Activity description: {{ First_Des }} <br> statuscode:{{ First_statuscode }} <br> starttime:{{ first_start_time }} <br> endtime:{{ first_end_time }} '</TD>"
+        second_activity: "<TD>' Activity description: {{ Second_Des }} <br> statuscode: {{ Second_statuscode }} <br> starttime: {{ second_start_time }} <br> endtime:{{ second_end_time }} '</TD>"
+
+    # Describe Listeners Port
+    - name: Describe Listeneres Port
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-listeners --load-balancer-arn {{ alb_arn }} --region {{ av_zone }} --query 'Listeners[*].Port' --output text
+      register: describe_listeners_port
+
+    - fail:
+        msg: "Failed to Fetch Listeners Port"
+      when: describe_listeners_port.stderr != ""
+
+    - set_fact:
+        listeners_port: "{{ describe_listeners_port.stdout }}"
+
+    - debug:
+        msg: "{{ listeners_port }}"
+
+    # Describe Protocol
+    - name: Describe Listeneres Protocol
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-listeners --load-balancer-arn {{ alb_arn }} --region {{ av_zone }} --query 'Listeners[*].Protocol' --output text
+      register: describe_listeners_protocol
+
+    - fail:
+        msg: "Failed to Fetch Listeners Protocol"
+      when: describe_listeners_protocol.stderr != ""
+
+    - set_fact:
+        listeners_protocol: "{{ describe_listeners_protocol.stdout }}"
+
+    - debug:
+        msg: "{{ listeners_protocol }}"
+
+     # creating tmp folder with ctask number on remote machine
+
+    - name: creating {{ ctask_number }} directory in tmp folder
+      file:
+        path: /Linux_Qualify/ELB/{{ ctask_number }}
+        state: directory
+      become: true
+      delegate_to: localhost
+      register: create_directory
+
+    - debug:
+        msg: "{{ create_directory }}"
+
+    # - fail:
+    #     msg: "Failed to Create Directory"
+    #   when: create_directory.rc != 0
+    - debug:
+        msg:
+          - "{{ ctask_number }}  {{ alb_arn }}{{ final_name }} {{ final_time }} {{ final_username }} {{ final }} {{ values_final }} {{ tg }} {{ final_target_health }} {{ max_size }} {{ min_size }} {{ desired_capacity }} {{ Auto_Instance }} {{ as_health }} {{ aws_account_id }} {{ final_instance_ID }} {{ final_zones }}"
+
+    # POST EVIDENCE REPORT
+    # - name: Generate the pre check html report
+    #   #command: sh /home/svc-linux-snow/vpc/evidence.sh {{ new_vpc_id }} {{ first_subnet }} {{ second_subnet }} {{ subnet_value1 }} {{ subnet_value2 }} {{ new_route_table_id }} {{ number }} {{ cidr_range }} {{ av_zone }} {{ an }} {{ az }}
+    #   command: sh /home/svc-linux-snow/elb/evidence_new.sh {{ ctask_number }}  {{ alb_arn }} {{ final_name }} {{ final_time }} {{ final_username }} {{ final }} {{ values_final }} {{ tg }} {{ final_target_health }} {{ max_size }} {{ min_size }} {{ desired_capacity }} {{ listeners_port }} {{ listeners_protocol }} {{ aws_account_id }} {{ final_instance_ID }} {{ final_zones }}
+    #   register: elb_html_evidence
+    #   become: true
+    #   # when: associate_route_table_1.stderr == "" and associate_route_table_1.stderr == ""
+    #   delegate_to: localhost
+
+    # POST EVIDENCE REPORT
+    - name: Generate the pre check html report
+      #command: sh /home/svc-linux-snow/vpc/evidence.sh {{ new_vpc_id }} {{ first_subnet }} {{ second_subnet }} {{ subnet_value1 }} {{ subnet_value2 }} {{ new_route_table_id }} {{ number }} {{ cidr_range }} {{ av_zone }} {{ an }} {{ az }}
+      command: sh /home/svc-linux-snow/autoscaling/report.sh {{ ctask_number }} {{ aws_account_id }} {{ final_name }} {{ final_time }} {{ final_username }} {{ final }} {{ values_final }} {{ tg }} {{ final_target_health }} {{ final_instance_ID }} {{ zone1 }} {{ zone2 }} {{ Instance_type }} {{ final_auto_health  }} {{ template_name }} {{ template_id }} {{ desired_capacity  }} {{ min_size }} {{ max_size }} {{ listeners_port }} {{ listeners_protocol }} {{ first_activity }} {{ second_activity }}
+      register: elb_html_evidence
+      become: true
+      # when: associate_route_table_1.stderr == "" and associate_route_table_1.stderr == ""
+      delegate_to: localhost
+
+    - fail:
+        msg: "Failed to Generate HTML Report"
+      when: elb_html_evidence.rc != 0
+
+    #POST CHECK PDF REPORT
+    - name: Generate Post Check PDF File
+      shell: /usr/local/bin/wkhtmltopdf /Linux_Qualify/ELB/{{ ctask_number }}/ELB_Evidence.html /Linux_Qualify/ELB/{{ ctask_number }}/ELB_Evidence.pdf
+      become: true
+      register: generate_pdf_report
+      # when: associate_route_table_1.stderr == "" and associate_route_table_1.stderr == ""
+      delegate_to: localhost
+
+    - fail:
+        msg: "Generating PDF Report Failed"
+      when: generate_pdf_report.rc != 0
+
+    - debug:
+        msg: "PDF Generated Successfully"
+      when:
+        - generate_pdf_report.rc == 0
+        
+     
+        
+        
+
+------------------------------------------------------------------------------------------------------------------------------------------------------
+
+ALB_Prod/alb.yml
+
+---
+- name: VPC Provision
+  hosts: localhost
+  gather_facts: no
+  become_method: sudo
+  become_user: root
+  connection: local
+  tasks:
+    - set_fact:
+        # aws_environment: "non-prod"
+        aws_account_type: "aws_environment[0]"
+        # av_zone: "us-east-1" #"{{ az }}"
+        # aws_account_id: "aau"
+        # aws_environment: "non-prod"
+        # alb_name: "aau-Biogen-Dev-ALB-0001598"
+        # auto_scaling: "aau-Biogen-Dev-ALB-0001598"
+        # ctask_number: "Testing"
+      tags: variables
+
+    - set_fact:
+        env: "dev"
+      when: aws_account_type != "P"
+
+    - set_fact:
+        env: "prod"
+      when: aws_account_type == "P"
+
+    - name: AWS Prod keys information
+      include_vars: prod.yml
+      when: aws_account_type == "P"
+      delegate_to: localhost
+      tags: aws_configure_keys
+    - name: AWS Non-Prod keys information
+      include_vars: non_prod.yml
+      when: aws_account_type != "P"
+      delegate_to: localhost
+      tags: aws_configure_keys
+
+    - name: Setting up turbot aws cli for Prod servers
+      command:  "{{ item }}"
+      with_items:
+        - aws configure set default.turbot_host console.prod.amazon.biogen.com
+        - aws configure set default.turbot_access_key_id {{ turbot_access_key_id }}
+        - aws configure set default.turbot_secret_access_key {{ turbot_secret_access_key }}
+        - aws configure set default.turbot_account_id {{ aws_account_id }}
+      register: set_aws_cli
+      delegate_to: localhost
+      when: aws_account_type == "P"
+     # no_log: true
+      tags: aws_configure
+
+    - name: Setting up turbot aws cli for Non Prod servers
+      command:  "{{ item }}"
+      with_items:
+        - aws configure set default.turbot_host console.nonprod.amazon.biogen.com
+        - aws configure set default.turbot_access_key_id {{ turbot_access_key_id }}
+        - aws configure set default.turbot_secret_access_key {{ turbot_secret_access_key }}
+        - aws configure set default.turbot_account_id {{ aws_account_id }}
+#      no_log: true
+      when: aws_account_type != "P"
+      register: set_aws_cli
+      tags: aws_configure
+
+# turbot-aws -a aau --role-name=admin elbv2 describe-load-balancers --names  aau-Biogen-Dev-ALB-0001615 --region us-east-1 --output text --query 'LoadBalancers[0].LoadBalancerArn'
+    # Describe Load Balancers
+    - name: Describe Load Balancers
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-load-balancers --names {{ alb_name }} --region {{ av_zone }} --output text --query 'LoadBalancers[0].LoadBalancerArn'
+      register: describe_load
+
+    - fail:
+        msg: "Failed to fetch the Load Balencer Information"
+      when: describe_load.stderr != ""
+
+    - set_fact:
+        alb_arn: "{{ describe_load.stdout }}"
+
+    - debug:
+        msg: "{{ alb_arn }}"
+
+    # Get time format
+    - name: Get time format
+      command: date '+%d%b%Y %H%M |%Z'
+      register: time_format
+    - set_fact:
+        date_format: "{{ time_format.stdout }}"
+
+    # Cloud Trail Event Name
+    - name: Cloud Trail event name
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin cloudtrail lookup-events --lookup-attributes AttributeKey=ResourceName,AttributeValue={{ alb_arn }} AttributeKey=EventName,AttributeValue=CreateLoadBalancer --region {{ av_zone }} --query 'Events[*].EventName' --output json
+      register: event_name
+
+    - fail:
+        msg: "Failed to Fetch Cloud Trail Event Name"
+      when: event_name.stderr != ""
+
+    - set_fact:
+        et_name: "{{ event_name.stdout }}"
+    - set_fact:
+        final_name: "<TD>'{{ et_name | replace('[', '') | replace(']', '') }}'</TD>"
+    - debug:
+        msg: "Final Name: {{ final_name }}"
+
+    # Cloud Trail Event Time
+    - name: cloud trail event time
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin cloudtrail lookup-events --lookup-attributes AttributeKey=ResourceName,AttributeValue={{ alb_arn }} AttributeKey=EventName,AttributeValue=CreateLoadBalancer --region {{ av_zone }} --query 'Events[*].EventTime' --output json
+      register: event_time
+
+    - fail:
+        msg: "Failed to Fetch Cloud Trail Event Time"
+      when: event_time.stderr != ""
+
+    - set_fact:
+        et_time: "{{ event_time.stdout }}"
+
+    - set_fact:
+        final_time: "<TD>'{{ et_time | replace('[', '') | replace(']', '') }}'</TD>"
+
+    - debug:
+        msg: "Final Time: {{ final_time }}"
+
+    # Cloud Trail Username
+    - name: Cloud Trail username
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin cloudtrail lookup-events --lookup-attributes AttributeKey=ResourceName,AttributeValue={{ alb_arn }} AttributeKey=EventName,AttributeValue=CreateLoadBalancer --region {{ av_zone }} --query 'Events[*].Username' --output json
+      register: event_username
+
+    - fail:
+        msg: "Failed to Fetch Cloud Trail Event User Name"
+      when: event_username.stderr != ""
+
+    - set_fact:
+        et_username: "{{ event_username.stdout }}"
+
+    - set_fact:
+        final_username: "<TD>'{{ et_username | replace('[', '') | replace(']', '') }}'</TD>"
+
+    - debug:
+        msg: "Final UserName: {{ final_username }}"
+
+    # Tags Keys
+    - name: Tags Keys
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-tags --resource-arns {{ alb_arn }} --region {{ av_zone }} --query 'TagDescriptions[*].Tags[].Key' --output json
+      register: tags_keys
+
+    - fail:
+        msg: "Failed to Fetch Tags Keys"
+      when: tags_keys.stderr != ""
+
+    - set_fact:
+        et_keys: "{{ tags_keys.stdout }}"
+
+    - set_fact:
+        final_keys: "<TD>'{{ et_keys | replace('[', '') | replace(']', '') }}'</TD>"
+
+    - set_fact:
+        final: "{{ final_keys | replace(' ', '_') | replace(',_', ',') }}"
+
+    - debug:
+        msg: "Tags Values: {{ et_keys }}"
+
+    - debug:
+        msg: "Tags Keys: {{ final }}"
+
+    # Tags Values
+    - name: Tags Values
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-tags --resource-arns {{ alb_arn }} --region {{ av_zone }} --query 'TagDescriptions[*].Tags[].Value'  --output json
+      register: tags_values
+
+    - fail:
+        msg: "Failed to Fetch Tags Values"
+      when: tags_values.stderr != ""
+
+    - set_fact:
+        et_values: "{{ tags_values.stdout }}"
+
+    - set_fact:
+        final_values: "<TD>'{{ et_values | replace('[', '') | replace(']', '') }}'</TD>"
+
+    - set_fact:
+        values_final: "{{ final_values | replace(' ', '_') | replace(',_', ', ') }}"
+
+    - debug:
+        msg: "Tags Values: {{ final_values }}"
+
+    # Target Groups
+    - name: Target groups
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-target-groups --region {{ av_zone }} --load-balancer-arn {{ alb_arn }} --query 'TargetGroups[0].TargetGroupArn' --output json
+      register: target_groups
+
+    - fail:
+        msg: "Failed to Fetch Target Groups"
+      when: target_groups.stderr != ""
+
+    - set_fact:
+        tg: "{{ target_groups.stdout }}"
+
+    - debug:
+        msg: "{{ tg }}"
+
+    # Describe Target Health
+    - name: Target health status
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-target-health --region {{ av_zone }} --target-group-arn {{ tg }} --query 'TargetHealthDescriptions[*].TargetHealth.State' --output json
+      register: target_health
+
+    - fail:
+        msg: "Failed to Fetch Target Health"
+      when: target_health.stderr != ""
+
+    - debug:
+        msg: "Target group is Unhealthy"
+      when: "'Unhealthy' in target_health.stdout"
+
+    - set_fact:
+        tg_health: "{{ target_health.stdout }}"
+
+    - set_fact:
+        final_target_health: "<TD>'{{ tg_health | replace('[', '') | replace(']', '') }}'</TD>"
+
+    - debug:
+        msg: "{{ final_target_health }}"
+
+    # Instance Details
+    - name: get the instance details
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }}  --region {{ av_zone }} --query 'AutoScalingGroups[].Instances[?LifecycleState==`InService`].InstanceId' --output text
+      # command:  turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-target-health --region {{ av_zone }} --target-group-arn {{ tg }} --query 'TargetHealthDescriptions[*].Target.Id' --output json
+      register: instance_id
+
+    - fail:
+        msg: "Failed to Fetch Instance ID"
+      when: instance_id.stderr != ""
+
+    - set_fact:
+      #   instance_ids: "{{ instance_id.stdout  | replace('[', '') | replace(']', '') | replace('\n', '') | replace('\"', '') }}"
+        instance_ids: "{{ instance_id.stdout | replace('\t', ' ') }}"
+
+          #  - debug:
+          #     msg: "First Instance: {{ instance_ids[0] }}"
+
+    - debug:
+        msg: "Instance: {{ instance_ids }}"
+
+
+    # Get the Availability Zone
+    - name: Get the Availability Zone of the Instances
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[].Instances[?LifecycleState==`InService`].AvailabilityZone' --output text
+      #  command: turbot-aws -a {{ aws_account_id }} ec2 describe-instance-status --instance-id {{ item }} --region {{ av_zone }} --query 'InstanceStatuses[].AvailabilityZone' --output text
+      register: availability_zone1
+        #    loop: "{{ instance_ids }}"
+
+    - fail:
+        msg: "Failed to Fetch Availability Zone 1"
+      when: "'Error' in availability_zone1.stdout"
+        #    loop: "{{ availability_zone1.results }}"
+
+    - set_fact:
+      #      zone1: "{{ item.stdout }}"
+        zone1: "<TD>{{ availability_zone1.stdout | replace('\t', ',') }}</TD>"
+          #<TD>{% for i in zone1 %}{{ i }}{% endfor %}</TD>
+         
+    - debug:
+        msg: "{{ zone1 }}"
+
+
+    - set_fact:
+        final_instance_ID: "<TD> {{ instance_ids.split() | replace('[', '') | replace(']', '')  }} </TD>"
+        final_zones: "<TD>' {{ zone1 }} '</TD>"
+
+    - debug:
+        msg:
+          - instance_ID: "Instance ID's: {{ final_instance_ID }}"
+          - zones: "Instance Zones: {{ zone1 }}"
+
+    - name: Get the ImageName of the Instances
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin ec2 describe-instances --instance-ids {{ item  }} --region us-east-1 --output text --query 'Reservations[*].Instances[*].ImageId'
+      register: IMG_ID
+      loop: "{{ instance_ids.split() }}"
+      
+    - debug:
+        msg: "{{ IMG_ID }}"    
+
+    - fail:
+        msg: "Failed to Fetch Image name"
+      when: "'Error' in  item.stderr" 
+      loop: "{{ IMG_ID.results }}"
+
+    - set_fact:
+        Image_id: "{{ IMG_ID.results  | map(attribute='stdout') | string  | replace('[', '') | replace(']', '') }}"
+
+    - debug:
+        msg: "{{ Image_id }}"      
+
+    # Describe Auto Scaling Groups Max size
+    - name: Describe Auto Scaling Groups Max Size
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[*].MaxSize' --output text
+      register: auto_scaling_max_size
+
+    - fail:
+        msg: "Failed to Fetch Max Size"
+      when: auto_scaling_max_size.stderr != ""
+
+    - set_fact:
+        max_size: "{{ auto_scaling_max_size.stdout }}"
+
+    - debug:
+        msg: "{{ max_size }}"
+
+    # Describe Auto Scaling Groups Min size
+    - name: Describe Auto Scaling Groups Min Size
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[*].MinSize' --output text
+      register: auto_scaling_min_size
+
+    - fail:
+        msg: "Failed to Fetch Min Size"
+      when: auto_scaling_min_size.stderr != ""
+
+    - set_fact:
+        min_size: "{{ auto_scaling_min_size.stdout }}"
+
+    - debug:
+        msg: "{{ min_size }}"
+
+    # Describe Auto Scaling Groups desired Capacity
+    - name: Describe Auto Scaling Groups Desired Capacity
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[*].DesiredCapacity' --output text
+      register: auto_scaling_desired_capacity
+
+    - fail:
+        msg: "Failed to Fetch Auto Scaling Desired Capacity"
+      when: auto_scaling_desired_capacity.stderr != ""
+
+    - set_fact:
+        desired_capacity: "{{ auto_scaling_desired_capacity.stdout }}"
+
+    - debug:
+        msg: "{{ desired_capacity }}"
+
+    # Describe Auto Scaling Groups InstanceType
+    - name: Describe Auto Scaling Groups InstanceType
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[].Instances[?LifecycleState==`InService`].InstanceType' --output json
+      register: auto_scaling_Instance_type
+    
+    - fail: 
+        msg: "Failed to Fetch Instance Type"
+      when: auto_scaling_Instance_type.stderr != ""
+
+    - debug: 
+        msg: "{{ auto_scaling_Instance_type.stdout }}" 
+
+    - set_fact: 
+        Auto_Instance: "{{ auto_scaling_Instance_type.stdout }}"
+
+    - set_fact:
+        Instance_type: "<TD>{{ Auto_Instance | replace('[', '') | replace(']', '') }}</TD>"        
+      #  Instance_type: "{{ auto_scaling_Instance_type.stdout }}"  
+    - debug:
+        msg: "{{ Instance_type }}"
+
+
+    # Describe Auto Scaling Groups LaunchTemplate ID
+    - name: Describe Auto Scaling Groups LaunchTemplate ID
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[].LaunchTemplate[].LaunchTemplateId' --output text
+      register: auto_scaling_template_id
+    
+    - fail: 
+        msg: "Failed to Fetch LaunchTemplate ID"
+      when: auto_scaling_template_id.stderr != ""
+
+    - set_fact: 
+        template_id: "{{ auto_scaling_template_id.stdout }}"
+
+    - debug:
+        msg: "{{ template_id }}"
+
+    # Describe Auto Scaling Groups LaunchTemplate Name
+    - name: Describe Auto Scaling Groups LaunchTemplate Name
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[].LaunchTemplate[].LaunchTemplateName' --output text
+      register: auto_scaling_template_name
+    
+    - fail: 
+        msg: "Failed to Fetch LaunchTemplate Name"
+      when: auto_scaling_template_name.stderr != ""
+
+    - set_fact: 
+        template_name: "{{ auto_scaling_template_name.stdout }}"
+
+    - debug:
+        msg: "{{ template_name }}"
+
+    # Describe Auto Scaling Groups Health
+    - name: Describe Auto Scaling Groups health status
+      # command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }}  --query 'AutoScalingGroups[].Instances[].HealthStatus' --output json
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[].Instances[?LifecycleState==`InService`].HealthStatus' --output json 
+      register: autoscale_health
+    
+    - fail: 
+        msg: "Failed to Fetch Target Health"
+      when: autoscale_health.stderr != ""
+
+    - set_fact: 
+        as_health: "{{ autoscale_health.stdout }}"
+
+    - debug:
+        msg: "Target group is Unhealthy"
+      when: "'Unhealthy' in autoscale_health.stdout"
+
+    
+    - set_fact:
+        final_auto_health: "<TD>{{ as_health | replace('[', '') | replace(']', '') }}</TD>"
+
+    - debug:
+        msg: "{{ final_auto_health }}"
+
+    # activity description
+    - name: get the activity description
+      command:  turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-scaling-activities --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }}  --query 'Activities[].Description' --output json
+      register: activity_Des
+
+    - fail:
+        msg: "Failed to Fetch Instance ID"
+      when: activity_Des.stderr != "" 
+
+    - set_fact:
+        activity_description: "{{ activity_Des.stdout }}"
+
+    - debug:
+        msg: "First : {{ activity_description[0] }}"
+
+    - debug:
+        msg: "Second : {{ activity_description[1] }}"
+
+    - set_fact:
+        First_Des: "{{ activity_description[0] }}"
+        Second_Des: "{{ activity_description[1] }}"
+ 
+    # Activiy statuscode
+    - name: Describe Activiy statuscode
+      command: turbot-aws -a aau --role-name=admin autoscaling describe-scaling-activities --auto-scaling-group-name {{ auto_scaling }} --region us-east-1 --query 'Activities[].StatusCode' --output json
+      register: activity_status
+
+    - fail:
+        msg: "Failed to Fetch Target Health"
+      when: activity_status.stderr != ""
+
+    - set_fact:
+        activity_statuscode: "{{ activity_status.stdout }}"
+
+    - debug:
+        msg: "First : {{ activity_statuscode[0] }}"
+
+    - debug:
+        msg: "Second : {{ activity_statuscode[1] }}"
+
+    - set_fact:
+        First_statuscode: "{{ activity_statuscode[0] }}"
+        Second_statuscode: "{{ activity_statuscode[1] }}"
+
+    # start time
+    - name: get the activity details
+      command:  turbot-aws -a aau --role-name=admin autoscaling describe-scaling-activities --auto-scaling-group-name {{ auto_scaling }} --region us-east-1 --query 'Activities[].StartTime' --output json
+      register: Act_start_time
+
+    - fail:
+        msg: "Failed to Fetch Instance ID"
+      when: Act_start_time.stderr != ""
+
+    - set_fact:
+        start_time_activity: "{{ Act_start_time.stdout }}"
+
+    - debug:
+        msg: "start time: {{ start_time_activity[0] }}"
+
+
+    - debug:
+        msg: "start time: {{ start_time_activity[1] }}"
+
+    - set_fact:
+        first_start_time: "{{ start_time_activity[0] }}"
+        second_start_time: "{{ start_time_activity[1] }}"
+
+    # End time
+    - name: get the activity details
+      command:  turbot-aws -a aau --role-name=admin autoscaling describe-scaling-activities --auto-scaling-group-name {{ auto_scaling }} --region us-east-1 --query 'Activities[].EndTime' --output json
+      register: Act_end_time
+
+    - fail:
+        msg: "Failed to Fetch Instance ID"
+      when: Act_end_time.stderr != ""
+
+    - set_fact:
+        end_time_activity: "{{ Act_end_time.stdout }}"
+
+    - debug:
+        msg: "End time: {{ end_time_activity[0] }}"
+
+    - debug:
+        msg: "End time: {{ end_time_activity[1] }}"
+
+    - set_fact:
+        first_end_time: "{{ end_time_activity[0] }}"
+        second_end_time: "{{ end_time_activity[1] }}"
+
+    - set_fact:
+        first_activity: "<TD>' Activity description: {{  activity_description }} <br> statuscode:{{ activity_statuscode }} <br> starttime:{{ start_time_activity }} <br> endtime:{{ end_time_activity }} '</TD>"
+
+    # Describe Listeners Port
+    - name: Describe Listeneres Port
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-listeners --load-balancer-arn {{ alb_arn }} --region {{ av_zone }} --query 'Listeners[*].Port' --output text
+      register: describe_listeners_port
+
+    - fail:
+        msg: "Failed to Fetch Listeners Port"
+      when: describe_listeners_port.stderr != ""
+
+    - set_fact:
+        listeners_port: "{{ describe_listeners_port.stdout }}"
+
+    - debug:
+        msg: "{{ listeners_port }}"
+
+    # Describe Protocol
+    - name: Describe Listeneres Protocol
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-listeners --load-balancer-arn {{ alb_arn }} --region {{ av_zone }} --query 'Listeners[*].Protocol' --output text
+      register: describe_listeners_protocol
+
+    - fail:
+        msg: "Failed to Fetch Listeners Protocol"
+      when: describe_listeners_protocol.stderr != ""
+
+    - set_fact:
+        listeners_protocol: "{{ describe_listeners_protocol.stdout }}"
+
+    - debug:
+        msg: "{{ listeners_protocol }}"
+
+     # creating tmp folder with ctask number on remote machine
+
+    - name: creating {{ ctask_number }} directory in tmp folder
+      file:
+        path: /Linux_Val/ALB/{{ ctask_number }}
+        state: directory
+      become: true
+      delegate_to: localhost
+      register: create_directory
+
+    - debug:
+        msg: "{{ create_directory }}"
+
+    # - fail:
+    #     msg: "Failed to Create Directory"
+    #   when: create_directory.rc != 0
+    - debug:
+        msg:
+          - "{{ ctask_number }}  {{ alb_arn }}{{ final_name }} {{ final_time }} {{ final_username }} {{ final }} {{ values_final }} {{ tg }} {{ final_target_health }} {{ max_size }} {{ min_size }} {{ desired_capacity }} {{ Auto_Instance }} {{ as_health }} {{ aws_account_id }} {{ final_instance_ID }} {{ final_zones }}"
+
+
+    # POST EVIDENCE REPORT
+    - name: Generate the pre check html report
+      template:
+        src: /home/svc-linux-snow/autoscaling/report.j2 
+        dest: /Linux_Val/ALB/{{ ctask_number }}/ALB_Evidence.html
+      #   register: elb_html_evidence
+      become: true
+      # when: associate_route_table_1.stderr == "" and associate_route_table_1.stderr == ""
+      delegate_to: localhost
+
+        #   - debug:
+        #     msg: "{{ elb_html_evidence }}"
+       
+          #  - fail:
+          #      msg: "Failed to Generate HTML Report"
+          #   when: "'FAILED' in  item" 
+          #    loop: "{{ elb_html_evidence }}"
+
+    #POST CHECK PDF REPORT
+    - name: Generate Post Check PDF File
+      shell: /usr/local/bin/wkhtmltopdf /Linux_Val/ALB/{{ ctask_number }}/ALB_Evidence.html /Linux_Val/ALB/{{ ctask_number }}/ALB_Evidence.pdf
+      become: true
+      register: generate_pdf_report
+        #   when: associate_route_table_1.stderr == "" and associate_route_table_1.stderr == ""
+      delegate_to: localhost
+
+    - fail:
+        msg: "Generating PDF Report Failed"
+      when: generate_pdf_report.rc != 0
+
+    - debug:
+        msg: "PDF Generated Successfully"
+      when:
+        - generate_pdf_report.rc == 0
+        
+     
+
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+
+ALB_Prod/alb.yml-bkp
+
+---
+- name: VPC Provision
+  hosts: localhost
+  gather_facts: no
+  become_method: sudo
+  become_user: root
+  connection: local
+  tasks:
+    - set_fact:
+        # aws_environment: "non-prod"
+        aws_account_type: "aws_environment[0]"
+        # av_zone: "us-east-1" #"{{ az }}"
+        # aws_account_id: "aau"
+        # aws_environment: "non-prod"
+        # alb_name: "aau-Biogen-Dev-ALB-0001598"
+        # auto_scaling: "aau-Biogen-Dev-ALB-0001598"
+        # ctask_number: "Testing"
+      tags: variables
+
+    - set_fact:
+        env: "dev"
+      when: aws_account_type != "P"
+
+    - set_fact:
+        env: "prod"
+      when: aws_account_type == "P"
+
+    - name: AWS Prod keys information
+      include_vars: prod.yml
+      when: aws_account_type == "P"
+      delegate_to: localhost
+      tags: aws_configure_keys
+    - name: AWS Non-Prod keys information
+      include_vars: non_prod.yml
+      when: aws_account_type != "P"
+      delegate_to: localhost
+      tags: aws_configure_keys
+
+    - name: Setting up turbot aws cli for Prod servers
+      command:  "{{ item }}"
+      with_items:
+        - aws configure set default.turbot_host console.prod.amazon.biogen.com
+        - aws configure set default.turbot_access_key_id {{ turbot_access_key_id }}
+        - aws configure set default.turbot_secret_access_key {{ turbot_secret_access_key }}
+        - aws configure set default.turbot_account_id {{ aws_account_id }}
+      register: set_aws_cli
+      delegate_to: localhost
+      when: aws_account_type == "P"
+     # no_log: true
+      tags: aws_configure
+
+    - name: Setting up turbot aws cli for Non Prod servers
+      command:  "{{ item }}"
+      with_items:
+        - aws configure set default.turbot_host console.nonprod.amazon.biogen.com
+        - aws configure set default.turbot_access_key_id {{ turbot_access_key_id }}
+        - aws configure set default.turbot_secret_access_key {{ turbot_secret_access_key }}
+        - aws configure set default.turbot_account_id {{ aws_account_id }}
+#      no_log: true
+      when: aws_account_type != "P"
+      register: set_aws_cli
+      tags: aws_configure
+
+# turbot-aws -a aau --role-name=admin elbv2 describe-load-balancers --names  aau-Biogen-Dev-ALB-0001615 --region us-east-1 --output text --query 'LoadBalancers[0].LoadBalancerArn'
+    # Describe Load Balancers
+    - name: Describe Load Balancers
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-load-balancers --names {{ alb_name }} --region {{ av_zone }} --output text --query 'LoadBalancers[0].LoadBalancerArn'
+      register: describe_load
+
+    - fail:
+        msg: "Failed to fetch the Load Balencer Information"
+      when: describe_load.stderr != ""
+
+    - set_fact:
+        alb_arn: "{{ describe_load.stdout }}"
+
+    - debug:
+        msg: "{{ alb_arn }}"
+
+    # Get time format
+    - name: Get time format
+      command: date '+%d%b%Y %H%M |%Z'
+      register: time_format
+    - set_fact:
+        date_format: "{{ time_format.stdout }}"
+
+    # Cloud Trail Event Name
+    - name: Cloud Trail event name
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin cloudtrail lookup-events --lookup-attributes AttributeKey=ResourceName,AttributeValue={{ alb_arn }} AttributeKey=EventName,AttributeValue=CreateLoadBalancer --region {{ av_zone }} --query 'Events[*].EventName' --output json
+      register: event_name
+
+    - fail:
+        msg: "Failed to Fetch Cloud Trail Event Name"
+      when: event_name.stderr != ""
+
+    - set_fact:
+        et_name: "{{ event_name.stdout }}"
+    - set_fact:
+        final_name: "<TD>'{{ et_name | replace('[', '') | replace(']', '') }}'</TD>"
+    - debug:
+        msg: "Final Name: {{ final_name }}"
+
+    # Cloud Trail Event Time
+    - name: cloud trail event time
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin cloudtrail lookup-events --lookup-attributes AttributeKey=ResourceName,AttributeValue={{ alb_arn }} AttributeKey=EventName,AttributeValue=CreateLoadBalancer --region {{ av_zone }} --query 'Events[*].EventTime' --output json
+      register: event_time
+
+    - fail:
+        msg: "Failed to Fetch Cloud Trail Event Time"
+      when: event_time.stderr != ""
+
+    - set_fact:
+        et_time: "{{ event_time.stdout }}"
+
+    - set_fact:
+        final_time: "<TD>'{{ et_time | replace('[', '') | replace(']', '') }}'</TD>"
+
+    - debug:
+        msg: "Final Time: {{ final_time }}"
+
+    # Cloud Trail Username
+    - name: Cloud Trail username
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin cloudtrail lookup-events --lookup-attributes AttributeKey=ResourceName,AttributeValue={{ alb_arn }} AttributeKey=EventName,AttributeValue=CreateLoadBalancer --region {{ av_zone }} --query 'Events[*].Username' --output json
+      register: event_username
+
+    - fail:
+        msg: "Failed to Fetch Cloud Trail Event User Name"
+      when: event_username.stderr != ""
+
+    - set_fact:
+        et_username: "{{ event_username.stdout }}"
+
+    - set_fact:
+        final_username: "<TD>'{{ et_username | replace('[', '') | replace(']', '') }}'</TD>"
+
+    - debug:
+        msg: "Final UserName: {{ final_username }}"
+
+    # Tags Keys
+    - name: Tags Keys
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-tags --resource-arns {{ alb_arn }} --region {{ av_zone }} --query 'TagDescriptions[*].Tags[].Key' --output json
+      register: tags_keys
+
+    - fail:
+        msg: "Failed to Fetch Tags Keys"
+      when: tags_keys.stderr != ""
+
+    - set_fact:
+        et_keys: "{{ tags_keys.stdout }}"
+
+    - set_fact:
+        final_keys: "<TD>'{{ et_keys | replace('[', '') | replace(']', '') }}'</TD>"
+
+    - set_fact:
+        final: "{{ final_keys | replace(' ', '_') | replace(',_', ',') }}"
+
+    - debug:
+        msg: "Tags Values: {{ et_keys }}"
+
+    - debug:
+        msg: "Tags Keys: {{ final }}"
+
+    # Tags Values
+    - name: Tags Values
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-tags --resource-arns {{ alb_arn }} --region {{ av_zone }} --query 'TagDescriptions[*].Tags[].Value'  --output json
+      register: tags_values
+
+    - fail:
+        msg: "Failed to Fetch Tags Values"
+      when: tags_values.stderr != ""
+
+    - set_fact:
+        et_values: "{{ tags_values.stdout }}"
+
+    - set_fact:
+        final_values: "<TD>'{{ et_values | replace('[', '') | replace(']', '') }}'</TD>"
+
+    - set_fact:
+        values_final: "{{ final_values | replace(' ', '_') | replace(',_', ', ') }}"
+
+    - debug:
+        msg: "Tags Values: {{ final_values }}"
+
+    # Target Groups
+    - name: Target groups
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-target-groups --region {{ av_zone }} --load-balancer-arn {{ alb_arn }} --query 'TargetGroups[0].TargetGroupArn' --output json
+      register: target_groups
+
+    - fail:
+        msg: "Failed to Fetch Target Groups"
+      when: target_groups.stderr != ""
+
+    - set_fact:
+        tg: "{{ target_groups.stdout }}"
+
+    - debug:
+        msg: "{{ tg }}"
+
+    # Describe Target Health
+    - name: Target health status
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-target-health --region {{ av_zone }} --target-group-arn {{ tg }} --query 'TargetHealthDescriptions[*].TargetHealth.State' --output json
+      register: target_health
+
+    - fail:
+        msg: "Failed to Fetch Target Health"
+      when: target_health.stderr != ""
+
+    - debug:
+        msg: "Target group is Unhealthy"
+      when: "'Unhealthy' in target_health.stdout"
+
+    - set_fact:
+        tg_health: "{{ target_health.stdout }}"
+
+    - set_fact:
+        final_target_health: "<TD>'{{ tg_health | replace('[', '') | replace(']', '') }}'</TD>"
+
+    - debug:
+        msg: "{{ final_target_health }}"
+
+    # Instance Details
+    - name: get the instance details
+      command:  turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-target-health --region {{ av_zone }} --target-group-arn {{ tg }} --query 'TargetHealthDescriptions[*].Target.Id' --output json
+      register: instance_id
+
+    - fail:
+        msg: "Failed to Fetch Instance ID"
+      when: instance_id.stderr != ""
+
+    - set_fact:
+        instance_ids: "{{ instance_id.stdout }}"
+
+    - debug:
+        msg: "First Instance: {{ instance_ids[0] }}"
+
+    - debug:
+        msg: "Second Instance: {{ instance_ids[1] }}"
+
+
+    # Get the Availability Zone
+    - name: Get the Availability Zone of the Instances
+      command: turbot-aws -a {{ aws_account_id }} ec2 describe-instance-status --instance-id {{ item }} --region {{ av_zone }} --query 'InstanceStatuses[].AvailabilityZone' --output text
+      register: availability_zone1
+      loop: "{{ instance_ids }}"
+
+    - fail:
+        msg: "Failed to Fetch Availability Zone 1"
+      when: "'Error' in item.stderr"
+      loop: "{{ availability_zone1.results }}"
+
+    - set_fact:
+      #      zone1: "{{ item.stdout }}"
+        zone1: "{{ availability_zone1.results | map(attribute='stdout') | string  | replace('[', '') | replace(']', '') }}"
+      loop: "{{ availability_zone1.results }}"
+
+    - debug:
+        msg: "{{ zone1 }}"
+
+
+    - set_fact:
+        final_instance_ID: "<TD> {{ instance_ids  | replace('[', '') | replace(']', '') }} </TD>"
+        final_zones: "<TD>' {{ zone1 }} '</TD>"
+
+    - debug:
+        msg:
+          - instance_ID: "Instance ID's: {{ final_instance_ID }}"
+          - zones: "Instance Zones: {{ zone1 }}"
+
+    - name: Get the ImageName of the Instances
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin ec2 describe-instances --instance-ids {{ instance_ids[0]  }} --region us-east-1 --output text --query 'Reservations[*].Instances[*].ImageId'
+      register: IMG_ID
+
+    - fail:
+        msg: "Failed to Fetch Availability Zone 1"
+      when: IMG_ID.stderr != ""
+
+    - set_fact:
+        Image_id: "{{ IMG_ID.stdout }}"        
+
+    # Describe Auto Scaling Groups Max size
+    - name: Describe Auto Scaling Groups Max Size
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[*].MaxSize' --output text
+      register: auto_scaling_max_size
+
+    - fail:
+        msg: "Failed to Fetch Max Size"
+      when: auto_scaling_max_size.stderr != ""
+
+    - set_fact:
+        max_size: "{{ auto_scaling_max_size.stdout }}"
+
+    - debug:
+        msg: "{{ max_size }}"
+
+    # Describe Auto Scaling Groups Min size
+    - name: Describe Auto Scaling Groups Min Size
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[*].MinSize' --output text
+      register: auto_scaling_min_size
+
+    - fail:
+        msg: "Failed to Fetch Min Size"
+      when: auto_scaling_min_size.stderr != ""
+
+    - set_fact:
+        min_size: "{{ auto_scaling_min_size.stdout }}"
+
+    - debug:
+        msg: "{{ min_size }}"
+
+    # Describe Auto Scaling Groups desired Capacity
+    - name: Describe Auto Scaling Groups Desired Capacity
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[*].DesiredCapacity' --output text
+      register: auto_scaling_desired_capacity
+
+    - fail:
+        msg: "Failed to Fetch Auto Scaling Desired Capacity"
+      when: auto_scaling_desired_capacity.stderr != ""
+
+    - set_fact:
+        desired_capacity: "{{ auto_scaling_desired_capacity.stdout }}"
+
+    - debug:
+        msg: "{{ desired_capacity }}"
+
+    # Describe Auto Scaling Groups InstanceType
+    - name: Describe Auto Scaling Groups InstanceType
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[].Instances[].InstanceType' --output json
+      register: auto_scaling_Instance_type
+    
+    - fail: 
+        msg: "Failed to Fetch Instance Type"
+      when: auto_scaling_Instance_type.stderr != ""
+
+    - set_fact: 
+        Auto_Instance: "{{ auto_scaling_Instance_type.stdout }}"
+
+    - set_fact:
+        Instance_type: "<TD>{{ auto_scaling_Instance_type.stdout | replace('[', '') | replace(']', '') }}</TD>"        
+      #  Instance_type: "{{ auto_scaling_Instance_type.stdout }}"  
+    - debug:
+        msg: "{{ Instance_type }}"
+
+
+    # Describe Auto Scaling Groups LaunchTemplate ID
+    - name: Describe Auto Scaling Groups LaunchTemplate ID
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[].LaunchTemplate[].LaunchTemplateId' --output text
+      register: auto_scaling_template_id
+    
+    - fail: 
+        msg: "Failed to Fetch LaunchTemplate ID"
+      when: auto_scaling_template_id.stderr != ""
+
+    - set_fact: 
+        template_id: "{{ auto_scaling_template_id.stdout }}"
+
+    - debug:
+        msg: "{{ template_id }}"
+
+    # Describe Auto Scaling Groups LaunchTemplate Name
+    - name: Describe Auto Scaling Groups LaunchTemplate Name
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[].LaunchTemplate[].LaunchTemplateName' --output text
+      register: auto_scaling_template_name
+    
+    - fail: 
+        msg: "Failed to Fetch LaunchTemplate Name"
+      when: auto_scaling_template_name.stderr != ""
+
+    - set_fact: 
+        template_name: "{{ auto_scaling_template_name.stdout }}"
+
+    - debug:
+        msg: "{{ template_name }}"
+
+    # Describe Auto Scaling Groups Health
+    - name: Describe Auto Scaling Groups health status
+      # command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }}  --query 'AutoScalingGroups[].Instances[].HealthStatus' --output json
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[].Instances[?LifecycleState==`InService`].HealthStatus' --output json 
+      register: autoscale_health
+    
+    - fail: 
+        msg: "Failed to Fetch Target Health"
+      when: autoscale_health.stderr != ""
+
+    - set_fact: 
+        as_health: "{{ autoscale_health.stdout }}"
+
+    - debug:
+        msg: "Target group is Unhealthy"
+      when: "'Unhealthy' in autoscale_health.stdout"
+
+    
+    - set_fact:
+        final_auto_health: "<TD>{{ as_health | replace('[', '') | replace(']', '') }}</TD>"
+
+    - debug:
+        msg: "{{ final_auto_health }}"
+
+    # activity description
+    - name: get the activity description
+      command:  turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-scaling-activities --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }}  --query 'Activities[].Description' --output json
+      register: activity_Des
+
+    - fail:
+        msg: "Failed to Fetch Instance ID"
+      when: activity_Des.stderr != "" 
+
+    - set_fact:
+        activity_description: "{{ activity_Des.stdout }}"
+
+    - debug:
+        msg: "First : {{ activity_description[0] }}"
+
+    - debug:
+        msg: "Second : {{ activity_description[1] }}"
+
+    - set_fact:
+        First_Des: "{{ activity_description[0] }}"
+        Second_Des: "{{ activity_description[1] }}"
+ 
+    # Activiy statuscode
+    - name: Describe Activiy statuscode
+      command: turbot-aws -a aau --role-name=admin autoscaling describe-scaling-activities --auto-scaling-group-name {{ auto_scaling }} --region us-east-1 --query 'Activities[].StatusCode' --output json
+      register: activity_status
+
+    - fail:
+        msg: "Failed to Fetch Target Health"
+      when: activity_status.stderr != ""
+
+    - set_fact:
+        activity_statuscode: "{{ activity_status.stdout }}"
+
+    - debug:
+        msg: "First : {{ activity_statuscode[0] }}"
+
+    - debug:
+        msg: "Second : {{ activity_statuscode[1] }}"
+
+    - set_fact:
+        First_statuscode: "{{ activity_statuscode[0] }}"
+        Second_statuscode: "{{ activity_statuscode[1] }}"
+
+    # start time
+    - name: get the activity details
+      command:  turbot-aws -a aau --role-name=admin autoscaling describe-scaling-activities --auto-scaling-group-name {{ auto_scaling }} --region us-east-1 --query 'Activities[].StartTime' --output json
+      register: Act_start_time
+
+    - fail:
+        msg: "Failed to Fetch Instance ID"
+      when: Act_start_time.stderr != ""
+
+    - set_fact:
+        start_time_activity: "{{ Act_start_time.stdout }}"
+
+    - debug:
+        msg: "start time: {{ start_time_activity[0] }}"
+
+
+    - debug:
+        msg: "start time: {{ start_time_activity[1] }}"
+
+    - set_fact:
+        first_start_time: "{{ start_time_activity[0] }}"
+        second_start_time: "{{ start_time_activity[1] }}"
+
+    # End time
+    - name: get the activity details
+      command:  turbot-aws -a aau --role-name=admin autoscaling describe-scaling-activities --auto-scaling-group-name {{ auto_scaling }} --region us-east-1 --query 'Activities[].EndTime' --output json
+      register: Act_end_time
+
+    - fail:
+        msg: "Failed to Fetch Instance ID"
+      when: Act_end_time.stderr != ""
+
+    - set_fact:
+        end_time_activity: "{{ Act_end_time.stdout }}"
+
+    - debug:
+        msg: "End time: {{ end_time_activity[0] }}"
+
+    - debug:
+        msg: "End time: {{ end_time_activity[1] }}"
+
+    - set_fact:
+        first_end_time: "{{ end_time_activity[0] }}"
+        second_end_time: "{{ end_time_activity[1] }}"
+
+    - set_fact:
+        first_activity: "<TD>' Activity description: {{  activity_description }} <br> statuscode:{{ activity_statuscode }} <br> starttime:{{ start_time_activity }} <br> endtime:{{ end_time_activity }} '</TD>"
+
+    # Describe Listeners Port
+    - name: Describe Listeneres Port
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-listeners --load-balancer-arn {{ alb_arn }} --region {{ av_zone }} --query 'Listeners[*].Port' --output text
+      register: describe_listeners_port
+
+    - fail:
+        msg: "Failed to Fetch Listeners Port"
+      when: describe_listeners_port.stderr != ""
+
+    - set_fact:
+        listeners_port: "{{ describe_listeners_port.stdout }}"
+
+    - debug:
+        msg: "{{ listeners_port }}"
+
+    # Describe Protocol
+    - name: Describe Listeneres Protocol
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-listeners --load-balancer-arn {{ alb_arn }} --region {{ av_zone }} --query 'Listeners[*].Protocol' --output text
+      register: describe_listeners_protocol
+
+    - fail:
+        msg: "Failed to Fetch Listeners Protocol"
+      when: describe_listeners_protocol.stderr != ""
+
+    - set_fact:
+        listeners_protocol: "{{ describe_listeners_protocol.stdout }}"
+
+    - debug:
+        msg: "{{ listeners_protocol }}"
+
+     # creating tmp folder with ctask number on remote machine
+
+    - name: creating {{ ctask_number }} directory in tmp folder
+      file:
+        path: /Linux_Qualify/ALB/{{ ctask_number }}
+        state: directory
+      become: true
+      delegate_to: localhost
+      register: create_directory
+
+    - debug:
+        msg: "{{ create_directory }}"
+
+    # - fail:
+    #     msg: "Failed to Create Directory"
+    #   when: create_directory.rc != 0
+    - debug:
+        msg:
+          - "{{ ctask_number }}  {{ alb_arn }}{{ final_name }} {{ final_time }} {{ final_username }} {{ final }} {{ values_final }} {{ tg }} {{ final_target_health }} {{ max_size }} {{ min_size }} {{ desired_capacity }} {{ Auto_Instance }} {{ as_health }} {{ aws_account_id }} {{ final_instance_ID }} {{ final_zones }}"
+
+
+    # POST EVIDENCE REPORT
+    - name: Generate the pre check html report
+      template:
+        src: /home/svc-linux-snow/autoscaling/report.j2 
+        dest: /Linux_Qualify/ALB/{{ ctask_number }}/ALB_Evidence.html
+      #   register: elb_html_evidence
+      become: true
+      # when: associate_route_table_1.stderr == "" and associate_route_table_1.stderr == ""
+      delegate_to: localhost
+
+        #   - debug:
+        #     msg: "{{ elb_html_evidence }}"
+       
+          #  - fail:
+          #      msg: "Failed to Generate HTML Report"
+          #   when: "'FAILED' in  item" 
+          #    loop: "{{ elb_html_evidence }}"
+
+    #POST CHECK PDF REPORT
+    - name: Generate Post Check PDF File
+      shell: /usr/local/bin/wkhtmltopdf /Linux_Qualify/ALB/{{ ctask_number }}/ALB_Evidence.html /Linux_Qualify/ALB/{{ ctask_number }}/ALB_Evidence.pdf
+      become: true
+      register: generate_pdf_report
+        #   when: associate_route_table_1.stderr == "" and associate_route_table_1.stderr == ""
+      delegate_to: localhost
+
+    - fail:
+        msg: "Generating PDF Report Failed"
+      when: generate_pdf_report.rc != 0
+
+    - debug:
+        msg: "PDF Generated Successfully"
+      when:
+        - generate_pdf_report.rc == 0
+        
+     
+
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+ALB_Prod/ansible.cfg
+
+[defaults]
+inventory = hosts
+host_key_checking = FALSE
+warnings = false
+deprecation_warnings=False
+
+
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+ALB_Prod/new_alb.yml
+
+---
+- name: VPC Provision
+  hosts: localhost
+  gather_facts: no
+  become_method: sudo
+  become_user: root
+  connection: local
+  tasks:
+    - set_fact:
+        # aws_environment: "non-prod"
+        aws_account_type: "aws_environment[0]"
+        # av_zone: "us-east-1" #"{{ az }}"
+        # aws_account_id: "aau"
+        # aws_environment: "non-prod"
+        # alb_name: "aau-Biogen-Dev-ALB-0001598"
+        # auto_scaling: "aau-Biogen-Dev-ALB-0001598"
+        # ctask_number: "Testing"
+      tags: variables
+
+    - set_fact:
+        env: "dev"
+      when: aws_account_type != "P"
+
+    - set_fact:
+        env: "prod"
+      when: aws_account_type == "P"
+
+    - name: AWS Prod keys information
+      include_vars: prod.yml
+      when: aws_account_type == "P"
+      delegate_to: localhost
+      tags: aws_configure_keys
+    - name: AWS Non-Prod keys information
+      include_vars: non_prod.yml
+      when: aws_account_type != "P"
+      delegate_to: localhost
+      tags: aws_configure_keys
+
+    - name: Setting up turbot aws cli for Prod servers
+      command:  "{{ item }}"
+      with_items:
+        - aws configure set default.turbot_host console.prod.amazon.biogen.com
+        - aws configure set default.turbot_access_key_id {{ turbot_access_key_id }}
+        - aws configure set default.turbot_secret_access_key {{ turbot_secret_access_key }}
+        - aws configure set default.turbot_account_id {{ aws_account_id }}
+      register: set_aws_cli
+      delegate_to: localhost
+      when: aws_account_type == "P"
+     # no_log: true
+      tags: aws_configure
+
+    - name: Setting up turbot aws cli for Non Prod servers
+      command:  "{{ item }}"
+      with_items:
+        - aws configure set default.turbot_host console.nonprod.amazon.biogen.com
+        - aws configure set default.turbot_access_key_id {{ turbot_access_key_id }}
+        - aws configure set default.turbot_secret_access_key {{ turbot_secret_access_key }}
+        - aws configure set default.turbot_account_id {{ aws_account_id }}
+#      no_log: true
+      when: aws_account_type != "P"
+      register: set_aws_cli
+      tags: aws_configure
+
+# turbot-aws -a aau --role-name=admin elbv2 describe-load-balancers --names  aau-Biogen-Dev-ALB-0001615 --region us-east-1 --output text --query 'LoadBalancers[0].LoadBalancerArn'
+    # Describe Load Balancers
+    - name: Describe Load Balancers
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-load-balancers --names {{ alb_name }} --region {{ av_zone }} --output text --query 'LoadBalancers[0].LoadBalancerArn'
+      register: describe_load
+
+    - fail:
+        msg: "Failed to fetch the Load Balencer Information"
+      when: describe_load.stderr != ""
+
+    - set_fact:
+        alb_arn: "{{ describe_load.stdout }}"
+
+    - debug:
+        msg: "{{ alb_arn }}"
+
+    # Cloud Trail Event Name
+    - name: Cloud Trail event name
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin cloudtrail lookup-events --lookup-attributes AttributeKey=ResourceName,AttributeValue={{ alb_arn }} AttributeKey=EventName,AttributeValue=CreateLoadBalancer --region {{ av_zone }} --query 'Events[*].EventName' --output json
+      register: event_name
+
+    - fail:
+        msg: "Failed to Fetch Cloud Trail Event Name"
+      when: event_name.stderr != ""
+
+    - set_fact:
+        et_name: "{{ event_name.stdout }}"
+    - set_fact:
+        final_name: "<TD>'{{ et_name | replace('[', '') | replace(']', '') }}'</TD>"
+    - debug:
+        msg: "Final Name: {{ final_name }}"
+
+    # Cloud Trail Event Time
+    - name: cloud trail event time
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin cloudtrail lookup-events --lookup-attributes AttributeKey=ResourceName,AttributeValue={{ alb_arn }} AttributeKey=EventName,AttributeValue=CreateLoadBalancer --region {{ av_zone }} --query 'Events[*].EventTime' --output json
+      register: event_time
+
+    - fail:
+        msg: "Failed to Fetch Cloud Trail Event Time"
+      when: event_time.stderr != ""
+
+    - set_fact:
+        et_time: "{{ event_time.stdout }}"
+
+    - set_fact:
+        final_time: "<TD>'{{ et_time | replace('[', '') | replace(']', '') }}'</TD>"
+
+    - debug:
+        msg: "Final Time: {{ final_time }}"
+
+    # Cloud Trail Username
+    - name: Cloud Trail username
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin cloudtrail lookup-events --lookup-attributes AttributeKey=ResourceName,AttributeValue={{ alb_arn }} AttributeKey=EventName,AttributeValue=CreateLoadBalancer --region {{ av_zone }} --query 'Events[*].Username' --output json
+      register: event_username
+
+    - fail:
+        msg: "Failed to Fetch Cloud Trail Event User Name"
+      when: event_username.stderr != ""
+
+    - set_fact:
+        et_username: "{{ event_username.stdout }}"
+
+    - set_fact:
+        final_username: "<TD>'{{ et_username | replace('[', '') | replace(']', '') }}'</TD>"
+
+    - debug:
+        msg: "Final UserName: {{ final_username }}"
+
+    # Tags Keys
+    - name: Tags Keys
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-tags --resource-arns {{ alb_arn }} --region {{ av_zone }} --query 'TagDescriptions[*].Tags[].Key' --output json
+      register: tags_keys
+
+    - fail:
+        msg: "Failed to Fetch Tags Keys"
+      when: tags_keys.stderr != ""
+
+    - set_fact:
+        et_keys: "{{ tags_keys.stdout }}"
+
+    - set_fact:
+        final_keys: "<TD>'{{ et_keys | replace('[', '') | replace(']', '') }}'</TD>"
+
+    - set_fact:
+        final: "{{ final_keys | replace(' ', '_') | replace(',_', ',') }}"
+
+    - debug:
+        msg: "Tags Values: {{ et_keys }}"
+
+    - debug:
+        msg: "Tags Keys: {{ final }}"
+
+    # Tags Values
+    - name: Tags Values
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-tags --resource-arns {{ alb_arn }} --region {{ av_zone }} --query 'TagDescriptions[*].Tags[].Value'  --output json
+      register: tags_values
+
+    - fail:
+        msg: "Failed to Fetch Tags Values"
+      when: tags_values.stderr != ""
+
+    - set_fact:
+        et_values: "{{ tags_values.stdout }}"
+
+    - set_fact:
+        final_values: "<TD>'{{ et_values | replace('[', '') | replace(']', '') }}'</TD>"
+
+    - set_fact:
+        values_final: "{{ final_values | replace(' ', '_') | replace(',_', ', ') }}"
+
+    - debug:
+        msg: "Tags Values: {{ final_values }}"
+
+    # Target Groups
+    - name: Target groups
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-target-groups --region {{ av_zone }} --load-balancer-arn {{ alb_arn }} --query 'TargetGroups[0].TargetGroupArn' --output json
+      register: target_groups
+
+    - fail:
+        msg: "Failed to Fetch Target Groups"
+      when: target_groups.stderr != ""
+
+    - set_fact:
+        tg: "{{ target_groups.stdout }}"
+
+    - debug:
+        msg: "{{ tg }}"
+
+    # Describe Target Health
+    - name: Target health status
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-target-health --region {{ av_zone }} --target-group-arn {{ tg }} --query 'TargetHealthDescriptions[*].TargetHealth.State' --output json
+      register: target_health
+
+    - fail:
+        msg: "Failed to Fetch Target Health"
+      when: target_health.stderr != ""
+
+    - debug:
+        msg: "Target group is Unhealthy"
+      when: "'unhealthy' in target_health.stdout"
+
+    - set_fact:
+        tg_health: "{{ target_health.stdout }}"
+
+    - set_fact:
+        final_target_health: "<TD>'{{ tg_health | replace('[', '') | replace(']', '') }}'</TD>"
+
+    - debug:
+        msg: "{{ final_target_health }}"
+
+    # Instance Details
+    - name: get the instance details
+      command:  turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-target-health --region {{ av_zone }} --target-group-arn {{ tg }} --query 'TargetHealthDescriptions[*].Target.Id' --output json
+      register: instance_id
+
+    - fail:
+        msg: "Failed to Fetch Instance ID"
+      when: instance_id.stderr != ""
+
+    - set_fact:
+        instance_ids: "{{ instance_id.stdout }}"
+
+    - debug:
+        msg: "First Instance: {{ instance_ids[0] }}"
+
+    - debug:
+        msg: "Second Instance: {{ instance_ids[1] }}"
+
+    - set_fact:
+        First_Instance: "{{ instance_ids[0] }}"
+        Second_Instance: "{{ instance_ids[1] }}"
+
+    # Get the Availability Zone
+    - name: Get the Availability Zone of the Instances
+      command: turbot-aws -a {{ aws_account_id }} ec2 describe-instance-status --instance-id {{ First_Instance }} --region {{ av_zone }} --query 'InstanceStatuses[].AvailabilityZone' --output text
+      register: availability_zone1
+
+    - fail:
+        msg: "Failed to Fetch Availability Zone 1"
+      when: availability_zone1.stderr != ""
+
+    - set_fact:
+        zone1: "{{ availability_zone1.stdout }}"
+
+    # Get the Availability Zone
+    - name: Get the Availability Zone of the Instances
+      command: turbot-aws -a {{ aws_account_id }} ec2 describe-instance-status --instance-id {{ Second_Instance }} --region {{ av_zone }} --query 'InstanceStatuses[].AvailabilityZone' --output text
+      register: availability_zone2
+
+    - fail:
+        msg: "Failed to Fetch Availability Zone 2"
+      when: availability_zone2.stderr != ""
+
+    - set_fact:
+        zone2: "{{ availability_zone2.stdout }}"
+
+    - set_fact:
+        final_instance_ID: "<TD>' {{ First_Instance }}, {{ Second_Instance }} '</TD>"
+        final_zones: "<TD>' {{ zone1 }}, {{ zone2 }} '</TD>"
+
+    - debug:
+        msg:
+          - instance_ID: "Instance ID's: {{ First_Instance }}, {{ Second_Instance }}"
+          - zones: "Instance Zones: {{ zone1 }}, {{ zone2 }}"
+
+    # Describe Auto Scaling Groups Max size
+    - name: Describe Auto Scaling Groups Max Size
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[*].MaxSize' --output text
+      register: auto_scaling_max_size
+
+    - fail:
+        msg: "Failed to Fetch Max Size"
+      when: auto_scaling_max_size.stderr != ""
+
+    - set_fact:
+        max_size: "{{ auto_scaling_max_size.stdout }}"
+
+    - debug:
+        msg: "{{ max_size }}"
+
+    # Describe Auto Scaling Groups Min size
+    - name: Describe Auto Scaling Groups Min Size
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[*].MinSize' --output text
+      register: auto_scaling_min_size
+
+    - fail:
+        msg: "Failed to Fetch Min Size"
+      when: auto_scaling_min_size.stderr != ""
+
+    - set_fact:
+        min_size: "{{ auto_scaling_min_size.stdout }}"
+
+    - debug:
+        msg: "{{ min_size }}"
+
+    # Describe Auto Scaling Groups desired Capacity
+    - name: Describe Auto Scaling Groups Desired Capacity
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[*].DesiredCapacity' --output text
+      register: auto_scaling_desired_capacity
+
+    - fail:
+        msg: "Failed to Fetch Auto Scaling Desired Capacity"
+      when: auto_scaling_desired_capacity.stderr != ""
+
+    - set_fact:
+        desired_capacity: "{{ auto_scaling_desired_capacity.stdout }}"
+
+    - debug:
+        msg: "{{ desired_capacity }}"
+
+    # Describe Auto Scaling Groups InstanceType
+    - name: Describe Auto Scaling Groups InstanceType
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[].Instances[].InstanceType' --output json
+      register: auto_scaling_Instance_type
+    
+    - fail: 
+        msg: "Failed to Fetch Instance Type"
+      when: auto_scaling_Instance_type.stderr != ""
+
+    - set_fact: 
+        Auto_Instance: "{{ auto_scaling_Instance_type.stdout }}"
+
+    - set_fact:
+        Instance_type: "<TD>'{{ Auto_Instance | replace('[', '') | replace(']', '') }}'</TD>"        
+
+    - debug:
+        msg: "{{ Instance_type }}"
+
+
+    # Describe Auto Scaling Groups LaunchTemplate ID
+    - name: Describe Auto Scaling Groups LaunchTemplate ID
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[].LaunchTemplate[].LaunchTemplateId' --output text
+      register: auto_scaling_template_id
+    
+    - fail: 
+        msg: "Failed to Fetch LaunchTemplate ID"
+      when: auto_scaling_template_id.stderr != ""
+
+    - set_fact: 
+        template_id: "{{ auto_scaling_template_id.stdout }}"
+
+    - debug:
+        msg: "{{ template_id }}"
+
+    # Describe Auto Scaling Groups LaunchTemplate Name
+    - name: Describe Auto Scaling Groups LaunchTemplate Name
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[].LaunchTemplate[].LaunchTemplateName' --output text
+      register: auto_scaling_template_name
+    
+    - fail: 
+        msg: "Failed to Fetch LaunchTemplate Name"
+      when: auto_scaling_template_name.stderr != ""
+
+    - set_fact: 
+        template_name: "{{ auto_scaling_template_name.stdout }}"
+
+    - debug:
+        msg: "{{ template_name }}"
+
+    # Describe Auto Scaling Groups Health
+    - name: Describe Auto Scaling Groups health status
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }}  --query 'AutoScalingGroups[].Instances[].HealthStatus' --output json
+      register: autoscale_health
+    
+    - fail: 
+        msg: "Failed to Fetch Target Health"
+      when: autoscale_health.stderr != ""
+
+    - set_fact: 
+        as_health: "{{ autoscale_health.stdout }}"
+    
+    - set_fact:
+        final_auto_health: "<TD>'{{ as_health | replace('[', '') | replace(']', '') }}'</TD>"
+
+    - debug:
+        msg: "{{ final_auto_health }}"
+
+        # activity description
+    - name: get the activity description
+      command:  turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-scaling-activities --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }}  --query 'Activities[].Description' --output json
+      register: activity_Des
+
+    - fail:
+        msg: "Failed to Fetch Instance ID"
+      when: activity_Des.stderr != ""
+
+    - set_fact:
+        activity_description: "{{ activity_Des.stdout }}"
+
+    - debug:
+        msg: "First : {{ activity_description[0] }}"
+
+    - debug:
+        msg: "Second : {{ activity_description[1] }}"
+
+    - set_fact:
+        First_Des: "{{ activity_description[0] }}"
+        Second_Des: "{{ activity_description[1] }}"
+ 
+    - set_fact:
+        final_activity: "<TD>' {{ First_Des }}, {{ Second_Des }} '</TD>"    
+        
+    # Activiy statuscode
+    - name: Describe Activiy statuscode
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }}  --query 'Activities[].StatusCode' --output json
+      register: activity_status
+
+    - fail:
+        msg: "Failed to Fetch Target Health"
+      when: activity_status.stderr != ""
+
+    - set_fact:
+        activity_statusCode: "{{ activity_status.stdout }}"
+
+    - set_fact:
+        Status_code: "<TD>'{{ activity_statusCode | replace('[', '') | replace(']', '') }}'</TD>"
+
+    - debug:
+        msg: "{{ Status_code }}"        
+        
+    # start time
+    - name: get the activity details
+      command:  turbot-aws -a aau --role-name=admin autoscaling describe-scaling-activities --auto-scaling-group-name aau-Biogen-Dev-ALB-0001762 --region us-east-1 --query 'Activities[].StartTime' --output json
+      register: Act_start_time
+
+    - fail:
+        msg: "Failed to Fetch Instance ID"
+      when: Act_start_time.stderr != ""
+
+    - set_fact:
+        start_time_activity: "{{ Act_start_time.stdout }}"
+
+    - debug:
+        msg: "start time: {{ start_time_activity[0] }}"
+
+    - debug:
+        msg: "start time: {{ start_time_activity[1] }}"
+
+    - set_fact:
+        first_start_time: "{{ start_time_activity[0] }}"
+        second_start_time: "{{ start_time_activity[1] }}"
+
+    # End time
+    - name: get the activity details
+      command:  turbot-aws -a aau --role-name=admin autoscaling describe-scaling-activities --auto-scaling-group-name aau-Biogen-Dev-ALB-0001762 --region us-east-1 --query 'Activities[].EndTime' --output json
+      register: Act_end_time
+
+    - fail:
+        msg: "Failed to Fetch Instance ID"
+      when: Act_end_time.stderr != ""
+
+    - set_fact:
+        end_time_activity: "{{ Act_end_time.stdout }}"
+
+    - debug:
+        msg: "End time: {{ end_time_activity[0] }}"
+
+    - debug:
+        msg: "End time: {{ end_time_activity[1] }}"
+
+    - set_fact:
+        first_end_time: "{{ end_time_activity[0] }}"
+        second_end_time: "{{ end_time_activity[1] }}"
+
+    # Describe Listeners Port
+    - name: Describe Listeneres Port
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-listeners --load-balancer-arn {{ alb_arn }} --region {{ av_zone }} --query 'Listeners[*].Port' --output text
+      register: describe_listeners_port
+
+    - fail:
+        msg: "Failed to Fetch Listeners Port"
+      when: describe_listeners_port.stderr != ""
+
+    - set_fact:
+        listeners_port: "{{ describe_listeners_port.stdout }}"
+
+    - debug:
+        msg: "{{ listeners_port }}"
+
+    # Describe Protocol
+    - name: Describe Listeneres Protocol
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-listeners --load-balancer-arn {{ alb_arn }} --region {{ av_zone }} --query 'Listeners[*].Protocol' --output text
+      register: describe_listeners_protocol
+
+    - fail:
+        msg: "Failed to Fetch Listeners Protocol"
+      when: describe_listeners_protocol.stderr != ""
+
+    - set_fact:
+        listeners_protocol: "{{ describe_listeners_protocol.stdout }}"
+
+    - debug:
+        msg: "{{ listeners_protocol }}"
+
+     # creating tmp folder with ctask number on remote machine
+
+    - name: creating {{ ctask_number }} directory in tmp folder
+      file:
+        path: /Linux_Qualify/ELB/{{ ctask_number }}
+        state: directory
+      become: true
+      delegate_to: localhost
+      register: create_directory
+
+    - debug:
+        msg: "{{ create_directory }}"
+
+    # - fail:
+    #     msg: "Failed to Create Directory"
+    #   when: create_directory.rc != 0
+    - debug:
+        msg:
+          - "{{ ctask_number }}  {{ alb_arn }}{{ final_name }} {{ final_time }} {{ final_username }} {{ final }} {{ values_final }} {{ tg }} {{ final_target_health }} {{ max_size }} {{ min_size }} {{ desired_capacity }} {{ Auto_Instance }} {{ as_health }} {{ aws_account_id }} {{ final_instance_ID }} {{ final_zones }}"
+
+    # POST EVIDENCE REPORT
+    # - name: Generate the pre check html report
+    #   #command: sh /home/svc-linux-snow/vpc/evidence.sh {{ new_vpc_id }} {{ first_subnet }} {{ second_subnet }} {{ subnet_value1 }} {{ subnet_value2 }} {{ new_route_table_id }} {{ number }} {{ cidr_range }} {{ av_zone }} {{ an }} {{ az }}
+    #   command: sh /home/svc-linux-snow/elb/evidence_new.sh {{ ctask_number }}  {{ alb_arn }} {{ final_name }} {{ final_time }} {{ final_username }} {{ final }} {{ values_final }} {{ tg }} {{ final_target_health }} {{ max_size }} {{ min_size }} {{ desired_capacity }} {{ listeners_port }} {{ listeners_protocol }} {{ aws_account_id }} {{ final_instance_ID }} {{ final_zones }}
+    #   register: elb_html_evidence
+    #   become: true
+    #   # when: associate_route_table_1.stderr == "" and associate_route_table_1.stderr == ""
+    #   delegate_to: localhost
+
+    # POST EVIDENCE REPORT
+    - name: Generate the pre check html report
+      #command: sh /home/svc-linux-snow/vpc/evidence.sh {{ new_vpc_id }} {{ first_subnet }} {{ second_subnet }} {{ subnet_value1 }} {{ subnet_value2 }} {{ new_route_table_id }} {{ number }} {{ cidr_range }} {{ av_zone }} {{ an }} {{ az }}
+      command: sh /home/svc-linux-snow/autoscaling/report.sh {{ ctask_number }} {{ aws_account_id }} {{ final_name }} {{ final_time }} {{ final_username }} {{ final }} {{ values_final }} {{ tg }} {{ final_target_health }} {{ final_instance_ID }} {{ zone1 }} {{ zone2 }} {{ Instance_type }} {{ final_auto_health  }} {{ template_name }} {{ template_id }} {{ desired_capacity  }} {{ min_size }} {{ max_size }} {{ listeners_port }} {{ listeners_protocol }} {{ final_activity }} {{ Status_code  }} {{ first_start_time }} {{ first_end_time }} 
+      register: elb_html_evidence
+      become: true
+      # when: associate_route_table_1.stderr == "" and associate_route_table_1.stderr == ""
+      delegate_to: localhost
+
+    - fail:
+        msg: "Failed to Generate HTML Report"
+      when: elb_html_evidence.rc != 0
+
+    #POST CHECK PDF REPORT
+    - name: Generate Post Check PDF File
+      shell: /usr/local/bin/wkhtmltopdf /Linux_Qualify/ELB/{{ ctask_number }}/ELB_Evidence.html /Linux_Qualify/ELB/{{ ctask_number }}/ELB_Evidence.pdf
+      become: true
+      register: generate_pdf_report
+      # when: associate_route_table_1.stderr == "" and associate_route_table_1.stderr == ""
+      delegate_to: localhost
+
+    - fail:
+        msg: "Generating PDF Report Failed"
+      when: generate_pdf_report.rc != 0
+
+    - debug:
+        msg: "PDF Generated Successfully"
+      when:
+        - generate_pdf_report.rc == 0
+        
+
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+ALB_Prod/non_prod.yml
+
+---
+turbot_access_key_id: ""
+turbot_secret_access_key: ""
+...
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+ALB_Prod/prod.yml
+
+---
+turbot_access_key_id: ""
+turbot_secret_access_key: ""
+...
+
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+ALB_Prod/report.sh
+
+#!/bin/sh
+number=$1
+account=$2
+et_name=$3
+et_time=$4
+et_username=$5
+et_keys=$6
+et_values=$7
+tg=$8
+tg_health=$9
+instance_ID=${10}
+zone1=${11}
+zone2=${12}
+Instance_type=${13}
+final_auto_health=${14}
+template_name=${15}
+template_id=${16}
+desired_capacity=${17}
+min_size=${18}
+max_size=${19}
+listeners_port=${20}
+listeners_protocol=${21}
+first_activity=${22}
+second_activity=${23}
+
+#---create report
+(
+echo '<HTML><HEAD><TITLE>ALB STATUS</TITLE></HEAD><BODY>'
+
+echo ' <table width=100% border=1>'
+echo ' <tr> <br> </tr>
+        <tr>
+            <th class="label" colspan=2> Application Load Balancer Evidence </th>
+        </tr>
+        <tr>
+            <td><b> AWS Account Name </b></td>
+            <td>'$account'</td>
+        </tr>
+        <tr>
+            <td><b> Logon ID used for this test </b></td>
+            <td>svc-linux-snow</td>
+        </tr>
+        <tr>
+            <td><b> Report Date and Time </b></td>
+            <td>'$(date '+%d%b%Y %H%M |%Z')'</td>
+        </tr>
+    </table><BR /><BR />'
+echo '<table width=100% border=1>
+<TR><TH>Event Name</TH>
+<TH>Event Time</TH>
+<TH>Event UserName</TH>'
+
+echo '<TR>
+'$et_name'
+'$et_time'
+'$et_username'
+</TR>'
+echo '</tbody></table>'
+echo '&nbsp<table width=100% border=1>
+<TR><TH>Tag Key (Event Keys)</TH>
+<TH>Tag Value (Event Values)</TH>'
+
+echo '<TR>
+'$et_keys'
+'$et_values'
+</TR>'
+echo '</tbody></table>'
+
+echo '&nbsp<table width=100% border=1>
+<TR><TH>Target Group</TH>
+<TH>Target Group Health</TH>'
+echo '<TR>
+<TD ALIGN=CENTER>'$tg'</TD>
+'$tg_health'
+</TR>'
+echo '</tbody></table>'
+
+echo '&nbsp<table width=100% border=1>
+<TR><TH>Instance ID mapped to the ALB</TH>
+<TH>Instance Region</TH>
+<TH>Instance Type</TH>
+<TH>Health status</TH>'
+echo '<TR>
+'$instance_ID'
+<TD>'${zone1}, ${zone2}'</TD>
+'$Instance_type'
+'$final_auto_health'
+</TR>'
+echo '</tbody></table>'
+
+echo '&nbsp<table width=100% border=1>
+<TR><TH>Template Name</TH>
+<TH>Template ID</TH></TR>'
+echo '<TR>
+<TD ALIGN=CENTER>'$template_name'</TD>
+<TD ALIGN=CENTER>'$template_id'</TD></TR>'
+echo '</tbody></table>'
+
+echo '&nbsp<table width=100% border=1>
+<TR><TH>Desired Capacity</TH>
+<TH>Min size</TH>
+<TH>Max size</TH></TR>'
+echo '<TR>
+<TD ALIGN=CENTER>'$desired_capacity'</TD>
+<TD ALIGN=CENTER>'$min_size'</TD>
+<TD ALIGN=CENTER>'$max_size'</TD></TR>'
+
+echo '</tbody></table>'
+echo '&nbsp<table width=100% border=1>
+<TR><TH>Activity Details</TH></TR>'
+echo '<TR>
+'$first_activity'</TR>
+<TR>'$second_activity'
+</TR>'
+echo '</tbody></table>'
+
+echo '&nbsp<table width=100% border=1>
+<TR><TH>Listener Port</TH>
+<TH>Listener Protocol</TH></TR>'
+echo '<TR>
+<TD ALIGN=CENTER>'$listeners_port'</TD>
+<TD ALIGN=CENTER>'$listeners_protocol'</TD></TR>'
+
+echo '</tbody></table></body></html>'
+
+echo '&nbsp'
+echo ' Note: svc-linux-snow is an automation service account and it has admin access on all the cloud accounts.'
+) > /Linux_Qualify/ELB/$number/ELB_Evidence.html
+
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+ALB_Prod/report_new.sh
+
+ #!/bin/sh
+number=$1
+account=$2
+et_name=$3
+et_time=$4
+et_username=$5
+et_keys=$6
+et_values=$7
+tg=$8
+instance_ID=${9}
+zone1=${10}
+zone2=${11}
+Instance_type=${12}
+final_auto_health=${13}
+template_name=${14}
+template_id=${15}
+desired_capacity=${16}
+min_size=${17}
+max_size=${18}
+listeners_port=${19}
+listeners_protocol=${20}
+first_activity=${21}
+second_activity=${22}
+Image_id=${23}
+auto_scaling=${24}
+
+#---create report
+(
+echo '<HTML><HEAD><TITLE>ALB STATUS</TITLE></HEAD><BODY>'
+
+echo ' <table width=100% border=1>'
+echo ' <tr> <br> </tr>
+        <tr>
+            <th class="label" colspan=2> Autoscaling Evidence </th>
+        </tr>
+        <tr>
+            <td><b> AWS Account Name </b></td>
+            <td>'$account'</td>
+        </tr>
+        <tr>
+            <td><b> Logon ID used for this test </b></td>
+            <td>svc-linux-snow</td>
+        </tr>
+        <tr>
+            <td><b> Report Date and Time </b></td>
+            <td>'$(date '+%d%b%Y %H%M |%Z')'</td>
+        </tr>
+    </table><BR /><BR />'
+
+echo '&nbsp<table width=100% border=1>
+<TR><TH>AMI ID</TH>
+<TH>Autoscaling Group Name</TH></TR>'
+echo '<TR>
+<TD ALIGN=CENTER>'$Image_id'</TD>
+<TD ALIGN=CENTER>'$auto_scaling'</TD></TR>'
+echo '</tbody></table>'
+
+echo '&nbsp<table width=100% border=1>
+<TR><TH>Instance Names mapped to the ALB</TH>
+<TH>Instance Region</TH>
+<TH>Instance Type</TH>
+<TH>Health status</TH>'
+echo '<TR>
+'$instance_ID'
+<TD>'${zone1}, ${zone2}'</TD>
+'$Instance_type'
+'$final_auto_health'
+</TR>'
+echo '</tbody></table>'
+
+echo '&nbsp<table width=100% border=1>
+<TR><TH>Template Name</TH>
+<TH>Template ID</TH></TR>'
+echo '<TR>
+<TD ALIGN=CENTER>'$template_name'</TD>
+<TD ALIGN=CENTER>'$template_id'</TD></TR>'
+echo '</tbody></table>'
+
+echo '&nbsp<table width=100% border=1>
+<TR><TH>Desired Capacity</TH>
+<TH>Min size</TH>
+<TH>Max size</TH></TR>'
+echo '<TR>
+<TD ALIGN=CENTER>'$desired_capacity'</TD>
+<TD ALIGN=CENTER>'$min_size'</TD>
+<TD ALIGN=CENTER>'$max_size'</TD></TR>'
+
+echo '</tbody></table>'
+echo '&nbsp<table width=100% border=1>
+<TR><TH>Activity Details</TH></TR>'
+echo '<TR>
+'$first_activity'</TR>
+<TR>'$second_activity'
+</TR>'
+
+echo '</tbody></table></body></html>'
+
+echo '&nbsp'
+echo ' Note: svc-linux-snow is an automation service account and it has admin access on all the cloud accounts.'
+) > /Linux_Qualify/ALB/$number/ALB_Evidence.html
+
+
+
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+ALB_Prod/test.yml
+---
+- name: VPC Provision
+  hosts: localhost
+  gather_facts: no
+  become_method: sudo
+  become_user: root
+  connection: local
+  tasks:
+    - set_fact:
+        # aws_environment: "non-prod"
+        aws_account_type: "aws_environment[0]"
+        # av_zone: "us-east-1" #"{{ az }}"
+        # aws_account_id: "aau"
+        # aws_environment: "non-prod"
+        # alb_name: "aau-Biogen-Dev-ALB-0001598"
+        # auto_scaling: "aau-Biogen-Dev-ALB-0001598"
+        # ctask_number: "Testing"
+      tags: variables
+
+    - set_fact:
+        env: "dev"
+      when: aws_account_type != "P"
+
+    - set_fact:
+        env: "prod"
+      when: aws_account_type == "P"
+
+    - name: AWS Prod keys information
+      include_vars: prod.yml
+      when: aws_account_type == "P"
+      delegate_to: localhost
+      tags: aws_configure_keys
+    - name: AWS Non-Prod keys information
+      include_vars: non_prod.yml
+      when: aws_account_type != "P"
+      delegate_to: localhost
+      tags: aws_configure_keys
+
+    - name: Setting up turbot aws cli for Prod servers
+      command:  "{{ item }}"
+      with_items:
+        - aws configure set default.turbot_host console.prod.amazon.biogen.com
+        - aws configure set default.turbot_access_key_id {{ turbot_access_key_id }}
+        - aws configure set default.turbot_secret_access_key {{ turbot_secret_access_key }}
+        - aws configure set default.turbot_account_id {{ aws_account_id }}
+      register: set_aws_cli
+      delegate_to: localhost
+      when: aws_account_type == "P"
+     # no_log: true
+      tags: aws_configure
+
+    - name: Setting up turbot aws cli for Non Prod servers
+      command:  "{{ item }}"
+      with_items:
+        - aws configure set default.turbot_host console.nonprod.amazon.biogen.com
+        - aws configure set default.turbot_access_key_id {{ turbot_access_key_id }}
+        - aws configure set default.turbot_secret_access_key {{ turbot_secret_access_key }}
+        - aws configure set default.turbot_account_id {{ aws_account_id }}
+#      no_log: true
+      when: aws_account_type != "P"
+      register: set_aws_cli
+      tags: aws_configure
+
+# turbot-aws -a aau --role-name=admin elbv2 describe-load-balancers --names  aau-Biogen-Dev-ALB-0001615 --region us-east-1 --output text --query 'LoadBalancers[0].LoadBalancerArn'
+    # Describe Load Balancers
+    - name: Describe Load Balancers
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-load-balancers --names {{ alb_name }} --region {{ av_zone }} --output text --query 'LoadBalancers[0].LoadBalancerArn'
+      register: describe_load
+
+    - fail:
+        msg: "Failed to fetch the Load Balencer Information"
+      when: describe_load.stderr != ""
+
+    - set_fact:
+        alb_arn: "{{ describe_load.stdout }}"
+
+    - debug:
+        msg: "{{ alb_arn }}"
+
+    # Cloud Trail Event Name
+    - name: Cloud Trail event name
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin cloudtrail lookup-events --lookup-attributes AttributeKey=ResourceName,AttributeValue={{ alb_arn }} AttributeKey=EventName,AttributeValue=CreateLoadBalancer --region {{ av_zone }} --query 'Events[*].EventName' --output json
+      register: event_name
+
+    - fail:
+        msg: "Failed to Fetch Cloud Trail Event Name"
+      when: event_name.stderr != ""
+
+    - set_fact:
+        et_name: "{{ event_name.stdout }}"
+    - set_fact:
+        final_name: "<TD>'{{ et_name | replace('[', '') | replace(']', '') }}'</TD>"
+    - debug:
+        msg: "Final Name: {{ final_name }}"
+
+    # Cloud Trail Event Time
+    - name: cloud trail event time
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin cloudtrail lookup-events --lookup-attributes AttributeKey=ResourceName,AttributeValue={{ alb_arn }} AttributeKey=EventName,AttributeValue=CreateLoadBalancer --region {{ av_zone }} --query 'Events[*].EventTime' --output json
+      register: event_time
+
+    - fail:
+        msg: "Failed to Fetch Cloud Trail Event Time"
+      when: event_time.stderr != ""
+
+    - set_fact:
+        et_time: "{{ event_time.stdout }}"
+
+    - set_fact:
+        final_time: "<TD>'{{ et_time | replace('[', '') | replace(']', '') }}'</TD>"
+
+    - debug:
+        msg: "Final Time: {{ final_time }}"
+
+    # Cloud Trail Username
+    - name: Cloud Trail username
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin cloudtrail lookup-events --lookup-attributes AttributeKey=ResourceName,AttributeValue={{ alb_arn }} AttributeKey=EventName,AttributeValue=CreateLoadBalancer --region {{ av_zone }} --query 'Events[*].Username' --output json
+      register: event_username
+
+    - fail:
+        msg: "Failed to Fetch Cloud Trail Event User Name"
+      when: event_username.stderr != ""
+
+    - set_fact:
+        et_username: "{{ event_username.stdout }}"
+
+    - set_fact:
+        final_username: "<TD>'{{ et_username | replace('[', '') | replace(']', '') }}'</TD>"
+
+    - debug:
+        msg: "Final UserName: {{ final_username }}"
+
+    # Tags Keys
+    - name: Tags Keys
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-tags --resource-arns {{ alb_arn }} --region {{ av_zone }} --query 'TagDescriptions[*].Tags[].Key' --output json
+      register: tags_keys
+
+    - fail:
+        msg: "Failed to Fetch Tags Keys"
+      when: tags_keys.stderr != ""
+
+    - set_fact:
+        et_keys: "{{ tags_keys.stdout }}"
+
+    - set_fact:
+        final_keys: "<TD>'{{ et_keys | replace('[', '') | replace(']', '') }}'</TD>"
+
+    - set_fact:
+        final: "{{ final_keys | replace(' ', '_') | replace(',_', ',') }}"
+
+    - debug:
+        msg: "Tags Values: {{ et_keys }}"
+
+    - debug:
+        msg: "Tags Keys: {{ final }}"
+
+    # Tags Values
+    - name: Tags Values
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-tags --resource-arns {{ alb_arn }} --region {{ av_zone }} --query 'TagDescriptions[*].Tags[].Value'  --output json
+      register: tags_values
+
+    - fail:
+        msg: "Failed to Fetch Tags Values"
+      when: tags_values.stderr != ""
+
+    - set_fact:
+        et_values: "{{ tags_values.stdout }}"
+
+    - set_fact:
+        final_values: "<TD>'{{ et_values | replace('[', '') | replace(']', '') }}'</TD>"
+
+    - set_fact:
+        values_final: "{{ final_values | replace(' ', '_') | replace(',_', ', ') }}"
+
+    - debug:
+        msg: "Tags Values: {{ final_values }}"
+
+    # Target Groups
+    - name: Target groups
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-target-groups --region {{ av_zone }} --load-balancer-arn {{ alb_arn }} --query 'TargetGroups[0].TargetGroupArn' --output json
+      register: target_groups
+
+    - fail:
+        msg: "Failed to Fetch Target Groups"
+      when: target_groups.stderr != ""
+
+    - set_fact:
+        tg: "{{ target_groups.stdout }}"
+
+    - debug:
+        msg: "{{ tg }}"
+
+
+    # Instance Details
+    - name: get the instance details
+      command:  turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-target-health --region {{ av_zone }} --target-group-arn {{ tg }} --query 'TargetHealthDescriptions[*].Target.Id' --output json
+      register: instance_id
+
+    - fail:
+        msg: "Failed to Fetch Instance ID"
+      when: instance_id.stderr != ""
+
+    - set_fact:
+        instance_ids: "{{ instance_id.stdout }}"
+
+    - debug:
+        msg: "First Instance: {{ instance_ids[0] }}"
+
+    - debug:
+        msg: "Second Instance: {{ instance_ids[1] }}"
+
+    - set_fact:
+        First_Instance: "{{ instance_ids[0] }}"
+        Second_Instance: "{{ instance_ids[1] }}"
+
+
+
+      # Get the Availability Zone
+    - name: Get the Availability Zone of the Instances
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin  ec2 describe-instances --instance-ids {{ First_Instance }} --region us-east-1 --output text --query 'Reservations[*].Instances[*].ImageId'
+      register: IMG_ID
+
+    - fail:
+        msg: "Failed to Fetch Availability Zone 1"
+      when: IMG_ID.stderr != ""
+
+    - set_fact:
+        Image_id: "{{ IMG_ID.stdout }}"
+
+    # Get the Availability Zone
+    - name: Get the Availability Zone of the Instances
+      command: turbot-aws -a {{ aws_account_id }} ec2 describe-instance-status --instance-id {{ First_Instance }} --region {{ av_zone }} --query 'InstanceStatuses[].AvailabilityZone' --output text
+      register: availability_zone1
+
+    - fail:
+        msg: "Failed to Fetch Availability Zone 1"
+      when: availability_zone1.stderr != ""
+
+    - set_fact:
+        zone1: "{{ availability_zone1.stdout }}"
+
+    # Get the Availability Zone
+    - name: Get the Availability Zone of the Instances
+      command: turbot-aws -a {{ aws_account_id }} ec2 describe-instance-status --instance-id {{ Second_Instance }} --region {{ av_zone }} --query 'InstanceStatuses[].AvailabilityZone' --output text
+      register: availability_zone2
+
+    - fail:
+        msg: "Failed to Fetch Availability Zone 2"
+      when: availability_zone2.stderr != ""
+
+    - set_fact:
+        zone2: "{{ availability_zone2.stdout }}"
+
+    - set_fact:
+        final_instance_ID: "<TD>' {{ First_Instance }}, {{ Second_Instance }} '</TD>"
+        final_zones: "<TD>' {{ zone1 }}, {{ zone2 }} '</TD>"
+
+    - debug:
+        msg:
+          - instance_ID: "Instance ID's: {{ First_Instance }}, {{ Second_Instance }}"
+          - zones: "Instance Zones: {{ zone1 }}, {{ zone2 }}"
+
+    # Describe Auto Scaling Groups Max size
+    - name: Describe Auto Scaling Groups Max Size
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[*].MaxSize' --output text
+      register: auto_scaling_max_size
+
+    - fail:
+        msg: "Failed to Fetch Max Size"
+      when: auto_scaling_max_size.stderr != ""
+
+    - set_fact:
+        max_size: "{{ auto_scaling_max_size.stdout }}"
+
+    - debug:
+        msg: "{{ max_size }}"
+
+    # Describe Auto Scaling Groups Min size
+    - name: Describe Auto Scaling Groups Min Size
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[*].MinSize' --output text
+      register: auto_scaling_min_size
+
+    - fail:
+        msg: "Failed to Fetch Min Size"
+      when: auto_scaling_min_size.stderr != ""
+
+    - set_fact:
+        min_size: "{{ auto_scaling_min_size.stdout }}"
+
+    - debug:
+        msg: "{{ min_size }}"
+
+    # Describe Auto Scaling Groups desired Capacity
+    - name: Describe Auto Scaling Groups Desired Capacity
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[*].DesiredCapacity' --output text
+      register: auto_scaling_desired_capacity
+
+    - fail:
+        msg: "Failed to Fetch Auto Scaling Desired Capacity"
+      when: auto_scaling_desired_capacity.stderr != ""
+
+    - set_fact:
+        desired_capacity: "{{ auto_scaling_desired_capacity.stdout }}"
+
+    - debug:
+        msg: "{{ desired_capacity }}"
+
+    # Describe Auto Scaling Groups InstanceType
+    - name: Describe Auto Scaling Groups InstanceType
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[].Instances[].InstanceType' --output json
+      register: auto_scaling_Instance_type
+
+    - fail:
+        msg: "Failed to Fetch Instance Type"
+      when: auto_scaling_Instance_type.stderr != ""
+
+    - set_fact:
+        Auto_Instance: "{{ auto_scaling_Instance_type.stdout }}"
+
+    - set_fact:
+        Instance_type: "<TD>'{{ Auto_Instance | replace('[', '') | replace(']', '') }}'</TD>"
+
+    - debug:
+        msg: "{{ Instance_type }}"
+
+
+    # Describe Auto Scaling Groups LaunchTemplate ID
+    - name: Describe Auto Scaling Groups LaunchTemplate ID
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[].LaunchTemplate[].LaunchTemplateId' --output text
+      register: auto_scaling_template_id
+
+    - fail:
+        msg: "Failed to Fetch LaunchTemplate ID"
+      when: auto_scaling_template_id.stderr != ""
+
+    - set_fact:
+        template_id: "{{ auto_scaling_template_id.stdout }}"
+
+    - debug:
+        msg: "{{ template_id }}"
+
+    # Describe Auto Scaling Groups LaunchTemplate Name
+    - name: Describe Auto Scaling Groups LaunchTemplate Name
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[].LaunchTemplate[].LaunchTemplateName' --output text
+      register: auto_scaling_template_name
+
+    - fail:
+        msg: "Failed to Fetch LaunchTemplate Name"
+      when: auto_scaling_template_name.stderr != ""
+
+    - set_fact:
+        template_name: "{{ auto_scaling_template_name.stdout }}"
+
+    - debug:
+        msg: "{{ template_name }}"
+
+    # Describe Auto Scaling Groups Health
+    - name: Describe Auto Scaling Groups health status
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }}  --query 'AutoScalingGroups[].Instances[].HealthStatus' --output json
+      register: autoscale_health
+
+    - fail:
+        msg: "Failed to Fetch Target Health"
+      when: autoscale_health.stderr != ""
+
+    - debug:
+        msg: "Target group is Unhealthy"
+      when: "'unhealthy' in autoscale_health.stdout"
+        
+    - set_fact:
+        as_health: "{{ autoscale_health.stdout }}"
+
+    - set_fact:
+        final_auto_health: "<TD>'{{ as_health | replace('[', '') | replace(']', '') }}'</TD>"
+
+    - debug:
+        msg: "{{ final_auto_health }}"
+
+    # activity description
+    - name: get the activity description
+      command:  turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-scaling-activities --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }}  --query 'Activities[].Description' --output json
+      register: activity_Des
+
+    - fail:
+        msg: "Failed to Fetch Instance ID"
+      when: activity_Des.stderr != ""
+
+    - set_fact:
+        activity_description: "{{ activity_Des.stdout }}"
+
+    - debug:
+        msg: "First : {{ activity_description[0] }}"
+
+    - debug:
+        msg: "Second : {{ activity_description[1] }}"
+
+    - set_fact:
+        First_Des: "{{ activity_description[0] }}"
+        Second_Des: "{{ activity_description[1] }}"
+
+    # Activiy statuscode
+    - name: Describe Activiy statuscode
+      command: turbot-aws -a aau --role-name=admin autoscaling describe-scaling-activities --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'Activities[].StatusCode' --output json
+      register: activity_status
+
+    - fail:
+        msg: "Failed to Fetch Target Health"
+      when: activity_status.stderr != ""
+
+    - set_fact:
+        activity_statuscode: "{{ activity_status.stdout }}"
+
+    - debug:
+        msg: "First : {{ activity_statuscode[0] }}"
+
+    - debug:
+        msg: "Second : {{ activity_statuscode[1] }}"
+
+    - set_fact:
+        First_statuscode: "{{ activity_statuscode[0] }}"
+        Second_statuscode: "{{ activity_statuscode[1] }}"
+
+    # start time
+    - name: get the activity details
+      command:  turbot-aws -a aau --role-name=admin autoscaling describe-scaling-activities --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'Activities[].StartTime' --output json
+      register: Act_start_time
+
+    - fail:
+        msg: "Failed to Fetch Instance ID"
+      when: Act_start_time.stderr != ""
+
+    - set_fact:
+        start_time_activity: "{{ Act_start_time.stdout }}"
+
+    - debug:
+        msg: "start time: {{ start_time_activity[0] }}"
+
+    - debug:
+        msg: "start time: {{ start_time_activity[1] }}"
+
+    - set_fact:
+        first_start_time: "{{ start_time_activity[0] }}"
+        second_start_time: "{{ start_time_activity[1] }}"
+
+    # End time
+    - name: get the activity details
+      command:  turbot-aws -a aau --role-name=admin autoscaling describe-scaling-activities --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'Activities[].EndTime' --output json
+      register: Act_end_time
+
+    - fail:
+        msg: "Failed to Fetch Instance ID"
+      when: Act_end_time.stderr != ""
+
+    - set_fact:
+        end_time_activity: "{{ Act_end_time.stdout }}"
+
+    - debug:
+        msg: "End time: {{ end_time_activity[0] }}"
+
+    - debug:
+        msg: "End time: {{ end_time_activity[1] }}"
+
+    - set_fact:
+        first_end_time: "{{ end_time_activity[0] }}"
+        second_end_time: "{{ end_time_activity[1] }}"
+
+    - set_fact:
+        first_activity: "<TD>' Activity description: {{ First_Des }} <br> statuscode:{{ First_statuscode }} <br> starttime:{{ first_start_time }} <br> endtime:{{ first_end_time }} '</TD>"
+        second_activity: "<TD>' Activity description: {{ Second_Des }} <br> statuscode: {{ Second_statuscode }} <br> starttime: {{ second_start_time }} <br> endtime:{{ second_end_time }} '</TD>"
+
+    # Describe Listeners Port
+    - name: Describe Listeneres Port
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-listeners --load-balancer-arn {{ alb_arn }} --region {{ av_zone }} --query 'Listeners[*].Port' --output text
+      register: describe_listeners_port
+
+    - fail:
+        msg: "Failed to Fetch Listeners Port"
+      when: describe_listeners_port.stderr != ""
+
+    - set_fact:
+        listeners_port: "{{ describe_listeners_port.stdout }}"
+
+    - debug:
+        msg: "{{ listeners_port }}"
+
+    # Describe Protocol
+    - name: Describe Listeneres Protocol
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-listeners --load-balancer-arn {{ alb_arn }} --region {{ av_zone }} --query 'Listeners[*].Protocol' --output text
+      register: describe_listeners_protocol
+
+    - fail:
+        msg: "Failed to Fetch Listeners Protocol"
+      when: describe_listeners_protocol.stderr != ""
+
+    - set_fact:
+        listeners_protocol: "{{ describe_listeners_protocol.stdout }}"
+
+    - debug:
+        msg: "{{ listeners_protocol }}"
+
+     # creating tmp folder with ctask number on remote machine
+
+    - name: creating {{ ctask_number }} directory in tmp folder
+      file:
+        path: /Linux_Qualify/ALB/{{ ctask_number }}
+        state: directory
+      become: true
+      delegate_to: localhost
+      register: create_directory
+
+    - debug:
+        msg: "{{ create_directory }}"
+
+    # - fail:
+    #     msg: "Failed to Create Directory"
+    #   when: create_directory.rc != 0
+    - debug:
+        msg:
+          - "{{ ctask_number }}  {{ alb_arn }}{{ final_name }} {{ final_time }} {{ final_username }} {{ final }} {{ values_final }} {{ tg }} {{ max_size }} {{ min_size }} {{ desired_capacity }} {{ Auto_Instance }} {{ as_health }} {{ aws_account_id }} {{ final_instance_ID }} {{ final_zones }}"
+
+    # POST EVIDENCE REPORT
+    # - name: Generate the pre check html report
+    #   #command: sh /home/svc-linux-snow/vpc/evidence.sh {{ new_vpc_id }} {{ first_subnet }} {{ second_subnet }} {{ subnet_value1 }} {{ subnet_value2 }} {{ new_route_table_id }} {{ number }} {{ cidr_range }} {{ av_zone }} {{ an }} {{ az }}
+    #   command: sh /home/svc-linux-snow/elb/evidence_new.sh {{ ctask_number }}  {{ alb_arn }} {{ final_name }} {{ final_time }} {{ final_username }} {{ final }} {{ values_final }} {{ tg }} {{ final_target_health }} {{ max_size }} {{ min_size }} {{ desired_capacity }} {{ listeners_port }} {{ listeners_protocol }} {{ aws_account_id }} {{ final_instance_ID }} {{ final_zones }}
+    #   register: elb_html_evidence
+    #   become: true
+    #   # when: associate_route_table_1.stderr == "" and associate_route_table_1.stderr == ""
+    #   delegate_to: localhost
+
+    # POST EVIDENCE REPORT
+    - name: Generate the pre check html report
+      #command: sh /home/svc-linux-snow/vpc/evidence.sh {{ new_vpc_id }} {{ first_subnet }} {{ second_subnet }} {{ subnet_value1 }} {{ subnet_value2 }} {{ new_route_table_id }} {{ number }} {{ cidr_range }} {{ av_zone }} {{ an }} {{ az }}
+      command: sh /home/svc-linux-snow/autoscaling/report_new.sh {{ ctask_number }} {{ aws_account_id }} {{ final_name }} {{ final_time }} {{ final_username }} {{ final }} {{ values_final }} {{ tg }} {{ final_instance_ID }} {{ zone1 }} {{ zone2 }} {{ Instance_type }} {{ final_auto_health  }} {{ template_name }} {{ template_id }} {{ desired_capacity  }} {{ min_size }} {{ max_size }} {{ listeners_port }} {{ listeners_protocol }} {{ first_activity }} {{ second_activity }} {{ Image_id }} {{ auto_scaling }} 
+      register: elb_html_evidence
+      become: true
+      # when: associate_route_table_1.stderr == "" and associate_route_table_1.stderr == ""
+      delegate_to: localhost
+
+    - fail:
+        msg: "Failed to Generate HTML Report"
+      when: elb_html_evidence.rc != 0
+
+    #POST CHECK PDF REPORT
+    - name: Generate Post Check PDF File
+      shell: /usr/local/bin/wkhtmltopdf /Linux_Qualify/ALB/{{ ctask_number }}/ALB_Evidence.html /Linux_Qualify/ALB/{{ ctask_number }}/ALB_Evidence.pdf
+      become: true
+      register: generate_pdf_report
+      # when: associate_route_table_1.stderr == "" and associate_route_table_1.stderr == ""
+      delegate_to: localhost
+
+    - fail:
+        msg: "Generating PDF Report Failed"
+      when: generate_pdf_report.rc != 0
+
+    - debug:
+        msg: "PDF Generated Successfully"
+      when:
+        - generate_pdf_report.rc == 0
+
+
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+
+ALB_Prod/upalb.yml
+
+
+---
+- name: VPC Provision
+  hosts: localhost
+  gather_facts: no
+  become_method: sudo
+  become_user: root
+  connection: local
+  tasks:
+    - set_fact:
+        # aws_environment: "non-prod"
+        aws_account_type: "aws_environment[0]"
+        # av_zone: "us-east-1" #"{{ az }}"
+        # aws_account_id: "aau"
+        # aws_environment: "non-prod"
+        # alb_name: "aau-Biogen-Dev-ALB-0001598"
+        # auto_scaling: "aau-Biogen-Dev-ALB-0001598"
+        # ctask_number: "Testing"
+      tags: variables
+
+    - set_fact:
+        env: "dev"
+      when: aws_account_type != "P"
+
+    - set_fact:
+        env: "prod"
+      when: aws_account_type == "P"
+
+    - name: AWS Prod keys information
+      include_vars: prod.yml
+      when: aws_account_type == "P"
+      delegate_to: localhost
+      tags: aws_configure_keys
+    - name: AWS Non-Prod keys information
+      include_vars: non_prod.yml
+      when: aws_account_type != "P"
+      delegate_to: localhost
+      tags: aws_configure_keys
+
+    - name: Setting up turbot aws cli for Prod servers
+      command:  "{{ item }}"
+      with_items:
+        - aws configure set default.turbot_host console.prod.amazon.biogen.com
+        - aws configure set default.turbot_access_key_id {{ turbot_access_key_id }}
+        - aws configure set default.turbot_secret_access_key {{ turbot_secret_access_key }}
+        - aws configure set default.turbot_account_id {{ aws_account_id }}
+      register: set_aws_cli
+      delegate_to: localhost
+      when: aws_account_type == "P"
+     # no_log: true
+      tags: aws_configure
+
+    - name: Setting up turbot aws cli for Non Prod servers
+      command:  "{{ item }}"
+      with_items:
+        - aws configure set default.turbot_host console.nonprod.amazon.biogen.com
+        - aws configure set default.turbot_access_key_id {{ turbot_access_key_id }}
+        - aws configure set default.turbot_secret_access_key {{ turbot_secret_access_key }}
+        - aws configure set default.turbot_account_id {{ aws_account_id }}
+#      no_log: true
+      when: aws_account_type != "P"
+      register: set_aws_cli
+      tags: aws_configure
+
+# turbot-aws -a aau --role-name=admin elbv2 describe-load-balancers --names  aau-Biogen-Dev-ALB-0001615 --region us-east-1 --output text --query 'LoadBalancers[0].LoadBalancerArn'
+    # Describe Load Balancers
+    - name: Describe Load Balancers
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-load-balancers --names {{ alb_name }} --region {{ av_zone }} --output text --query 'LoadBalancers[0].LoadBalancerArn'
+      register: describe_load
+
+    - fail:
+        msg: "Failed to fetch the Load Balencer Information"
+      when: describe_load.stderr != ""
+
+    - set_fact:
+        alb_arn: "{{ describe_load.stdout }}"
+
+    - debug:
+        msg: "{{ alb_arn }}"
+
+    # Target Groups
+    - name: Target groups
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-target-groups --region {{ av_zone }} --load-balancer-arn {{ alb_arn }} --query 'TargetGroups[0].TargetGroupArn' --output json
+      register: target_groups
+
+    - fail:
+        msg: "Failed to Fetch Target Groups"
+      when: target_groups.stderr != ""
+
+    - set_fact:
+        tg: "{{ target_groups.stdout }}"
+
+    - debug:
+        msg: "{{ tg }}"
+
+    # Instance Details
+    - name: get the instance details
+      command:  turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-target-health --region {{ av_zone }} --target-group-arn {{ tg }} --query 'TargetHealthDescriptions[*].Target.Id' --output json
+      register: instance_id
+
+    - fail:
+        msg: "Failed to Fetch Instance ID"
+      when: instance_id.stderr != ""
+
+    - set_fact:
+        instance_ids: "{{ instance_id.stdout }}"
+
+    - debug:
+        msg: "First Instance: {{ instance_ids[0] }}"
+
+    - debug:
+        msg: "Second Instance: {{ instance_ids[1] }}"
+
+
+    # Get the Availability Zone
+    - name: Get the Availability Zone of the Instances
+      command: turbot-aws -a {{ aws_account_id }} ec2 describe-instance-status --instance-id {{ item }} --region {{ av_zone }} --query 'InstanceStatuses[].AvailabilityZone' --output text
+      register: availability_zone1
+      loop: "{{ instance_ids }}"
+
+    - fail:
+        msg: "Failed to Fetch Availability Zone 1"
+      when: "'Error' in item.stderr"
+      loop: "{{ availability_zone1.results }}"
+
+    - set_fact:
+      #      zone1: "{{ item.stdout }}"
+        zone1: "{{ availability_zone1.results | map(attribute='stdout') | string  | replace('[', '') | replace(']', '') }}"
+      loop: "{{ availability_zone1.results }}"
+
+    - debug:
+        msg: "{{ zone1 }}"
+
+
+    - set_fact:
+        final_instance_ID: "<TD> {{ instance_ids  | replace('[', '') | replace(']', '') }} </TD>"
+        final_zones: "<TD>' {{ zone1 }} '</TD>"
+
+    - debug:
+        msg:
+          - instance_ID: "Instance ID's: {{ final_instance_ID }}"
+          - zones: "Instance Zones: {{ zone1 }}"
+
+    - name: Get the ImageName of the Instances
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin ec2 describe-instances --instance-ids {{ instance_ids[0]  }} --region us-east-1 --output text --query 'Reservations[*].Instances[*].ImageId'
+      register: IMG_ID
+
+    - fail:
+        msg: "Failed to Fetch Availability Zone 1"
+      when: IMG_ID.stderr != ""
+
+    - set_fact:
+        Image_id: "{{ IMG_ID.stdout }}"
+
+    # Describe Auto Scaling Groups Max size
+    - name: Describe Auto Scaling Groups Max Size
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[*].MaxSize' --output text
+      register: auto_scaling_max_size
+
+    - fail:
+        msg: "Failed to Fetch Max Size"
+      when: auto_scaling_max_size.stderr != ""
+
+    - set_fact:
+        max_size: "{{ auto_scaling_max_size.stdout }}"
+
+    - debug:
+        msg: "{{ max_size }}"
+
+    # Describe Auto Scaling Groups Min size
+    - name: Describe Auto Scaling Groups Min Size
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[*].MinSize' --output text
+      register: auto_scaling_min_size
+
+    - fail:
+        msg: "Failed to Fetch Min Size"
+      when: auto_scaling_min_size.stderr != ""
+
+    - set_fact:
+        min_size: "{{ auto_scaling_min_size.stdout }}"
+
+    - debug:
+        msg: "{{ min_size }}"
+
+    # Describe Auto Scaling Groups desired Capacity
+    - name: Describe Auto Scaling Groups Desired Capacity
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[*].DesiredCapacity' --output text
+      register: auto_scaling_desired_capacity
+
+    - fail:
+        msg: "Failed to Fetch Auto Scaling Desired Capacity"
+      when: auto_scaling_desired_capacity.stderr != ""
+
+    - set_fact:
+        desired_capacity: "{{ auto_scaling_desired_capacity.stdout }}"
+
+    - debug:
+        msg: "{{ desired_capacity }}"
+
+    # Describe Auto Scaling Groups InstanceType
+    - name: Describe Auto Scaling Groups InstanceType
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[].Instances[].InstanceType' --output json
+      register: auto_scaling_Instance_type
+
+    - fail:
+        msg: "Failed to Fetch Instance Type"
+      when: auto_scaling_Instance_type.stderr != ""
+
+    - set_fact:
+        Auto_Instance: "{{ auto_scaling_Instance_type.stdout }}"
+
+    - set_fact:
+        Instance_type: "<TD>{{ Auto_Instance | replace('[', '') | replace(']', '') }}</TD>"
+      #  Instance_type: "{{ auto_scaling_Instance_type.stdout }}"
+    - debug:
+        msg: "{{ Instance_type }}"
+
+
+    # Describe Auto Scaling Groups LaunchTemplate ID
+    - name: Describe Auto Scaling Groups LaunchTemplate ID
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[].LaunchTemplate[].LaunchTemplateId' --output text
+      register: auto_scaling_template_id
+
+    - fail:
+        msg: "Failed to Fetch LaunchTemplate ID"
+      when: auto_scaling_template_id.stderr != ""
+
+    - set_fact:
+        template_id: "{{ auto_scaling_template_id.stdout }}"
+
+    - debug:
+        msg: "{{ template_id }}"
+
+    # Describe Auto Scaling Groups LaunchTemplate Name
+    - name: Describe Auto Scaling Groups LaunchTemplate Name
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }} --query 'AutoScalingGroups[].LaunchTemplate[].LaunchTemplateName' --output text
+      register: auto_scaling_template_name
+
+    - fail:
+        msg: "Failed to Fetch LaunchTemplate Name"
+      when: auto_scaling_template_name.stderr != ""
+
+    - set_fact:
+        template_name: "{{ auto_scaling_template_name.stdout }}"
+
+    - debug:
+        msg: "{{ template_name }}"
+
+    # Describe Auto Scaling Groups Health
+    - name: Describe Auto Scaling Groups health status
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-auto-scaling-groups --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }}  --query 'AutoScalingGroups[].Instances[].HealthStatus' --output json
+      register: autoscale_health
+
+    - fail:
+        msg: "Failed to Fetch Target Health"
+      when: autoscale_health.stderr != ""
+
+    - debug:
+        msg: "Target group is Unhealthy"
+      when: "'unhealthy' in autoscale_health.stdout"        
+
+    - set_fact:
+        as_health: "{{ autoscale_health.stdout }}"
+
+    - set_fact:
+        final_auto_health: "<TD>{{ as_health | replace('[', '') | replace(']', '') }}</TD>"
+
+    - debug:
+        msg: "{{ final_auto_health }}"
+
+    # activity description
+    - name: get the activity description
+      command:  turbot-aws -a {{ aws_account_id }} --role-name=admin autoscaling describe-scaling-activities --auto-scaling-group-name {{ auto_scaling }} --region {{ av_zone }}  --query 'Activities[].Description' --output json
+      register: activity_Des
+
+    - fail:
+        msg: "Failed to Fetch Instance ID"
+      when: activity_Des.stderr != ""
+
+    - set_fact:
+        activity_description: "{{ activity_Des.stdout }}"
+
+    - debug:
+        msg: "First : {{ activity_description[0] }}"
+
+    - debug:
+        msg: "Second : {{ activity_description[1] }}"
+
+    - set_fact:
+        First_Des: "{{ activity_description[0] }}"
+        Second_Des: "{{ activity_description[1] }}"
+
+    # Activiy statuscode
+    - name: Describe Activiy statuscode
+      command: turbot-aws -a aau --role-name=admin autoscaling describe-scaling-activities --auto-scaling-group-name {{ auto_scaling }} --region us-east-1 --query 'Activities[].StatusCode' --output json
+      register: activity_status
+
+    - fail:
+        msg: "Failed to Fetch Target Health"
+      when: activity_status.stderr != ""
+
+    - set_fact:
+        activity_statuscode: "{{ activity_status.stdout }}"
+
+    - debug:
+        msg: "First : {{ activity_statuscode[0] }}"
+
+    - debug:
+        msg: "Second : {{ activity_statuscode[1] }}"
+
+    - set_fact:
+        First_statuscode: "{{ activity_statuscode[0] }}"
+        Second_statuscode: "{{ activity_statuscode[1] }}"
+
+    # start time
+    - name: get the activity details
+      command:  turbot-aws -a aau --role-name=admin autoscaling describe-scaling-activities --auto-scaling-group-name {{ auto_scaling }} --region us-east-1 --query 'Activities[].StartTime' --output json
+      register: Act_start_time
+
+    - fail:
+        msg: "Failed to Fetch Instance ID"
+      when: Act_start_time.stderr != ""
+
+    - set_fact:
+        start_time_activity: "{{ Act_start_time.stdout }}"
+
+    - debug:
+        msg: "start time: {{ start_time_activity[0] }}"
+
+
+    - debug:
+        msg: "start time: {{ start_time_activity[1] }}"
+
+    - set_fact:
+        first_start_time: "{{ start_time_activity[0] }}"
+        second_start_time: "{{ start_time_activity[1] }}"
+
+    # End time
+    - name: get the activity details
+      command:  turbot-aws -a aau --role-name=admin autoscaling describe-scaling-activities --auto-scaling-group-name {{ auto_scaling }} --region us-east-1 --query 'Activities[].EndTime' --output json
+      register: Act_end_time
+
+    - fail:
+        msg: "Failed to Fetch Instance ID"
+      when: Act_end_time.stderr != ""
+
+    - set_fact:
+        end_time_activity: "{{ Act_end_time.stdout }}"
+
+    - debug:
+        msg: "End time: {{ end_time_activity[0] }}"
+
+    - debug:
+        msg: "End time: {{ end_time_activity[1] }}"
+
+    - set_fact:
+        first_end_time: "{{ end_time_activity[0] }}"
+        second_end_time: "{{ end_time_activity[1] }}"
+
+    - set_fact:
+        first_activity: "<TD>' Activity description: {{  activity_description }} <br> statuscode:{{ activity_statuscode }} <br> starttime:{{ start_time_activity }} <br> endtime:{{ end_time_activity }} '</TD>"
+
+    # Describe Listeners Port
+    - name: Describe Listeneres Port
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-listeners --load-balancer-arn {{ alb_arn }} --region {{ av_zone }} --query 'Listeners[*].Port' --output text
+      register: describe_listeners_port
+
+    - fail:
+        msg: "Failed to Fetch Listeners Port"
+      when: describe_listeners_port.stderr != ""
+
+    - set_fact:
+        listeners_port: "{{ describe_listeners_port.stdout }}"
+
+    - debug:
+        msg: "{{ listeners_port }}"
+
+    # Describe Protocol
+    - name: Describe Listeneres Protocol
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin elbv2 describe-listeners --load-balancer-arn {{ alb_arn }} --region {{ av_zone }} --query 'Listeners[*].Protocol' --output text
+      register: describe_listeners_protocol
+
+    - fail:
+        msg: "Failed to Fetch Listeners Protocol"
+      when: describe_listeners_protocol.stderr != ""
+
+    - set_fact:
+        listeners_protocol: "{{ describe_listeners_protocol.stdout }}"
+
+    - debug:
+        msg: "{{ listeners_protocol }}"
+
+     # Get time format
+    - name: Get time format
+      command: date '+%d%b%Y %H%M |%Z'
+      register: time_format
+    - set_fact:
+        date_format: "{{ time_format.stdout }}"
+
+     # creating tmp folder with ctask number on remote machine
+
+    - name: creating {{ ctask_number }} directory in tmp folder
+      file:
+        path: /Linux_Qualify/ALB/{{ ctask_number }}
+        state: directory
+      become: true
+      delegate_to: localhost
+      register: create_directory
+
+    - debug:
+        msg: "{{ create_directory }}"
+
+    # - fail:
+    #     msg: "Failed to Create Directory"
+    #   when: create_directory.rc != 0
+    - debug:
+        msg:
+          - "{{ ctask_number }}  {{ alb_arn }} {{ tg }} {{ max_size }} {{ min_size }} {{ desired_capacity }} {{ Auto_Instance }} {{ as_health }} {{ aws_account_id }} {{ final_instance_ID }} {{ final_zones }}"
+
+
+    # POST EVIDENCE REPORT
+    - name: Generate the pre check html report
+      template:
+        src: /home/svc-linux-snow/autoscaling/report.j2
+        dest: /Linux_Qualify/ALB/{{ ctask_number }}/ALB_Evidence.html
+      #   register: elb_html_evidence
+      become: true
+      # when: associate_route_table_1.stderr == "" and associate_route_table_1.stderr == ""
+      delegate_to: localhost
+
+        #   - debug:
+        #     msg: "{{ elb_html_evidence }}"
+
+          #  - fail:
+          #      msg: "Failed to Generate HTML Report"
+          #   when: "'FAILED' in  item"
+          #    loop: "{{ elb_html_evidence }}"
+
+    #POST CHECK PDF REPORT
+    - name: Generate Post Check PDF File
+      shell: /usr/local/bin/wkhtmltopdf /Linux_Qualify/ALB/{{ ctask_number }}/ALB_Evidence.html /Linux_Qualify/ALB/{{ ctask_number }}/ALB_Evidence.pdf
+      become: true
+      register: generate_pdf_report
+        #   when: associate_route_table_1.stderr == "" and associate_route_table_1.stderr == ""
+      delegate_to: localhost
+
+    - fail:
+        msg: "Generating PDF Report Failed"
+      when: generate_pdf_report.rc != 0
+
+    - debug:
+        msg: "PDF Generated Successfully"
+      when:
+        - generate_pdf_report.rc == 0
+
+
+------------------------------------------------------------------------------------------------------------------------------------------------
+
+ALB_Prod/report.j2
+
+
+
+<HTML><HEAD><TITLE>ALB STATUS</TITLE></HEAD><BODY>
+
+<table width=100% border=1>
+<tr> <br> </tr>
+<tr>
+<th class="label" colspan=2> Autoscaling Evidence  </th>
+</tr>
+<tr>
+<td><b> AWS Account Name </b></td>
+<td>{{ aws_account_id }}</td>
+</tr>
+<tr>
+<td><b> Logon ID used for this test </b></td>
+<td>svc-linux-snow</td>
+</tr>
+<tr>
+<td><b> Report Date and Time </b></td>
+<td> {{ date_format }} </td>
+</tr>
+</table><BR /><BR />
+
+&nbsp<table width=100% border=1>
+<TR><TH>AMI ID</TH>
+<TH>Autoscaling Group Name</TH></TR>
+<TR>
+<TD ALIGN=CENTER> {{ Image_id }}</TD>
+<TD ALIGN=CENTER> {{ alb_name }}</TD>
+</TR>
+</tbody></table>
+
+&nbsp<table width=100% border=1>
+<TR><TH>Instance ID mapped to the ALB</TH>
+<TH>Instance Region</TH>
+<TH>Instance Type</TH>
+<TH>Health status</TH>
+<TR>
+{{ final_instance_ID }}
+
+{{ zone1 }}
+{{ Instance_type }}
+{{ final_auto_health }}
+</TR>
+</tbody></table>
+
+&nbsp<table width=100% border=1>
+<TR><TH>Template Name</TH>
+<TH>Template ID</TH></TR>
+<TR>
+<TD ALIGN=CENTER> {{ template_name }}</TD>
+<TD ALIGN=CENTER> {{ template_id }}</TD></TR>
+</tbody></table>
+
+&nbsp<table width=100% border=1>
+<TR><TH>Desired Capacity</TH>
+<TH>Min size</TH>
+<TH>Max size</TH></TR>
+<TR>
+<TD ALIGN=CENTER>{{ desired_capacity }}</TD>
+<TD ALIGN=CENTER>{{ min_size }}</TD>
+<TD ALIGN=CENTER>{{ max_size }}</TD></TR>
+</tbody></table>
+
+&nbsp<table width=100% border=1>
+<TR><TH>Activity Details</TH></TR>
+<TR>
+<TD> {% for i,j,k,l in activity_description|zip(activity_statuscode,start_time_activity,end_time_activity) %}
+<li>Active Description: {{ i }}</li>
+ statuscode: {{ j }} <br>
+ start_time: {{ k }} <br>
+ end_time: {{ l }}
+{% endfor %} </TD>
+</TR>
+
+
+</tbody></table></body></html>
+
+&nbsp
+ Note: svc-linux-snow is an automation service account and it has admin access on all the cloud accounts.
+
+
+

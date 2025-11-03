@@ -1,0 +1,2214 @@
+1. Get Ticket
+
+Pre Execution:
+
+Process.RunbookName = Process.InstanceName
+Process.RunbookID = Process.RuntimeROID
+var uri="https://"+Process.Instance+".service-now.com/api/now/table/task?sysparm_fields=number%2Cactive%2Csys_id%2Cincident_state%2Cdescription%2Cu_document_results%2Cassigned_to=SVC-itpam@biogen.com&sysparm_limit=1&number="+Process.CTASK_Number
+Process.url=uri
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  	Process.ReturnCode=0;
+	Process.ReturnMessage="Ticket details fetched successfully."
+   Process.Output=Process[OpName].HTTPResponseContent
+} 
+else if(Process[OpName].Reason.indexOf('non-success') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent  
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent
+
+}
+else
+{
+  	Process.ReturnCode=2;
+  	Process.ReturnMessage="Failure fetching ticket details."
+
+}
+
+2.Second Operator (Read)
+
+Inline:
+
+var str =Process.Output
+var start=str.indexOf('[')+2;
+var end=str.indexOf(']')-1;
+var res = str.substring(start,end);
+var out1= res.split(',');
+for(var i=0;i < out1.length;i++)
+{
+  out1[i]=out1[i].replace(/\"/g,"");
+  if(out1[i].indexOf('active')>=0)
+  {Process.active=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('sys_id')>=0)
+  {Process.Sys_Id=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('description')>=0)
+  {Process.description=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('incident_state')>=0)
+  {Process.Incidentstate=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('u_document_results')>=0)
+  {Process.document_results=(out1[i].split(':'))[1]}
+  out1[i]=(out1[i].split(':'))[1]
+}
+
+Post Execution:
+
+if(Process.active)
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket is active.";
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Ticket is inactive.";
+}
+
+3.Script
+
+Inline:
+
+Param(
+[String]$Sys_id,
+[String]$Instance
+)
+$sys_id = $Sys_id
+
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls, [Net.SecurityProtocolType]::Tls11, [Net.SecurityProtocolType]::Tls12, [Net.SecurityProtocolType]::Ssl3
+[Net.ServicePointManager]::SecurityProtocol = "Tls, Tls11, Tls12, Ssl3"
+$SNOWPassword="V2!RfaRE#%4GQ*J_"
+$password = ConvertTo-SecureString $SNOWPassword -AsPlainText -Force
+$Cred = New-Object System.Management.Automation.PSCredential ("svc_itpam", $password)
+
+$actual_start_date = Get-Date
+
+$update_ctask_work_start_uri = "https://$Instance.service-now.com/api/now/table/change_task/$sys_id"
+
+$Body1 = @{
+    "work_start"="$actual_start_date"
+}
+
+$BodyJson1 = $Body1 | ConvertTo-Json
+try {
+ Invoke-WebRequest -Uri $update_ctask_work_start_uri -Body $BodyJson1 -Credential $Cred -Method "PUT" -ContentType "application/json" -UseBasicParsing -ErrorAction stop
+ Write-host "Actual Start Date updated successfully"
+} catch {
+	Write-host $_.
+	Write-host "Update Actual Start Date Service NOW API failed"
+}
+
+Post Execution:
+
+if(Process[OpName].scriptOutput.indexOf('successfully') >= 0)
+{
+
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "CTASK actual start date updated successfully."
+
+}
+
+else if(Process[OpName].scriptOutput.indexOf('failed') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to update actual start date CTASK."
+
+}
+else 
+{
+	Process.ReturnCode = 2
+	Process.ReturnMessage = "Some error occurred while updating CTASK work in progress state in Service Now."
+	
+}
+
+4.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/change_task/"+Process.Sys_Id
+Process.updateWorkNotes = "<request><entry><state>2</state><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+" </work_notes></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket worknotes updated successfully."
+
+}
+else if(Process[OpName].Reason.indexOf('non-success') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else
+{
+    Process.ReturnCode=2;
+    Process.ReturnMessage="Failure updating ticket details."
+
+}
+
+5.Script
+
+Inline:
+
+Param($account_name)
+
+$aws_auth = Get-Content "\\usawsgabb0082\Linux_Prod\KION.txt"
+
+'kion'
+
+<#if($aws_auth -contains $account_name)
+{
+'kion'
+}
+else
+{
+'turbot'
+}#>
+
+Post Execution:
+
+if(Process[OpName].scriptOutput.indexOf('kion') >= 0)
+{
+	Process.auth_name = Process[OpName].scriptOutput
+	Process.ReturnCode = 1
+}
+else if(Process[OpName].scriptOutput.indexOf('turbot') >= 0)
+{
+  Process.auth_name = Process[OpName].scriptOutput
+  Process.ReturnCode = 1
+}
+else 
+{
+	Process.ReturnCode = 2
+	Process.ReturnMessage = "Unable to identify the account name is under Turbot or KION."
+}
+
+
+6.Linux Operator
+
+Pre Execution:
+
+if(Process.auth_name.indexOf('turbot') >= 0){
+Process.ansibleCommand = "ansible-playbook ~/prod_rds_start/main.yml -e 'acc_name="+Process.account_name+" az="+Process.available_zone+" env="+Process.env+" cn="+Process.CTASK_Number+" an="+Process.account_name+" ins="+Process.ins+"'"
+Process.ansible_hostname = "10.240.130.126"
+}
+else if(Process.auth_name.indexOf('kion') >= 0){
+Process.ansibleCommand = "ansible-playbook ~/prod_rds_start/main.yml -e 'acc_name="+Process.account_name+" role="+Process.role+" az="+Process.available_zone+" env="+Process.env+" cn="+Process.CTASK_Number+" an="+Process.account_name+" ins="+Process.ins+"'"
+Process.ansible_hostname = "10.240.151.74"
+}
+else
+{
+Process.ReturnCode = -1
+}
+
+Post Execution:
+
+if(Process[OpName].mainout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+
+}
+else if(Process[OpName].mainout.indexOf('failed=0') >= 0){
+Process.ReturnCode = 0
+Process.ReturnMessage =  "RDS Instance Started successfully."
+//Process.ReturnCode = 2
+//Process.ReturnMessage =  "Failed to Start the RDS instance."
+}
+
+else if(Process[OpName].mainout.indexOf('RDS Instance is already running') >= 0){
+  Process.ReturnCode = 4
+  Process.ReturnMessage = "RDS Instance is already in running state."
+
+}
+
+
+else if(Process[OpName].mainout.indexOf('File copy failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Copying file to Remote Server Failed."
+
+}
+
+else if(Process[OpName].mainout.indexOf('Unable to fetch RDS status') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Unable to fetch RDS status."
+
+}
+
+else if(Process[OpName].mainout.indexOf('Pre Check Report execution failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Pre Check Execution script Failed to Execute."
+
+}
+else if(Process[OpName].mainout.indexOf('Post Check Report execution failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Post Check Execution script Failed to Execute."
+
+}
+else if(Process[OpName].mainout.indexOf('Script execution failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Mounting Script Failed to Execute."
+
+}
+else if(Process[OpName].mainout.indexOf("'skipping: [localhost] => (item={u'Code': 16, u'Name': u'running'})'") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Skipping Server is already in running state."
+
+}
+
+else if(Process[OpName].mainout.indexOf('Pre check report fetch failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Pre check report fetch failed."
+
+}
+else if(Process[OpName].mainout.indexOf("the field 'args' has an invalid value") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Error occured while executing playbook."
+
+}
+else if(Process[OpName].mainout.indexOf(Process.ins+" does not exist") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage =Process.ins +" does not exist."
+
+}
+else if(Process[OpName].mainout.indexOf('Fetch Post Check HTML Report Failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Fetch Post Check HTML Report Failed."
+
+}
+else if(Process[OpName].mainout.indexOf('Generating Pre Check PDF Report Failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Generating Pre Check PDF Report Failed."
+
+}
+else if(Process[OpName].mainout.indexOf('Generating Post Check PDF Report Failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Generating Post Check PDF Report Failed."
+
+}
+else if(Process[OpName].mainout.indexOf('file not found') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "file not found."
+
+}
+else if(Process[OpName].mainout.indexOf('Error: Failed to load') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Generating PDF Failed."
+
+}
+else if(Process[OpName].mainout.indexOf('Failed to Start the RDS Instance') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Start the RDS Instance."
+
+}
+
+
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+
+}
+
+
+7.Linux Operator
+
+Pre Execution:
+
+if(Process.auth_name.indexOf('turbot') >= 0){
+Process.ansibleCommand = "ansible-playbook ~/prod_rds_start/main.yml -e 'acc_name="+Process.account_name+" az="+Process.available_zone+" env="+Process.env+" cn="+Process.CTASK_Number+" an="+Process.account_name+" ins="+Process.ins+"'"
+Process.ansible_hostname = "10.240.130.126"
+}
+else if(Process.auth_name.indexOf('kion') >= 0){
+Process.ansibleCommand = "ansible-playbook ~/prod_rds_start/main.yml -e 'acc_name="+Process.account_name+" role="+Process.role+" az="+Process.available_zone+" env="+Process.env+" cn="+Process.CTASK_Number+" an="+Process.account_name+" ins="+Process.ins+"'"
+Process.ansible_hostname = "10.240.151.74"
+}
+else
+{
+Process.ReturnCode = -1
+}
+
+Post Execution:
+
+if(Process[OpName].mainout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+
+}
+else if(Process[OpName].mainout.indexOf('failed=0') >= 0){
+Process.ReturnCode = 0
+Process.ReturnMessage =  "RDS Instance Started successfully."
+//Process.ReturnCode = 2
+//Process.ReturnMessage =  "Failed to Start the RDS instance."
+}
+
+else if(Process[OpName].mainout.indexOf('RDS Instance is already running') >= 0){
+  Process.ReturnCode = 4
+  Process.ReturnMessage = "RDS Instance is already in running state."
+
+}
+
+
+else if(Process[OpName].mainout.indexOf('File copy failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Copying file to Remote Server Failed."
+
+}
+
+else if(Process[OpName].mainout.indexOf('Unable to fetch RDS status') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Unable to fetch RDS status."
+
+}
+
+else if(Process[OpName].mainout.indexOf('Pre Check Report execution failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Pre Check Execution script Failed to Execute."
+
+}
+else if(Process[OpName].mainout.indexOf('Post Check Report execution failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Post Check Execution script Failed to Execute."
+
+}
+else if(Process[OpName].mainout.indexOf('Script execution failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Mounting Script Failed to Execute."
+
+}
+else if(Process[OpName].mainout.indexOf("'skipping: [localhost] => (item={u'Code': 16, u'Name': u'running'})'") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Skipping Server is already in running state."
+
+}
+
+else if(Process[OpName].mainout.indexOf('Pre check report fetch failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Pre check report fetch failed."
+
+}
+else if(Process[OpName].mainout.indexOf("the field 'args' has an invalid value") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Error occured while executing playbook."
+
+}
+else if(Process[OpName].mainout.indexOf(Process.ins+" does not exist") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage =Process.ins +" does not exist."
+
+}
+else if(Process[OpName].mainout.indexOf('Fetch Post Check HTML Report Failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Fetch Post Check HTML Report Failed."
+
+}
+else if(Process[OpName].mainout.indexOf('Generating Pre Check PDF Report Failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Generating Pre Check PDF Report Failed."
+
+}
+else if(Process[OpName].mainout.indexOf('Generating Post Check PDF Report Failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Generating Post Check PDF Report Failed."
+
+}
+else if(Process[OpName].mainout.indexOf('file not found') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "file not found."
+
+}
+else if(Process[OpName].mainout.indexOf('Error: Failed to load') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Generating PDF Failed."
+
+}
+else if(Process[OpName].mainout.indexOf('Failed to Start the RDS Instance') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Start the RDS Instance."
+
+}
+
+
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+
+}
+
+8.Linux Operator
+
+Pre Execution:
+
+if(Process.auth_name.indexOf('turbot') >= 0){
+Process.ansibleCommand = "ansible-playbook ~/prod_rds_start/main.yml -e 'acc_name="+Process.account_name+" az="+Process.available_zone+" env="+Process.env+" cn="+Process.CTASK_Number+" an="+Process.account_name+" ins="+Process.ins+"'"
+Process.ansible_hostname = "10.240.130.126"
+}
+else if(Process.auth_name.indexOf('kion') >= 0){
+Process.ansibleCommand = "ansible-playbook ~/prod_rds_start/main.yml -e 'acc_name="+Process.account_name+" role="+Process.role+" az="+Process.available_zone+" env="+Process.env+" cn="+Process.CTASK_Number+" an="+Process.account_name+" ins="+Process.ins+"'"
+Process.ansible_hostname = "10.240.151.74"
+}
+else
+{
+Process.ReturnCode = -1
+}
+
+Post Execution:
+
+if(Process[OpName].mainout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+
+}
+else if(Process[OpName].mainout.indexOf('failed=0') >= 0){
+Process.ReturnCode = 0
+Process.ReturnMessage =  "RDS Instance Started successfully."
+//Process.ReturnCode = 2
+//Process.ReturnMessage =  "Failed to Start the RDS instance."
+}
+
+else if(Process[OpName].mainout.indexOf('RDS Instance is already running') >= 0){
+  Process.ReturnCode = 4
+  Process.ReturnMessage = "RDS Instance is already in running state."
+
+}
+
+
+else if(Process[OpName].mainout.indexOf('File copy failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Copying file to Remote Server Failed."
+
+}
+
+else if(Process[OpName].mainout.indexOf('Unable to fetch RDS status') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Unable to fetch RDS status."
+
+}
+
+else if(Process[OpName].mainout.indexOf('Pre Check Report execution failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Pre Check Execution script Failed to Execute."
+
+}
+else if(Process[OpName].mainout.indexOf('Post Check Report execution failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Post Check Execution script Failed to Execute."
+
+}
+else if(Process[OpName].mainout.indexOf('Script execution failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Mounting Script Failed to Execute."
+
+}
+else if(Process[OpName].mainout.indexOf("'skipping: [localhost] => (item={u'Code': 16, u'Name': u'running'})'") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Skipping Server is already in running state."
+
+}
+
+else if(Process[OpName].mainout.indexOf('Pre check report fetch failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Pre check report fetch failed."
+
+}
+else if(Process[OpName].mainout.indexOf("the field 'args' has an invalid value") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Error occured while executing playbook."
+
+}
+else if(Process[OpName].mainout.indexOf(Process.ins+" does not exist") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage =Process.ins +" does not exist."
+
+}
+else if(Process[OpName].mainout.indexOf('Fetch Post Check HTML Report Failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Fetch Post Check HTML Report Failed."
+
+}
+else if(Process[OpName].mainout.indexOf('Generating Pre Check PDF Report Failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Generating Pre Check PDF Report Failed."
+
+}
+else if(Process[OpName].mainout.indexOf('Generating Post Check PDF Report Failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Generating Post Check PDF Report Failed."
+
+}
+else if(Process[OpName].mainout.indexOf('file not found') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "file not found."
+
+}
+else if(Process[OpName].mainout.indexOf('Error: Failed to load') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Generating PDF Failed."
+
+}
+else if(Process[OpName].mainout.indexOf('Failed to Start the RDS Instance') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Start the RDS Instance."
+
+}
+
+
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+
+}
+
+
+9.Linux Operator
+
+Pre Execution:
+
+if(Process.auth_name.indexOf('turbot') >= 0){
+Process.ansibleCommand = "ansible-playbook ~/prod_rds_start/main.yml -e 'acc_name="+Process.account_name+" az="+Process.available_zone+" env="+Process.env+" cn="+Process.CTASK_Number+" an="+Process.account_name+" ins="+Process.ins+"'"
+Process.ansible_hostname = "10.240.130.126"
+}
+else if(Process.auth_name.indexOf('kion') >= 0){
+Process.ansibleCommand = "ansible-playbook ~/prod_rds_start/main.yml -e 'acc_name="+Process.account_name+" role="+Process.role+" az="+Process.available_zone+" env="+Process.env+" cn="+Process.CTASK_Number+" an="+Process.account_name+" ins="+Process.ins+"'"
+Process.ansible_hostname = "10.240.151.74"
+}
+else
+{
+Process.ReturnCode = -1
+}
+
+Post Execution:
+
+if(Process[OpName].mainout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+
+}
+else if(Process[OpName].mainout.indexOf('failed=0') >= 0){
+Process.ReturnCode = 0
+Process.ReturnMessage =  "RDS Instance Started successfully."
+//Process.ReturnCode = 2
+//Process.ReturnMessage =  "Failed to Start the RDS instance."
+}
+
+else if(Process[OpName].mainout.indexOf('RDS Instance is already running') >= 0){
+  Process.ReturnCode = 4
+  Process.ReturnMessage = "RDS Instance is already in running state."
+
+}
+
+
+else if(Process[OpName].mainout.indexOf('File copy failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Copying file to Remote Server Failed."
+
+}
+
+else if(Process[OpName].mainout.indexOf('Unable to fetch RDS status') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Unable to fetch RDS status."
+
+}
+
+else if(Process[OpName].mainout.indexOf('Pre Check Report execution failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Pre Check Execution script Failed to Execute."
+
+}
+else if(Process[OpName].mainout.indexOf('Post Check Report execution failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Post Check Execution script Failed to Execute."
+
+}
+else if(Process[OpName].mainout.indexOf('Script execution failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Mounting Script Failed to Execute."
+
+}
+else if(Process[OpName].mainout.indexOf("'skipping: [localhost] => (item={u'Code': 16, u'Name': u'running'})'") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Skipping Server is already in running state."
+
+}
+
+else if(Process[OpName].mainout.indexOf('Pre check report fetch failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Pre check report fetch failed."
+
+}
+else if(Process[OpName].mainout.indexOf("the field 'args' has an invalid value") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Error occured while executing playbook."
+
+}
+else if(Process[OpName].mainout.indexOf(Process.ins+" does not exist") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage =Process.ins +" does not exist."
+
+}
+else if(Process[OpName].mainout.indexOf('Fetch Post Check HTML Report Failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Fetch Post Check HTML Report Failed."
+
+}
+else if(Process[OpName].mainout.indexOf('Generating Pre Check PDF Report Failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Generating Pre Check PDF Report Failed."
+
+}
+else if(Process[OpName].mainout.indexOf('Generating Post Check PDF Report Failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Generating Post Check PDF Report Failed."
+
+}
+else if(Process[OpName].mainout.indexOf('file not found') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "file not found."
+
+}
+else if(Process[OpName].mainout.indexOf('Error: Failed to load') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Generating PDF Failed."
+
+}
+else if(Process[OpName].mainout.indexOf('Failed to Start the RDS Instance') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Start the RDS Instance."
+
+}
+
+
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+
+}
+
+
+Return Code is 4 i mean already in running state it will proceed with the below flow
+
+10.Script
+
+Inline:
+
+Param(
+[String]$Sys_id,
+[String]$Instance
+)
+$sys_id = $Sys_id
+
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls, [Net.SecurityProtocolType]::Tls11, [Net.SecurityProtocolType]::Tls12, [Net.SecurityProtocolType]::Ssl3
+[Net.ServicePointManager]::SecurityProtocol = "Tls, Tls11, Tls12, Ssl3"
+$SNOWPassword="V2!RfaRE#%4GQ*J_"
+$password = ConvertTo-SecureString $SNOWPassword -AsPlainText -Force
+$Cred = New-Object System.Management.Automation.PSCredential ("svc_itpam", $password)
+
+$actual_start_date = Get-Date
+
+$update_ctask_work_start_uri = "https://$Instance.service-now.com/api/now/table/change_task/$sys_id"
+
+$Body1 = @{
+    "work_end"="$actual_start_date"
+}
+
+$BodyJson1 = $Body1 | ConvertTo-Json
+try {
+ Invoke-WebRequest -Uri $update_ctask_work_start_uri -Body $BodyJson1 -Credential $Cred -Method "PUT" -ContentType "application/json" -UseBasicParsing -ErrorAction stop
+ Write-host "Actual Start Date updated successfully"
+} catch {
+	Write-host $_.
+	Write-host "Update Actual Start Date Service NOW API failed"
+}
+
+Post Execution:
+
+if(Process[OpName].scriptOutput.indexOf('successfully') >= 0)
+{
+
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "CTASK actual end date updated successfully."
+
+}
+
+else if(Process[OpName].scriptOutput.indexOf('failed') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to update actual end date CTASK."
+
+}
+else 
+{
+	Process.ReturnCode = 2
+	Process.ReturnMessage = "Some error occurred while updating CTASK work in progress state in Service Now."
+
+}
+
+11.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/change_task/"+Process.Sys_Id
+Process.update = "<request><entry><u_close_code>unsuccessful - cancelled</u_close_code><u_document_results>Instance is already in running state</u_document_results><close_notes>Instance is already in running state</close_notes><work_notes>Instance is already in running state.</work_notes><state>3</state></entry></request>"
+//Process.update_status ="<request><entry><u_document_results>EC2 Start completed</u_document_results><u_close_code>successful</u_close_code><close_notes>EC2 start executed successfully</close_notes><work_notes>.</work_notes><state>3</state></entry></request>"
+
+
+Return Code is 0 it will proceed with the below process
+
+12.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/change_task/"+Process.Sys_Id
+Process.updateWorkNotes = "<request><entry><state>2</state><work_notes>"+ Process.ReturnMessage+" </work_notes></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket worknotes updated successfully."
+
+}
+else if(Process[OpName].Reason.indexOf('non-success') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else
+{
+    Process.ReturnCode=2;
+    Process.ReturnMessage="Failure updating ticket details."
+
+}
+
+13.Linux OPerator
+
+Pre Execution:
+
+if(Process.auth_name.indexOf('turbot') >= 0){
+Process.ansibleCommand = "ansible-playbook ~/prod_rds_start/main1.yml -e 'env="+Process.env+" acc_name="+Process.account_name+" az="+Process.available_zone+" cn="+Process.CTASK_Number+" an="+Process.account_name+" ins="+Process.ins+"'"
+Process.ansible_hostname = "10.240.130.126"
+}
+else if(Process.auth_name.indexOf('kion') >= 0){
+Process.ansibleCommand = "ansible-playbook ~/prod_rds_start/main1.yml -e 'env="+Process.env+" acc_name="+Process.account_name+" role="+Process.role+" az="+Process.available_zone+" cn="+Process.CTASK_Number+" an="+Process.account_name+" ins="+Process.ins+"'"
+Process.ansible_hostname = "10.240.151.74"
+}
+else
+{
+Process.ReturnCode = -1
+}
+
+Post Execution:
+
+if(Process[OpName].output.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+
+}
+else if(Process[OpName].output.indexOf('Permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Unable to decrypt Vault file."
+
+}
+else if(Process[OpName].output.indexOf('Starting Failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Start the RDS Instance"
+
+}
+else if(Process[OpName].output.indexOf('File copy failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Copying file to Remote Server Failed."
+
+}
+else if(Process[OpName].output.indexOf('fatal:  [') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "error occurred while executing the Ansible Playbook."
+
+} 
+
+else if(Process[OpName].output.indexOf('file not found') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "file not found."
+
+}
+else if(Process[OpName].output.indexOf('Error: Failed to load') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Generating PDF Failed."
+
+}
+
+else if(Process[OpName].output.indexOf('The offending line appears to be:') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Error in playbook."
+
+}
+else if(Process[OpName].output.indexOf('failed=0') >= 0){
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "Playbook Execution Successfull."
+
+}else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+
+}
+
+
+14.Linux Operator
+
+Pre Execution:
+
+if(Process.auth_name.indexOf('turbot') >= 0){
+Process.ansibleCommand = "ansible-playbook ~/prod_rds_start/main1.yml -e 'env="+Process.env+" acc_name="+Process.account_name+" az="+Process.available_zone+" cn="+Process.CTASK_Number+" an="+Process.account_name+" ins="+Process.ins+"'"
+Process.ansible_hostname = "10.240.130.126"
+}
+else if(Process.auth_name.indexOf('kion') >= 0){
+Process.ansibleCommand = "ansible-playbook ~/prod_rds_start/main1.yml -e 'env="+Process.env+" acc_name="+Process.account_name+" role="+Process.role+" az="+Process.available_zone+" cn="+Process.CTASK_Number+" an="+Process.account_name+" ins="+Process.ins+"'"
+Process.ansible_hostname = "10.240.151.74"
+}
+else
+{
+Process.ReturnCode = -1
+}
+
+Post Execution:
+
+if(Process[OpName].output.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+
+}
+else if(Process[OpName].output.indexOf('Permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Unable to decrypt Vault file."
+
+}
+else if(Process[OpName].output.indexOf('Starting Failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Start the RDS Instance"
+
+}
+else if(Process[OpName].output.indexOf('File copy failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Copying file to Remote Server Failed."
+
+}
+else if(Process[OpName].output.indexOf('fatal:  [') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "error occurred while executing the Ansible Playbook."
+
+} 
+
+else if(Process[OpName].output.indexOf('file not found') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "file not found."
+
+}
+else if(Process[OpName].output.indexOf('Error: Failed to load') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Generating PDF Failed."
+
+}
+
+else if(Process[OpName].output.indexOf('The offending line appears to be:') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Error in playbook."
+
+}
+else if(Process[OpName].output.indexOf('failed=0') >= 0){
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "Playbook Execution Successfull."
+
+}else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+
+}
+
+
+15.Linux Operator
+
+Pre Execution:
+
+if(Process.auth_name.indexOf('turbot') >= 0){
+Process.ansibleCommand = "ansible-playbook ~/prod_rds_start/main1.yml -e 'env="+Process.env+" acc_name="+Process.account_name+" az="+Process.available_zone+" cn="+Process.CTASK_Number+" an="+Process.account_name+" ins="+Process.ins+"'"
+Process.ansible_hostname = "10.240.130.126"
+}
+else if(Process.auth_name.indexOf('kion') >= 0){
+Process.ansibleCommand = "ansible-playbook ~/prod_rds_start/main1.yml -e 'env="+Process.env+" acc_name="+Process.account_name+" role="+Process.role+" az="+Process.available_zone+" cn="+Process.CTASK_Number+" an="+Process.account_name+" ins="+Process.ins+"'"
+Process.ansible_hostname = "10.240.151.74"
+}
+else
+{
+Process.ReturnCode = -1
+}
+
+Post Execution:
+
+if(Process[OpName].output.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+
+}
+else if(Process[OpName].output.indexOf('Permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Unable to decrypt Vault file."
+
+}
+else if(Process[OpName].output.indexOf('Starting Failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Start the RDS Instance"
+
+}
+else if(Process[OpName].output.indexOf('File copy failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Copying file to Remote Server Failed."
+
+}
+else if(Process[OpName].output.indexOf('fatal:  [') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "error occurred while executing the Ansible Playbook."
+
+} 
+
+else if(Process[OpName].output.indexOf('file not found') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "file not found."
+
+}
+else if(Process[OpName].output.indexOf('Error: Failed to load') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Generating PDF Failed."
+
+}
+
+else if(Process[OpName].output.indexOf('The offending line appears to be:') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Error in playbook."
+
+}
+else if(Process[OpName].output.indexOf('failed=0') >= 0){
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "Playbook Execution Successfull."
+
+}else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+
+}
+
+
+16.Linux Operator
+
+Pre Execution:
+
+if(Process.auth_name.indexOf('turbot') >= 0){
+Process.ansibleCommand = "ansible-playbook ~/prod_rds_start/main1.yml -e 'env="+Process.env+" acc_name="+Process.account_name+" az="+Process.available_zone+" cn="+Process.CTASK_Number+" an="+Process.account_name+" ins="+Process.ins+"'"
+Process.ansible_hostname = "10.240.130.126"
+}
+else if(Process.auth_name.indexOf('kion') >= 0){
+Process.ansibleCommand = "ansible-playbook ~/prod_rds_start/main1.yml -e 'env="+Process.env+" acc_name="+Process.account_name+" role="+Process.role+" az="+Process.available_zone+" cn="+Process.CTASK_Number+" an="+Process.account_name+" ins="+Process.ins+"'"
+Process.ansible_hostname = "10.240.151.74"
+}
+else
+{
+Process.ReturnCode = -1
+}
+
+Post Execution:
+
+if(Process[OpName].output.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+
+}
+else if(Process[OpName].output.indexOf('Permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Unable to decrypt Vault file."
+
+}
+else if(Process[OpName].output.indexOf('Starting Failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Start the RDS Instance"
+
+}
+else if(Process[OpName].output.indexOf('File copy failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Copying file to Remote Server Failed."
+
+}
+else if(Process[OpName].output.indexOf('fatal:  [') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "error occurred while executing the Ansible Playbook."
+
+} 
+
+else if(Process[OpName].output.indexOf('file not found') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "file not found."
+
+}
+else if(Process[OpName].output.indexOf('Error: Failed to load') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Generating PDF Failed."
+
+}
+
+else if(Process[OpName].output.indexOf('The offending line appears to be:') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Error in playbook."
+
+}
+else if(Process[OpName].output.indexOf('failed=0') >= 0){
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "Playbook Execution Successfull."
+
+}else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+
+}
+
+
+17.Script
+
+Inline:
+
+Param(
+[String]$CTASK_Number
+)
+#$Linux_path = "\\usawsgaax0061\Linux_qualify\RDS_Start\$($CTASK_Number)\*.pdf"
+#$Linux_path = "\\usawsgabb0160\Linux_Val\RDS_Start\$($CTASK_Number)\*.pdf"
+$Linux_path = "\\usawsgabb0082\Linux_Prod\RDS_Start\$($CTASK_Number)\*.pdf"
+
+$dest = "D:\RDS_Start\$($CTASK_Number)"
+
+
+if(!(Test-Path -path $dest)){
+New-Item -Path $dest -ItemType directory | out-null
+}
+try {
+Copy-Item $Linux_path $dest -ErrorAction stop
+} Catch {
+Write-host "File copy failed"
+}try
+{
+$file=Get-ChildItem -Force -Recurse -File -Path "$dest" -ErrorAction stop
+$name=$file.Name
+if($name -like "*pre*"){
+write-host "PDF exist"
+$prefullPath = $($file.FullName -like "*pre*")
+$prefileName = $($file.Name -like "*pre*")
+$prefullPath
+$prefileName
+}else {
+write-host "Pre Check PDF Report not found"
+}
+}
+catch
+{
+Write-Host "Some Error Occured while uploading pre and post check pdf report"
+}
+
+Post Execution:
+
+if(Process[OpName].scriptOutput.indexOf("PDF exist")>=0)
+{
+Process.ReturnCode = 0
+Process.ReturnMessage = "PDF Generated successfully"
+Process.Data = Process[OpName].scriptOutput
+}
+else if(Process[OpName].scriptOutput.indexOf("Pre Check PDF Report not found")>=0)
+{
+Process.ReturnCode = 2
+Process.ReturnMessage = "Pre Check PDF Report not found."
+
+}
+else
+{
+Process.ReturnCode=2
+Process.ReturnMessage = "Error occurred while Fetching the Evidence."
+}
+
+
+
+18.Ticket Update
+
+Pre Execution:
+
+Process.dat=Process.file_pre.scriptOutput.split('\n')
+Process.fname=Process.dat[2]
+Process.pdffile=Process.dat[1]
+
+//Process.putURL= "https://"+Process.Instance+".service-now.com/api/now/attachment/file?table_name=change_task&table_sys_id="+Process.Sys_Id+"&file_name="+Process.fname
+
+
+Process.putURL= "https://"+Process.Instance+".service-now.com/api/now/attachment/file?table_name=change_task&table_sys_id="+Process.Sys_Id+"&file_name="+Process.fname
+//Process.payload = "<request><entry><assigned_to>d2f5f34bdb5efb8036c73c9b7c961900</assigned_to><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+"</work_notes><state>2</state></entry></request>"
+
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="Created" && Process[OpName].HTTPResponseStatusCode==201 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="PDF updated successfully"
+  
+
+}
+else if(Process[OpName].Reason.indexOf('non-success') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Error occurred while uploading PDF file to Service Now. "
+  
+}
+
+19.Script
+
+Inline:
+
+Param([String]$CTASK_Number)
+
+#$Linux_path = "\\usawsgaax0061\Linux_qualify\RDS_Start\$($CTASK_Number)\*.pdf"
+#$Linux_path = "\\usawsgabb0160\Linux_Val\RDS_Start\$($CTASK_Number)\*.pdf"
+$Linux_path = "\\usawsgabb0082\Linux_Prod\RDS_Start\$($CTASK_Number)\*.pdf"
+
+$dest = "D:\RDS_Start\$($CTASK_Number)"
+
+
+
+if(!(Test-Path -path $dest)){
+New-Item -Path $dest -ItemType directory
+}
+try {
+Copy-Item $Linux_path $dest -ErrorAction stop
+
+} 
+Catch {
+Write-host "File copy failed"
+}
+try{
+$file=Get-ChildItem -Force -Recurse -File -Path "$dest" -ErrorAction stop
+$name=$file.Name
+if($name -like "*post*"){
+write-host "PDF exist"
+$postfullPath = $($file.FullName -like "*post*")
+$postfileName = $($file.Name -like "*post*")
+$postfullPath
+$postfileName
+}else {
+write-host "Post Check PDF Report not found"
+}
+}
+catch
+{
+Write-Host "Some Error Occured while uploading pre and post check pdf report"
+}
+
+Post Execution:
+
+if(Process[OpName].scriptOutput.indexOf("PDF exist")>=0)
+{
+Process.ReturnCode = 0
+Process.ReturnMessage = "PDF Generated successfully"
+Process.Data1 = Process[OpName].scriptOutput
+}
+else if(Process[OpName].scriptOutput.indexOf("Post Check PDF Report not found")>=0)
+{
+Process.ReturnCode = 2
+Process.ReturnMessage = "Pre Check PDF Report not found."
+
+}
+else
+{
+Process.ReturnCode=2
+Process.ReturnMessage = "Error occurred while executing the verification script."
+}
+
+
+20.Ticket Update
+
+Pre Execution:
+
+
+Process.dat=Process.file_post.scriptOutput.split('\n')
+Process.fname=Process.dat[2]
+Process.pdffile=Process.dat[1]
+
+
+
+Process.putURL= "https://"+Process.Instance+".service-now.com/api/now/attachment/file?table_name=change_task&table_sys_id="+Process.Sys_Id+"&file_name="+Process.fname
+//Process.payload = "<request><entry><assigned_to>d2f5f34bdb5efb8036c73c9b7c961900</assigned_to><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+"</work_notes><state>2</state></entry></request>"
+
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="Created" && Process[OpName].HTTPResponseStatusCode==201 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="PDF updated successfully."
+
+
+}else if(Process[OpName].Reason.indexOf('non-success') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Error occurred while uploading PDF file to Service Now."
+  
+}
+
+21.Script
+
+Inline:
+
+Param(
+[String]$Sys_id,
+[String]$Instance
+)
+$sys_id = $Sys_id
+
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls, [Net.SecurityProtocolType]::Tls11, [Net.SecurityProtocolType]::Tls12, [Net.SecurityProtocolType]::Ssl3
+[Net.ServicePointManager]::SecurityProtocol = "Tls, Tls11, Tls12, Ssl3"
+$SNOWPassword="V2!RfaRE#%4GQ*J_"
+$password = ConvertTo-SecureString $SNOWPassword -AsPlainText -Force
+$Cred = New-Object System.Management.Automation.PSCredential ("svc_itpam", $password)
+
+$actual_start_date = Get-Date
+
+$update_ctask_work_start_uri = "https://$Instance.service-now.com/api/now/table/change_task/$sys_id"
+
+$Body1 = @{
+    "work_end"="$actual_start_date"
+}
+
+$BodyJson1 = $Body1 | ConvertTo-Json
+try {
+ Invoke-WebRequest -Uri $update_ctask_work_start_uri -Body $BodyJson1 -Credential $Cred -Method "PUT" -ContentType "application/json" -UseBasicParsing -ErrorAction stop
+ Write-host "Actual Start Date updated successfully"
+} catch {
+	Write-host $_.
+	Write-host "Update Actual Start Date Service NOW API failed"
+}
+
+Post Execution:
+
+if(Process[OpName].scriptOutput.indexOf('successfully') >= 0)
+{
+
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "CTASK actual end date updated successfully."
+
+}
+
+else if(Process[OpName].scriptOutput.indexOf('failed') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to update actual end date CTASK."
+
+}
+else 
+{
+	Process.ReturnCode = 2
+	Process.ReturnMessage = "Some error occurred while updating CTASK work in progress state in Service Now."
+
+}
+
+22.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/change_task/"+Process.Sys_Id
+Process.update_status ="<request><entry><u_document_results>RDS Started Successfully</u_document_results><u_close_code>successful</u_close_code><close_notes>RDS Started  successfully</close_notes><work_notes>Pre and Post evidence attached to the ticket successfully.</work_notes><state>3</state></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=1;
+  Process.ReturnMessage="Ticket worknotes updated successfully."
+
+}
+else if(Process[OpName].Reason.indexOf('non-success') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else
+{
+    Process.ReturnCode=2;
+    Process.ReturnMessage="Failure updating ticket details."
+
+}
+
+
+23.Fatal Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/table/change_task/"+Process.Sys_Id+""
+//Process.FatalErrorPayLoad ="<request><entry><assignment_group>d32d41c5dbe73e00d41dd3cb5e96194f</assignment_group><assigned_to></assigned_to><work_start></work_start><work_notes>"+Process.ReturnMessage+"Hence routing the ticket.</work_notes><state>2</state></entry></request>"
+
+Process.assignment_group = "2b8994d1db0caf00fa0f8e5c2996196e"
+
+
+Process.FatalErrorPayLoad ="<request><entry><assignment_group>"+Process.assignment_group+"</assignment_group><assigned_to></assigned_to><u_close_code>Unsuccessful</u_close_code><work_start></work_start><work_notes>"+Process.ReturnMessage+"Hence routing the ticket. </work_notes><state>1</state></entry></request>"
+
+
+
+
+Ansible Playbooks:
+
+/prod_rds_start/main.yml
+
+
+---
+- hosts: localhost
+  gather_facts: false
+  #become_method: sudo
+  connection: local
+  vars:
+    share_path: /Linux_Prod/RDS_Start
+  tasks:
+    - set_fact:
+        aws_account_name: "{{ acc_name }}"
+        # aws_account_id: "{{ acc_id }}"
+        aws_environment: "{{ env[0] }}"
+        role: ia-role
+      tags: variables
+
+    - name: Run Kion Stak command to get the Non prod access key and secret key
+      command: kion --profile nonprod stak --l {{ aws_account_name }} --car {{ role }} -p
+      register: non_prod_stak_output
+      when: aws_environment != "P"
+
+    - debug:
+        msg: "{{ non_prod_stak_output }}"  
+      when: aws_environment != "P"   
+    
+    - name: Run Kion Stak command to get the prod access key and secret key
+      command: kion --profile prod stak --l {{ aws_account_name }} --car {{ role }} -p
+      register: prod_stak_output
+      when: aws_environment == "P"
+
+    - debug:
+        msg: "{{ prod_stak_output }}" 
+      when: aws_environment == "P"  
+
+    - name: setting up the variables of non Prod access key and secret key
+      set_fact:
+        AWS_ACCESS_KEY_ID: "{{ non_prod_stak_output.stdout_lines[0].split('export AWS_ACCESS_KEY_ID=')[1] }}"
+        AWS_SECRET_ACCESS_KEY: "{{ non_prod_stak_output.stdout_lines[1].split('export AWS_SECRET_ACCESS_KEY=')[1] }}"
+        AWS_SESSION_TOKEN: "{{ non_prod_stak_output.stdout_lines[2].split('export AWS_SESSION_TOKEN=')[1] }}"
+      when: aws_environment != "P"
+
+    - name: setting up the variables of Prod access key and secret key
+      set_fact:
+        AWS_ACCESS_KEY_ID: "{{ prod_stak_output.stdout_lines[0].split('export AWS_ACCESS_KEY_ID=')[1] }}"
+        AWS_SECRET_ACCESS_KEY: "{{ prod_stak_output.stdout_lines[1].split('export AWS_SECRET_ACCESS_KEY=')[1] }}"
+        AWS_SESSION_TOKEN: "{{ prod_stak_output.stdout_lines[2].split('export AWS_SESSION_TOKEN=')[1] }}"
+      when: aws_environment == "P"  
+
+    - name: Configure AWS CLI with Access Key and Secret Key
+      shell: |
+        aws configure set aws_access_key_id {{ AWS_ACCESS_KEY_ID }}
+        aws configure set aws_secret_access_key {{ AWS_SECRET_ACCESS_KEY }}
+        aws configure set aws_session_token {{ AWS_SESSION_TOKEN }}
+        aws configure set region {{ az }}
+      register: set_aws_configure  
+
+
+    - name: Check Current state of the RDS instance
+      command: aws rds describe-db-instances --db-instance-identifier {{ ins }} --region {{ az }} --output text --query 'DBInstances[*].DBInstanceStatus'
+      register: instance_state
+      delegate_to: localhost
+    - debug:
+        msg: "{{ instance_state }}"
+      delegate_to: localhost
+
+    - name: Storing RDS Instance status
+      set_fact:
+        ins_state: "{{ instance_state.stdout }}"
+      delegate_to: localhost
+
+    - name: displaying RDS Instance status
+      debug:
+        msg: "{{ instance_state.stdout }}"
+      delegate_to: localhost  
+
+    - fail:
+        msg: "Unable to fetch RDS status"
+      when: instance_state.stdout == ""    
+
+    - fail:
+        msg: "RDS Instance is already running"
+      when: ins_state == "available"
+      delegate_to: localhost
+
+    - name: Check condition if RDS is already started to end playbook
+      block:
+        - debug:
+            msg: "RDS Started Successfully"
+          when: ins_state == "available"
+        - meta: end_play
+      when: ins_state == "available"
+
+    - debug:
+        msg: "RDS is in stopped state. Hence Proceeding to start the RDS"
+      when: ins_state != "available"
+      delegate_to: localhost  
+
+    - set_fact:
+        current_state: Stopped
+      when:  ins_state != "available"
+      delegate_to: localhost
+
+    - set_fact:
+        current_state: Running
+      when:  ins_state == "available"
+      delegate_to: localhost
+
+    # creating tmp folder with ctask number on remote machine
+    - name: creating {{ cn }} directory in tmp folder
+      file:
+        path: "{{ share_path }}/{{ cn }}"
+        state: directory
+      become: true
+      delegate_to: localhost
+      tags: pre_check
+
+    # PRE CHECK REPORT
+    - name: Generate the pre check html report
+      command: sh /home/svc-linux-snow/prod_rds_start/pre_check.sh {{ ins }} {{ current_state }} {{ cn }} 
+      register: pre_check_report
+      become: true
+      tags: pre_check
+    - debug:
+        msg: "Pre Check Report executed successfully"
+      when: "pre_check_report.rc == 0"
+      tags: pre_check
+    - debug:
+        msg: "Pre Check Report execution failed"
+      when: "pre_check_report.rc != 0"
+      tags: pre_check
+
+    - name: Starting the RDS instance
+      command: aws rds start-db-instance --db-instance-identifier {{ ins }} --region {{ az }}
+      when:  ins_state != "running"
+      # with_items:
+      #   - "{{ ins_state }}"
+      register: start_ins_status
+      ignore_errors: yes
+      delegate_to: localhost
+
+    - name: Wait until the DB instance status changes to 'started'
+      command: aws rds describe-db-instances --db-instance-identifier {{ ins }} --region {{ az }} --output text --query 'DBInstances[*].DBInstanceStatus'
+      register: database_info
+      until: "'available' in database_info.stdout"
+      retries: 45
+      delay: 60
+      delegate_to: localhost
+    
+    - debug:
+        msg: "{{ database_info }}"
+      delegate_to: localhost
+    - name: displaying post RDS instance status
+      set_fact:
+        rds_state: "{{ database_info.stdout }}"
+      delegate_to: localhost
+
+    - debug:
+        msg: "RDS Instance is still started"
+      delegate_to: localhost       
+
+    - name: Checking the status of Starting RDS Instance
+      debug:
+        msg: "RDS Instance Started successfully"
+      when: start_ins_status.changed == true
+    - name: Checking the status of Starting RDS Instance
+      debug:
+        msg: "Failed to Start the RDS Instance"
+      when: start_ins_status.changed != true
+------------------------------------------------------------------------------------------------------------------------------------------------------
+
+prod_rds_start/main1.yml
+
+---
+- hosts: localhost
+  gather_facts: false
+  #become_method: sudo
+  connection: local
+  vars:
+    share_path: /Linux_Prod/RDS_Start
+  tasks:
+    - set_fact:
+        aws_account_name: "{{ acc_name }}"
+        # aws_account_id: "{{ acc_id }}"
+        aws_environment: "{{ env[0] }}"
+        role: ia-role
+      tags: variables
+
+    - name: Run Kion Stak command to get the access key and secret key
+      command: kion --profile nonprod stak --l {{ aws_account_name }} --car {{ role }} -p
+      register: non_prod_stak_output
+      when: aws_environment != "P"
+
+    - debug:
+        msg: "{{ non_prod_stak_output }}"  
+      when: aws_environment != "P"   
+    
+    - name: Run Kion Stak command to get the access key and secret key
+      command: kion --profile prod stak --l {{ aws_account_name }} --car {{ role }} -p
+      register: prod_stak_output
+      when: aws_environment == "P"
+
+    - debug:
+        msg: "{{ prod_stak_output }}" 
+      when: aws_environment == "P"  
+
+    - name: setting up the variables of non Prod access key and secret key
+      set_fact:
+        AWS_ACCESS_KEY_ID: "{{ non_prod_stak_output.stdout_lines[0].split('export AWS_ACCESS_KEY_ID=')[1] }}"
+        AWS_SECRET_ACCESS_KEY: "{{ non_prod_stak_output.stdout_lines[1].split('export AWS_SECRET_ACCESS_KEY=')[1] }}"
+        AWS_SESSION_TOKEN: "{{ non_prod_stak_output.stdout_lines[2].split('export AWS_SESSION_TOKEN=')[1] }}"
+      when: aws_environment != "P"
+
+    - name: setting up the variables of Prod access key and secret key
+      set_fact:
+        AWS_ACCESS_KEY_ID: "{{ prod_stak_output.stdout_lines[0].split('export AWS_ACCESS_KEY_ID=')[1] }}"
+        AWS_SECRET_ACCESS_KEY: "{{ prod_stak_output.stdout_lines[1].split('export AWS_SECRET_ACCESS_KEY=')[1] }}"
+        AWS_SESSION_TOKEN: "{{ prod_stak_output.stdout_lines[2].split('export AWS_SESSION_TOKEN=')[1] }}"
+      when: aws_environment == "P"  
+
+    - name: Configure AWS CLI with Access Key and Secret Key
+      shell: |
+        aws configure set aws_access_key_id {{ AWS_ACCESS_KEY_ID }}
+        aws configure set aws_secret_access_key {{ AWS_SECRET_ACCESS_KEY }}
+        aws configure set aws_session_token {{ AWS_SESSION_TOKEN }}
+        aws configure set region {{ az }}
+      register: set_aws_configure  
+
+    - name: Wait until the DB instance status changes to 'started'
+      command: aws rds describe-db-instances --db-instance-identifier {{ ins }} --region {{ az }} --output text --query 'DBInstances[*].DBInstanceStatus'
+      register: instance_state
+      until: "'available' in instance_state.stdout"
+      retries: 45
+      delay: 60
+      delegate_to: localhost
+
+    # - name: Check Current state of the RDS instance
+    #   command: aws rds describe-db-instances --db-instance-identifier {{ ins }} --region {{ az }} --output text --query 'DBInstances[*].DBInstanceStatus'
+    #   register: instance_state
+    #   delegate_to: localhost
+
+    - name: displaying post RDS Instance status
+      debug:
+        msg: "Instance State is {{ instance_state.stdout }}"
+      
+    - name: displaying post RDS Instance status
+      set_fact:
+        ins_state: "{{ instance_state.stdout }}"
+      delegate_to: localhost
+
+    - fail:
+        msg: "Starting Failed"
+      when: ins_state != "available"
+
+    # creating destination folder with ctask number
+    - name: creating {{ cn }} directory in Shared path
+      file:
+        path: "{{ share_path }}/{{ cn }}"
+        state: directory
+      become: true
+      delegate_to: localhost
+      tags: pre_check
+
+    # POST CHECK REPORT
+    - name: Generate the post check html report
+      command: sh /home/svc-linux-snow/prod_rds_start/post_check.sh {{ ins }} {{ ins_state }} {{ cn }} 
+      register: post_check_report
+      become: true
+      tags: post_check
+      #no_log: true
+      when: ins_state == "available"
+      
+    - debug:
+        msg: "Post Check Report executed successfully"
+      when: "post_check_report.rc == 0"
+      tags: post_check
+    - debug:
+        msg: "Post Check Report execution failed"
+      when: "post_check_report.rc != 0"
+      tags: post_check
+
+    # PRE CHECK PDF REPORT
+    - name: Generate Pre Check PDF File
+      shell: /usr/local/bin/wkhtmltopdf {{ share_path }}/{{ cn }}/pre_check_report.html {{ share_path }}/{{ cn }}/pre_check_report.pdf
+      become: true
+      register: pre_check_pdf_report
+      delegate_to: localhost
+      tags: pdf_report
+     # no_log: true
+    - debug:
+        msg: "{{ pre_check_pdf_report }}"
+      tags: pdf_report
+
+    #POST CHECK PDF REPORT
+    - name: Generate Post Check PDF File
+      shell: /usr/local/bin/wkhtmltopdf {{ share_path }}/{{ cn }}/post_check_report.html {{ share_path }}/{{ cn }}/post_check_report.pdf
+      become: true
+      register: post_check_pdf_report
+      delegate_to: localhost
+      tags: pdf_report
+      no_log: true
+    - debug:
+        msg: "{{ post_check_pdf_report }}"
+      tags: pdf_report
+
+    - debug:
+        msg: "Reports Generated Successfully"
+      when: "post_check_pdf_report.rc == 0 and pre_check_pdf_report.rc == 0"
+    
+    - debug:
+        msg: "Failed to Generate Report"
+      when: "post_check_pdf_report.rc != 0 or pre_check_pdf_report.rc != 0"
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+
+prod_rds_start/ansible.cfg
+
+[defaults]
+inventory = hosts
+host_key_checking = FALSE
+warnings = false
+deprecation_warnings=False
+
+----------------------------------------------------------------------------------------------------------------------------------------------------
+prod_rds_start/hosts
+
+localhost hn=usawsaaaus0233 az=us-east-1 cn=CTASK0059444 os_platform=Linux an=aau ins=iscdb
+
+---------------------------------------------------------------------------------------------------------------------------------------------
+prod_rds_start/main1_backup.yml
+
+---
+- hosts: localhost
+  gather_facts: false
+  #become_method: sudo
+  connection: local
+  vars:
+    share_path: /Linux_Prod/RDS_Start
+  tasks:
+    - set_fact:
+        aws_account_name: "{{ acc_name }}"
+        # aws_account_id: "{{ acc_id }}"
+        aws_environment: "{{ env[0] }}"
+        role: ia-role
+      tags: variables
+
+    - name: Run Kion Stak command to get the access key and secret key
+      command: kion --profile nonprod stak --l {{ aws_account_name }} --car {{ role }} -p
+      register: non_prod_stak_output
+      when: aws_environment != "P"
+
+    - debug:
+        msg: "{{ non_prod_stak_output }}"  
+      when: aws_environment != "P"   
+    
+    - name: Run Kion Stak command to get the access key and secret key
+      command: kion --profile prod stak --l {{ aws_account_name }} --car {{ role }} -p
+      register: prod_stak_output
+      when: aws_environment == "P"
+
+    - debug:
+        msg: "{{ prod_stak_output }}" 
+      when: aws_environment == "P"  
+
+    - name: setting up the variables of non Prod access key and secret key
+      set_fact:
+        AWS_ACCESS_KEY_ID: "{{ non_prod_stak_output.stdout_lines[0].split('export AWS_ACCESS_KEY_ID=')[1] }}"
+        AWS_SECRET_ACCESS_KEY: "{{ non_prod_stak_output.stdout_lines[1].split('export AWS_SECRET_ACCESS_KEY=')[1] }}"
+        AWS_SESSION_TOKEN: "{{ non_prod_stak_output.stdout_lines[2].split('export AWS_SESSION_TOKEN=')[1] }}"
+      when: aws_environment != "P"
+
+    - name: setting up the variables of Prod access key and secret key
+      set_fact:
+        AWS_ACCESS_KEY_ID: "{{ prod_stak_output.stdout_lines[0].split('export AWS_ACCESS_KEY_ID=')[1] }}"
+        AWS_SECRET_ACCESS_KEY: "{{ prod_stak_output.stdout_lines[1].split('export AWS_SECRET_ACCESS_KEY=')[1] }}"
+        AWS_SESSION_TOKEN: "{{ prod_stak_output.stdout_lines[2].split('export AWS_SESSION_TOKEN=')[1] }}"
+      when: aws_environment == "P"  
+
+    - name: Configure AWS CLI with Access Key and Secret Key
+      shell: |
+        aws configure set aws_access_key_id {{ AWS_ACCESS_KEY_ID }}
+        aws configure set aws_secret_access_key {{ AWS_SECRET_ACCESS_KEY }}
+        aws configure set aws_session_token {{ AWS_SESSION_TOKEN }}
+        aws configure set region {{ az }}
+      register: set_aws_configure  
+
+
+
+    - name: Check Current state of the RDS instance
+      command: aws rds describe-db-instances --db-instance-identifier {{ ins }} --region {{ az }} --output text --query 'DBInstances[*].DBInstanceStatus'
+      register: instance_state
+      delegate_to: localhost
+
+    - name: displaying post RDS Instance status
+      debug:
+        msg: "Instance State is {{ instance_state.stdout }}"
+      
+    - name: displaying post RDS Instance status
+      set_fact:
+        ins_state: "{{ instance_state.stdout }}"
+      delegate_to: localhost
+
+    - fail:
+        msg: "Starting Failed"
+      when: ins_state != "available"
+
+    # creating destination folder with ctask number
+    - name: creating {{ cn }} directory in Shared path
+      file:
+        path: "{{ share_path }}/{{ cn }}"
+        state: directory
+      become: true
+      delegate_to: localhost
+      tags: pre_check
+
+    # POST CHECK REPORT
+    - name: Generate the post check html report
+      command: sh /home/svc-linux-snow/prod_rds_start/post_check.sh {{ ins }} {{ ins_state }} {{ cn }} 
+      register: post_check_report
+      become: true
+      tags: post_check
+      #no_log: true
+      when: ins_state == "available"
+      
+    - debug:
+        msg: "Post Check Report executed successfully"
+      when: "post_check_report.rc == 0"
+      tags: post_check
+    - debug:
+        msg: "Post Check Report execution failed"
+      when: "post_check_report.rc != 0"
+      tags: post_check
+
+    # PRE CHECK PDF REPORT
+    - name: Generate Pre Check PDF File
+      shell: /usr/local/bin/wkhtmltopdf {{ share_path }}/{{ cn }}/pre_check_report.html {{ share_path }}/{{ cn }}/pre_check_report.pdf
+      become: true
+      register: pre_check_pdf_report
+      delegate_to: localhost
+      tags: pdf_report
+     # no_log: true
+    - debug:
+        msg: "{{ pre_check_pdf_report }}"
+      tags: pdf_report
+
+    #POST CHECK PDF REPORT
+    - name: Generate Post Check PDF File
+      shell: /usr/local/bin/wkhtmltopdf {{ share_path }}/{{ cn }}/post_check_report.html {{ share_path }}/{{ cn }}/post_check_report.pdf
+      become: true
+      register: post_check_pdf_report
+      delegate_to: localhost
+      tags: pdf_report
+      no_log: true
+    - debug:
+        msg: "{{ post_check_pdf_report }}"
+      tags: pdf_report
+
+    - debug:
+        msg: "Reports Generated Successfully"
+      when: "post_check_pdf_report.rc == 0 and pre_check_pdf_report.rc == 0"
+    
+    - debug:
+        msg: "Failed to Generate Report"
+      when: "post_check_pdf_report.rc != 0 or pre_check_pdf_report.rc != 0"
+
+------------------------------------------------------------------------------------------------------------------------------------------------
+prod_rds_start/non_prod.yml
+
+---
+turbot_access_key_id: ""
+turbot_secret_access_key: ""
+...
+
+----------------------------------------------------------------------------------------------------------------------------------------------------
+prod_rds_start/post_check.sh
+
+
+#!/bin/sh
+INS=$1
+RDS_INSTANCE_STATE=$2
+CTASK_NUMBER=$3
+#---create report
+(
+echo '<HTML><HEAD><TITLE>RDS INSTANCE STATUS</TITLE></HEAD><BODY>'
+
+echo ' <h1><b>
+            <center> START RDS INSTANCE (Post Check)</center>
+        </b></h1>
+    <table width=100% border=1>'
+echo ' <tr> <br> </tr>
+        <tr>
+            <th class="label" colspan=2> Server Baseline Information </th>
+        </tr>
+        <tr>
+            <td><b> Host Name </b></td>
+            <td>'$INS'</td>
+        </tr>
+        <tr>          
+        <tr>
+            <td><b> Logon ID used for this test </b></td>
+            <td>svc-linux-snow</td>
+        </tr>   
+        <tr>
+            <td><b> Report Date and Time </b></td>
+            <td>'$(date '+%d%b%Y %H%M |%Z')'</td>
+        </tr>
+    </table><BR /><BR />'
+echo '<table width=100% border=1><TR><TH>Instance ID</TH><TH>Current State</TH></TR><tbody>'
+echo '<TR><TD ALIGN=CENTER>'$INS'</TD><TD ALIGN=CENTER>'$RDS_INSTANCE_STATE'</TD></TR>'
+echo '</tbody></table></body></html>'
+) > /Linux_Prod/RDS_Start/$CTASK_NUMBER/post_check_report.html
+
+----------------------------------------------------------------------------------------------------------------------------------------------------
+
+prod_rds_start/pre_check.sh
+
+
+#!/bin/sh
+INS=$1
+RDS_INSTANCE_STATE=$2
+CTASK_NUMBER=$3
+
+#---create report
+(
+echo '<HTML><HEAD><TITLE>RDS INSTANCE STATUS</TITLE></HEAD><BODY>'
+
+echo ' <h1><b>
+            <center>START RDS INSTANCE (Pre Check)</center>
+        </b></h1>
+    <table width=100% border=1>'
+echo ' <tr> <br> </tr>
+        <tr>
+            <th class="label" colspan=2> Server Baseline Information </th>
+        </tr>
+        <tr>
+            <td><b> Host Name </b></td>
+            <td>'$INS'</td>
+        </tr>
+        <tr>
+            <td><b> Logon ID used for this test </b></td>
+            <td>svc-linux-snow</td>
+        </tr>   
+        <tr>
+            <td><b> Report Date and Time </b></td>
+            <td>'$(date '+%d%b%Y %H%M |%Z')'</td>
+        </tr>
+    </table><BR /><BR />'
+echo '<table width=100% border=1><TR><TH>Instance ID</TH><TH>Current State</TH></TR><tbody>'
+echo '<TR><TD ALIGN=CENTER>'$INS'</TD><TD ALIGN=CENTER>'$RDS_INSTANCE_STATE'</TD></TR>'
+echo '</tbody></table></body></html>'
+) > /Linux_Prod/RDS_Start/$CTASK_NUMBER/pre_check_report.html
+#/tmp/$CTASK_NUMBER/pre_check_report.html
+
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+prod_rds_start/prod.yml
+
+---
+turbot_access_key_id: ""
+turbot_secret_access_key: ""
+...
+
+---------------------------------------------------------------------------------------------------------------------------------------------------
+
+prod_rds_start/start_host.yml
+
+
+---
+- hosts: all
+  gather_facts: false
+  become_method: sudo
+  connection: local
+  tasks:
+    - name: creating {{ cn }} directory in tmp folder
+      file:
+        path: ~/tickets/RDS_Start/{{ cn }}
+        state: directory
+      become: true
+      delegate_to: localhost
+      tags: file_copy
+
+
+    - command: cp -r /home/svc-linux-snow/rds_start/ /home/svc-linux-snow/tickets/RDS_Start/{{ cn }}/
+      become: true
+      register: copy_file
+
+    - debug:
+        msg: "Successfully copied"
+      when: copy_file.rc == 0
+
+    - debug:
+        msg: "Failed to Copy"
+      when: copy_file.rc != 0
+
+    - command: sudo chmod 755 /home/svc-linux-snow/tickets/RDS_Start/{{ cn }}/main.yml
+      become: true
+      register: change_main
+
+    - debug:
+        msg: "Permission provided"
+      when: change_main.rc == 0
+
+    - debug:
+        msg: "Failed to Provide Permission"
+      when: change_main.rc != 0
+
+    - command: sudo chmod 755 /home/svc-linux-snow/tickets/RDS_Start/{{ cn }}/main1.yml
+      become: true
+      register: change_main_1
+
+    - debug:
+        msg: "Permission provided"
+      when: change_main_1.rc == 0
+
+    - debug:
+        msg: "Failed to Provide Permission"
+      when: change_main_1.rc != 0
+
+    - command: sudo chmod 755 /home/svc-linux-snow/tickets/RDS_Start/{{ cn }}/post_check.sh
+      become: true
+      register: change_main_Post
+
+    - debug:
+        msg: "Permission provided"
+      when: change_main_Post.rc == 0
+
+    - debug:
+        msg: "Failed to Provide Permission"
+      when: change_main_Post.rc != 0
+
+    - command: sudo chmod 755 /home/svc-linux-snow/tickets/RDS_Start/{{ cn }}/pre_check.sh
+      become: true
+      register: change_main_Pre
+
+    - debug:
+        msg: "Permission provided"
+      when: change_main_Pre.rc == 0
+
+    - debug:
+        msg: "Failed to Provide Permission"
+
+--------------------------------------------------------------------------------------------------------------------------------------------------
+
+prod_rds_start/turbot_main.yml
+
+---
+- hosts: localhost
+  gather_facts: false
+  #become_method: sudo
+  connection: local
+  tasks:
+    - set_fact:
+        aws_account_id: "{{ acc_id }}"
+        aws_environment: "{{ env[0] }}"
+      tags: variables
+
+    - name: AWS Prod keys information
+      include_vars: prod.yml
+      when: aws_environment == "P"
+      delegate_to: localhost
+      tags: aws_configure_keys
+    - name: AWS Non-Prod keys information
+      include_vars: non_prod.yml
+      when: aws_environment != "P"
+      delegate_to: localhost
+      tags: aws_configure_keys
+
+    - name: Setting up turbot aws cli for Prod servers
+      command:  "{{ item }}"
+      with_items:
+        - aws configure set default.turbot_host console.prod.amazon.biogen.com
+        - aws configure set default.turbot_access_key_id {{ turbot_access_key_id }}
+        - aws configure set default.turbot_secret_access_key {{ turbot_secret_access_key }}
+        - aws configure set default.turbot_account_id {{ aws_account_id }}
+      register: set_aws_cli
+      delegate_to: localhost
+      when: aws_environment == "P"
+      no_log: true
+      tags: aws_configure
+
+    - name: Setting up turbot aws cli for Non Prod servers
+      command:  "{{ item }}"
+      with_items:
+        - aws configure set default.turbot_host console.nonprod.amazon.biogen.com
+        - aws configure set default.turbot_access_key_id {{ turbot_access_key_id }}
+        - aws configure set default.turbot_secret_access_key {{ turbot_secret_access_key }}
+        - aws configure set default.turbot_account_id {{ aws_account_id }}
+      no_log: true
+      when: aws_environment != "P"
+      register: set_aws_cli
+      tags: aws_configure
+
+    - name: Check Current state of the RDS instance
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin rds describe-db-instances --db-instance-identifier {{ ins }} --region {{ az }} --output text --query 'DBInstances[*].DBInstanceStatus'
+      register: instance_state
+      delegate_to: localhost
+    - debug:
+        msg: "{{ instance_state }}"
+      delegate_to: localhost
+    - name: displaying post RDS Instance status
+      set_fact:
+        ins_state: "{{ instance_state.stdout }}"
+      delegate_to: localhost
+
+    - fail:
+        msg: "Unable to fetch RDS status"
+      when: instance_state.stdout == ""    
+
+    - debug:
+        msg: "ITPAM Running"
+      when:  ins_state == "available"
+      ignore_errors: yes
+      delegate_to: localhost
+
+    - fail:
+        msg: "RDS Instance is already running"
+      when: ins_state == "available"
+      delegate_to: localhost
+
+    - name: Check condition if RDS is already started to end playbook
+      block:
+        - debug:
+            msg: "RDS Started Successfully"
+          when: ins_state == "available"
+        - meta: end_play
+      when: ins_state == "available"
+
+    - set_fact:
+        current_state: Stopped
+      when:  ins_state != "available"
+      delegate_to: localhost
+
+    - set_fact:
+        current_state: Running
+      when:  ins_state == "available"
+      delegate_to: localhost
+
+    # creating tmp folder with ctask number on remote machine
+    - name: creating {{ cn }} directory in tmp folder
+      file:
+        path: /Linux_Qualify/RDS_Start/{{ cn }}
+        state: directory
+      become: true
+      delegate_to: localhost
+      tags: pre_check
+
+    # PRE CHECK REPORT
+    - name: Generate the pre check html report
+      command: sh /home/svc-linux-snow/rds_start/pre_check.sh {{ ins }} {{ current_state }} {{ cn }} 
+      register: pre_check_report
+      become: true
+      tags: pre_check
+    - debug:
+        msg: "Pre Check Report executed successfully"
+      when: "pre_check_report.rc == 0"
+      tags: pre_check
+    - debug:
+        msg: "Pre Check Report execution failed"
+      when: "pre_check_report.rc != 0"
+      tags: pre_check
+
+    - name: Starting the RDS instance
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin rds start-db-instance --db-instance-identifier {{ ins }} --region {{ az }}
+      when:  ins_state != "running"
+      # with_items:
+      #   - "{{ ins_state }}"
+      register: start_ins_status
+      ignore_errors: yes
+      delegate_to: localhost
+
+    - name: Wait until the DB instance status changes to 'started'
+      command: turbot-aws -a {{ aws_account_id }} --role-name=admin rds describe-db-instances --db-instance-identifier {{ ins }} --region {{ az }} --output text --query 'DBInstances[*].DBInstanceStatus'
+      register: database_info
+      until: "'available' in database_info.stdout"
+      retries: 45
+      delay: 60
+      delegate_to: localhost
+    
+    - debug:
+        msg: "{{ database_info }}"
+      delegate_to: localhost
+    - name: displaying post RDS instance status
+      set_fact:
+        rds_state: "{{ database_info.stdout }}"
+      delegate_to: localhost
+
+    - debug:
+        msg: "RDS Instance is still started"
+      delegate_to: localhost       
+
+    - name: Checking the status of Starting RDS Instance
+      debug:
+        msg: "RDS Instance Started successfully"
+      when: start_ins_status.changed == true
+    - name: Checking the status of Starting RDS Instance
+      debug:
+        msg: "Failed to Start the RDS Instance"
+      when: start_ins_status.changed != true
+
+----------------------------------------------------------------------------------------------------------------------------------------------------
+
+prod_rds_start/vault_key
+
+ebs_linux
+
+

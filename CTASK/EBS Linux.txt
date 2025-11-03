@@ -1,0 +1,3439 @@
+1. Get Ticket
+
+Pre Execution:
+
+Process.RunbookName = Process.InstanceName
+Process.RunbookID = Process.RuntimeROID
+var uri="https://"+Process.Instance+".service-now.com/api/now/table/task?sysparm_fields=number%2Cactive%2Csys_id%2Cincident_state%2Cdescription%2Cu_document_results%2Cassigned_to=SVC-itpam@biogen.com&sysparm_limit=1&number="+Process.CTASK_Number
+Process.url=uri
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+Process.ReturnCode=0;
+Process.ReturnMessage="Ticket details fetched successfully"
+Process.Output=Process[OpName].HTTPResponseContent
+
+} else if(Process.Fetch_Ticket.Reason.indexOf('non-success') >= 0){
+Process.ReturnCode =2;
+Process.ReturnMessage = Process[OpName].HTTPResponseContent
+// Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+Process.Output=Process[OpName].HTTPResponseContent
+}
+else if(Process.Fetch_Ticket.Reason.indexOf('failure') >= 0){
+Process.ReturnCode =2;
+Process.ReturnMessage = Process[OpName].HTTPResponseContent
+//Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+Process.Output=Process[OpName].HTTPResponseContent
+}
+else
+{
+Process.ReturnCode=2;
+Process.ReturnMessage="Failure fetching ticket details"
+// Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+
+2.Second Operator (Read)
+
+Inline:
+
+var str =Process.Output
+var start=str.indexOf('[')+2;
+var end=str.indexOf(']')-1;
+var res = str.substring(start,end);
+var out1= res.split(',');
+for(var i=0;i < out1.length;i++)
+{
+  out1[i]=out1[i].replace(/\"/g,"");
+  if(out1[i].indexOf('active')>=0)
+  {Process.active=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('sys_id')>=0)
+  {Process.Sys_Id=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('description')>=0)
+  {Process.description=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('incident_state')>=0)
+  {Process.Incidentstate=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('u_document_results')>=0)
+  {Process.document_results=(out1[i].split(':'))[1]}
+  out1[i]=(out1[i].split(':'))[1]
+}
+
+Post Execution:
+
+if(Process.active)
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket is active.";
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Ticket is inactive.";
+}
+
+3.Script
+
+Inline:
+
+Param(
+[string]$Sys_id,
+[string]$instance
+)
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls, [Net.SecurityProtocolType]::Tls11, [Net.SecurityProtocolType]::Tls12, [Net.SecurityProtocolType]::Ssl3
+[Net.ServicePointManager]::SecurityProtocol = "Tls, Tls11, Tls12, Ssl3"
+
+$password = ConvertTo-SecureString "V2!RfaRE#%4GQ*J_" -AsPlainText -Force
+$Cred = New-Object System.Management.Automation.PSCredential ("svc_itpam", $password)
+$actual_start_date = Get-Date
+$update_ctask_work_start_uri = "https://$instance.service-now.com/api/now/table/change_task/$Sys_id"
+
+$Body1 = @{
+    "work_start"="$actual_start_date"
+}
+
+$BodyJson1 = $Body1 | ConvertTo-Json
+
+try{
+$result = Invoke-WebRequest -Uri $update_ctask_work_start_uri -Body $BodyJson1 -Credential $Cred -Method "PUT" -ContentType "application/json" -UseBasicParsing
+Write-host "successfully update work start date to Service NOW"
+} catch {
+	Write-host "failed to update work start date to Service NOW"
+}
+
+Post Execution:
+
+if(Process.CTASK_WIP_Update.scriptOutput.indexOf('failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "failed to update actual start date CTASK"
+}else if(Process.CTASK_WIP_Update.scriptOutput.indexOf('successfully') >= 0){
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "CTASK actual start date updated successfully."
+  }else {
+	Process.ReturnCode = 2
+	Process.ReturnMessage = "Some error occurred while updating CTASK work in progress state in Service Now"
+}
+
+4.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/change_task/"+Process.Sys_Id
+Process.updateWorkNotes = "<request><entry><incident_state>2</incident_state><state>2</state><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+" </work_notes></entry></request>"
+
+Post Execution:
+
+if(Process.Update_CTASK_1.HTTPResponseReasonPhrase=="OK" && Process.Update_CTASK_1.HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket worknotes updated successfully"
+
+
+}else if(Process.Update_CTASK_1.Reason.indexOf('non-success') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+
+}
+else if(Process.Update_CTASK_1.Reason.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure updating ticket details"
+}
+
+5.Script
+
+Inline:
+
+param($computer)
+Test-Connection -ComputerName $computer -Quiet
+#start-sleep -seconds 300
+
+Post Execution:
+
+if(Process.Ping_Check.scriptOutput.indexOf("True")>=0)
+{
+  Process.ReturnCode=0
+  Process.ReturnMessage="Connection to Target Server " +Process.targetServer+" is reachable"
+  //Process.Ping_status="Server is Pingable. Connected to target server successfully"
+}
+else if(Process.Ping_Check.scriptOutput.indexOf("False")>=0)
+{
+  Process.ReturnCode=2
+  Process.ReturnMessage="Connection to Target Server " +Process.targetServer+" is unreachable.Hence routing the ticket."
+   //Process.Ping_status="Server is not Pingable. Connection target server is unsuccessful"
+}
+else
+{
+Process.ReturnCode=2
+Process.returnMessage ="Connection to reach the server" +Process.targetServer+" is failed."
+// Process.Ping_status= "Fatal Error"
+}
+
+6.Ticket Update
+
+Success:
+
+Pre Execution:
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/change_task/"+Process.Sys_Id
+Process.Ping_update_status = "<request><entry><incident_state>2</incident_state><work_notes>"+Process.ReturnMessage+"</work_notes></entry></request>"
+
+Post Execution:
+
+if(Process.Ping_Success.HTTPResponseReasonPhrase=="OK" && Process.Ping_Success.HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket worknotes updated successfully"
+
+}else if(Process.Ping_Success.HTTPResponseContent.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure updating ticket details"
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+Failure:
+
+Pre Execution:
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/change_task/"+Process.Sys_Id
+Process.Ping_update_status = "<request><entry><state>1</state><assigned_to></assigned_to><assignment_group>5b2d41c5dbe73e00d41dd3cb5e961955</assignment_group><work_notes>"+Process.ReturnMessage+"</work_notes></entry></request>"
+
+
+Post Execution:
+
+if(Process.Ping_Failed.HTTPResponseReasonPhrase=="OK" && Process.Ping_Failed.HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket worknotes updated successfully"  
+}
+else if(Process.Ping_Failed.HTTPResponseContent.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure updating ticket details"
+}
+
+7.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand ="ansible-playbook  ~/ebs_linux/ec2_start.yml -e 'ins="+Process.ins+" env="+Process.env+" az="+Process.available_zone+" acc_name="+Process.Account_name+"'"
+
+Post Execution:
+
+if(Process[OpName].mainout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else if(Process[OpName].mainout.indexOf('permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Permission denied by the server."
+}
+else if(Process[OpName].mainout.indexOf('fatal:  [') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "error occurred while executing the Ansible Playbook"
+}
+else if((Process[OpName].mainout.indexOf('Current Instance Status is running. So, Proceeding for the EBS creation') >= 0)||(Process[OpName].mainout.indexOf('EC2 instance started successfully. So, Proceeding for the EBS creation') >= 0))
+{
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "Proceeding for the EBS creation."
+  Process.Playbook_Status_update =  "Proceeding for the EBS creation"
+
+  //Process.ReturnCode = 2
+  //Process.ReturnMessage = "Failed to create and attach the EBS volume"
+}
+else if(Process[OpName].mainout.indexOf('Failed to start the EC2 instance') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to start the EC2 instance"
+}
+else if(Process[OpName].mainout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+}
+
+
+
+8.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand ="ansible-playbook  ~/ebs_linux/ec2_start.yml -e 'ins="+Process.ins+" env="+Process.env+" az="+Process.available_zone+" acc_name="+Process.Account_name+"'"
+
+Post Execution:
+
+if(Process[OpName].mainout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else if(Process[OpName].mainout.indexOf('permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Permission denied by the server."
+}
+else if(Process[OpName].mainout.indexOf('fatal:  [') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "error occurred while executing the Ansible Playbook"
+}
+else if((Process[OpName].mainout.indexOf('Current Instance Status is running. So, Proceeding for the EBS creation') >= 0)||(Process[OpName].mainout.indexOf('EC2 instance started successfully. So, Proceeding for the EBS creation') >= 0))
+{
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "Proceeding for the EBS creation."
+  Process.Playbook_Status_update =  "Proceeding for the EBS creation"
+}
+else if(Process[OpName].mainout.indexOf('Failed to start the EC2 instance') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to start the EC2 instance"
+}
+else if(Process[OpName].mainout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+}
+
+
+9.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/change_task/"+Process.Sys_Id
+Process.create_update = "<request><entry><work_notes>"+ Process.ReturnMessage +"</work_notes></entry></request>"
+
+
+Post Execution:
+
+if(Process.ec2.HTTPResponseReasonPhrase=="OK" && Process.ec2.HTTPResponseStatusCode==200 )
+{
+Process.ReturnCode=0;
+Process.ReturnMessage="Ticket worknotes updated successfully"
+
+}else if(Process.ec2.HTTPResponseContent.indexOf('failure') >= 0){
+Process.ReturnCode =2;
+Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else
+{
+Process.ReturnCode=2;
+Process.ReturnMessage="Failure updating ticket details"
+Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+10.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand ="ansible-playbook  ~/ebs_linux/check_mount_point.yml -e 'disk_size="+Process.Disk_size+" target_host="+Process.targetServer+" mount_point="+Process.Mount_point+" ansible_user="+Process.ansible_user+" ansible_password="+Process.ansible_password+"%'"
+
+Post Execution:
+
+if(Process[OpName].mainout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else if(Process[OpName].mainout.indexOf('permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Permission denied by the server."
+}
+else if(Process[OpName].mainout.indexOf('fatal:  [') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "error occurred while executing the Ansible Playbook"
+}
+else if(Process[OpName].mainout.indexOf('failed=0') >= 0){
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "Mount point is not presenting on the targer server. Hence proceeding for mounting process."
+}
+else if(Process[OpName].mainout.indexOf('Disk size contains not a non zero integer') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Disk size contains not a non zero integer"
+}
+else if(Process[OpName].mainout.indexOf('Mount point is not starting with /. So, not proceeding with this mount point.') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Mount point is not starting with /. So, not proceeding with this mount point."
+}
+else if(Process[OpName].mainout.indexOf('Mount point is already present on the targer server. Hence stopping the process') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Mount point is already present on the targer server. Hence stopping the process"
+}
+else if(Process[OpName].mainout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+}
+
+
+11.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand ="ansible-playbook  ~/ebs_linux/check_mount_point.yml -e 'disk_size="+Process.Disk_size+" target_host="+Process.targetServer+" mount_point="+Process.Mount_point+" ansible_user="+Process.ansible_user+" ansible_password="+Process.ansible_password+"%'"
+
+Post Execution:
+
+if(Process[OpName].mainout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else if(Process[OpName].mainout.indexOf('permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Permission denied by the server."
+}
+else if(Process[OpName].mainout.indexOf('fatal:  [') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "error occurred while executing the Ansible Playbook"
+}
+else if(Process[OpName].mainout.indexOf('failed=0') >= 0){
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "Mount point is not presenting on the targer server. Hence proceeding for mounting process."
+}
+else if(Process[OpName].mainout.indexOf('Disk size contains not a non zero integer') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Disk size contains not a non zero integer"
+}
+else if(Process[OpName].mainout.indexOf('Mount point is not starting with /. So, not proceeding with this mount point.') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Mount point is not starting with /. So, not proceeding with this mount point."
+}
+else if(Process[OpName].mainout.indexOf('Mount point is already present on the targer server. Hence stopping the process') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Mount point is already present on the targer server. Hence stopping the process"
+}
+else if(Process[OpName].mainout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+}
+
+
+12.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/change_task/"+Process.Sys_Id
+Process.create_update = "<request><entry><work_notes>"+ Process.ReturnMessage +"</work_notes><u_document_results> "+ Process.Execution_results +"</u_document_results></entry></request>"
+
+
+Post Execution:
+
+if(Process.check_mount.HTTPResponseReasonPhrase=="OK" && Process.check_mount.HTTPResponseStatusCode==200 )
+{
+Process.ReturnCode=0;
+Process.ReturnMessage="Ticket worknotes updated successfully"
+
+}else if(Process.check_mount.HTTPResponseContent.indexOf('failure') >= 0){
+Process.ReturnCode =2;
+Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else
+{
+Process.ReturnCode=2;
+Process.ReturnMessage="Failure updating ticket details"
+Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+13.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand ="ansible-playbook  ~/ebs_linux/create_attach_ebs.yml -e 'ins="+Process.ins+" env="+Process.env+" az="+Process.available_zone+" acc_name="+Process.Account_name+" disk_size="+Process.Disk_size+" ctask_number="+Process.CTASK_Number+"'"
+
+Post Execution:
+
+if(Process[OpName].mainout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else if(Process[OpName].mainout.indexOf('permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Permission denied by the server."
+}
+else if(Process[OpName].mainout.indexOf('fatal:  [') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "error occurred while executing the Ansible Playbook"
+}
+else if(Process[OpName].mainout.indexOf('failed=1') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to create and attach the EBS volume"
+}
+else if((Process[OpName].mainout.indexOf('failed=0') >= 0)&&(Process[OpName].mainout.indexOf('EBS volume created successfully') >= 0))
+{
+if((Process[OpName].mainout.indexOf('EBS Volume state changed as available') >= 0)&&(Process[OpName].mainout.indexOf('EBS volume attached successfully to EC2') >= 0)
+&&(Process[OpName].mainout.indexOf('EBS volume state changed as volume-in-use') >= 0)&&(Process[OpName].mainout.indexOf('ctask number is successfully created in the share path') >= 0))
+{
+Process.voldetail=Process[OpName].mainout.split('VolID: ')
+Process.voldata=Process.voldetail[1]
+Process.Volumeid=Process.voldata.replace(/\"\S*/g, "")
+Process.splitvar=Process.Volumeid.split('\n')
+Process.datavar=Process.splitvar[0]
+//Process.Volumeid = Process.voldata.replaceAll(".*\"(vol-[a-zA-Z0-9]+)\".*", "$1");
+Process.Execution_results = "EBS volume created successfully"+ "\n" +"EBS Volume state changed as available"+ "\n" +"EBS volume attached successfully to EC2"+ "\n" +"EBS volume state changed as volume-in-use"+ "\n" +"VolumeID:"+Process.datavar 
+
+}
+  Process.ReturnCode = 0
+  Process.ReturnMessage =   "Volume created successfully"+ "\n" +"Disk Mounted successfully"+ "\n" +"Volume attached successfully"+ "\n" +"VolumeID:"+Process.datavar 
+}
+else if(Process[OpName].mainout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+}
+
+
+14.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand ="ansible-playbook  ~/ebs_linux/create_attach_ebs.yml -e 'ins="+Process.ins+" env="+Process.env+" az="+Process.available_zone+" acc_name="+Process.Account_name+" disk_size="+Process.Disk_size+" ctask_number="+Process.CTASK_Number+"'"
+
+Post Execution:
+
+if(Process[OpName].mainout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else if(Process[OpName].mainout.indexOf('permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Permission denied by the server."
+}
+else if(Process[OpName].mainout.indexOf('fatal:  [') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "error occurred while executing the Ansible Playbook"
+}
+else if((Process[OpName].mainout.indexOf('failed=0') >= 0)&&(Process[OpName].mainout.indexOf('EBS volume created successfully') >= 0))
+{
+  if((Process[OpName].mainout.indexOf('EBS Volume state changed as available') >= 0)&&(Process[OpName].mainout.indexOf('EBS volume attached successfully to EC2') >= 0)
+&&(Process[OpName].mainout.indexOf('EBS volume state changed as volume-in-use') >= 0)&&(Process[OpName].mainout.indexOf('ctask number is successfully created in the share path') >= 0))
+{
+Process.voldetail=Process[OpName].mainout.split('VolID: ')
+Process.voldata=Process.voldetail[1]
+Process.Volumeid=Process.voldata.replace(/\"\S*/g, "")
+Process.splitvar=Process.Volumeid.split('\n')
+Process.datavar=Process.splitvar[0]
+//Process.Volumeid = Process.voldata.replaceAll(".*\"(vol-[a-zA-Z0-9]+)\".*", "$1");
+Process.Execution_results = "EBS volume created successfully"+ "\n" +"EBS Volume state changed as available"+ "\n" +"EBS volume attached successfully to EC2"+ "\n" +"EBS volume state changed as volume-in-use"+ "\n" +"VolumeID:"+Process.datavar 
+
+}
+  Process.ReturnCode = 0
+  Process.ReturnMessage =   "Volume created successfully"+ "\n" +"Disk Mounted successfully"+ "\n" +"Volume attached successfully"+ "\n" +"VolumeID:"+Process.datavar 
+}
+else if(Process[OpName].mainout.indexOf('failed=1') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to create and attach the EBS volume"
+}
+else if(Process[OpName].mainout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+}
+
+
+15.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/change_task/"+Process.Sys_Id
+Process.create_update = "<request><entry><work_notes>"+ Process.Execution_results +"</work_notes><u_document_results>"+ Process.ReturnMessage +"</u_document_results></entry></request>"
+
+
+Post Execution:
+
+if(Process.create_attach.HTTPResponseReasonPhrase=="OK" && Process.create_attach.HTTPResponseStatusCode==200 )
+{
+Process.ReturnCode=0;
+Process.ReturnMessage="Ticket worknotes updated successfully"
+
+}else if(Process.create_attach.HTTPResponseContent.indexOf('failure') >= 0){
+Process.ReturnCode =2;
+Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else
+{
+Process.ReturnCode=2;
+Process.ReturnMessage="Failure updating ticket details"
+Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+
+16.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand ="ansible-playbook  ~/ebs_linux/mount.yml -e 'target_host="+Process.targetServer+" mount_point="+Process.Mount_point+" ansible_user="+Process.ansible_user+" ansible_password="+Process.ansible_password+"% ctask_number="+Process.CTASK_Number+"'"
+
+Post Execution:
+
+if(Process[OpName].mainout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else if(Process[OpName].mainout.indexOf('permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Permission denied by the server."
+}
+else if(Process[OpName].mainout.indexOf('fatal:  [') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "error occurred while executing the Ansible Playbook"
+}
+else if((Process[OpName].mainout.indexOf('failed=0') >= 0)&&(Process[OpName].mainout.indexOf('Disk Mounted successfully') >= 0)&&(Process[OpName].mainout.indexOf('Post Check Report executed successfully') >= 0)){
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "Disk Mounted Successfully."
+}
+else if(Process[OpName].mainout.indexOf('Failed to copy Pre and Post shell script in target server') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to copy Pre and Post shell script in target server"
+}
+else if(Process[OpName].mainout.indexOf('More than 1 volume is unused. Cannot mount the volume') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "More than 1 volume is unused. Cannot mount the volume"
+}
+else if(Process[OpName].mainout.indexOf('Failed to created a new file system') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to created a new file system"
+}
+  else if(Process[OpName].mainout.indexOf('Failed to create a new directory with mount_point') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to create a new directory with mount_point."
+}
+  else if(Process[OpName].mainout.indexOf('Failed to take UUID') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to take UUID"
+}
+else if(Process[OpName].mainout.indexOf('Failed to add entry in /etc/fstab') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to add entry in /etc/fstab"
+}
+else if(Process[OpName].mainout.indexOf('Failed to mount with disk') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to mount with disk"
+}
+
+else if(Process[OpName].mainout.indexOf('Pre Check Report execution failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Pre Check Report execution failed"
+}
+else if(Process[OpName].mainout.indexOf('Post Check Report execution failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Post Check Report execution failed"
+}  
+
+
+else if(Process[OpName].mainout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+}
+
+
+17.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand ="ansible-playbook  ~/ebs_linux/mount.yml -e 'target_host="+Process.targetServer+" mount_point="+Process.Mount_point+" ansible_user="+Process.ansible_user+" ansible_password="+Process.ansible_password+"% ctask_number="+Process.CTASK_Number+"'"
+
+Post Execution:
+
+if(Process[OpName].mainout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else if(Process[OpName].mainout.indexOf('permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Permission denied by the server."
+}
+else if(Process[OpName].mainout.indexOf('fatal:  [') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "error occurred while executing the Ansible Playbook"
+}
+else if((Process[OpName].mainout.indexOf('failed=0') >= 0)&&(Process[OpName].mainout.indexOf('Disk Mounted successfully') >= 0)&&(Process[OpName].mainout.indexOf('Post Check Report executed successfully') >= 0)){
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "Disk Mounted Successfully."
+}
+else if(Process[OpName].mainout.indexOf('Failed to copy Pre and Post shell script in target server') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to copy Pre and Post shell script in target server"
+}
+else if(Process[OpName].mainout.indexOf('More than 1 volume is unused. Cannot mount the volume') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "More than 1 volume is unused. Cannot mount the volume"
+}
+else if(Process[OpName].mainout.indexOf('Failed to created a new file system') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to created a new file system"
+}
+  else if(Process[OpName].mainout.indexOf('Failed to create a new directory with mount_point') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to create a new directory with mount_point."
+}
+  else if(Process[OpName].mainout.indexOf('Failed to take UUID') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to take UUID"
+}
+else if(Process[OpName].mainout.indexOf('Failed to add entry in /etc/fstab') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to add entry in /etc/fstab"
+}
+else if(Process[OpName].mainout.indexOf('Failed to mount with disk') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to mount with disk"
+}
+
+else if(Process[OpName].mainout.indexOf('Pre Check Report execution failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Pre Check Report execution failed"
+}
+else if(Process[OpName].mainout.indexOf('Post Check Report execution failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Post Check Report execution failed"
+}  
+
+
+else if(Process[OpName].mainout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+}
+
+
+
+18.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/change_task/"+Process.Sys_Id
+Process.create_update = "<request><entry><work_notes>"+ Process.ReturnMessage +"</work_notes></entry></request>"
+
+
+Post Execution:
+
+if(Process.mounting.HTTPResponseReasonPhrase=="OK" && Process.mounting.HTTPResponseStatusCode==200 )
+{
+Process.ReturnCode=0;
+Process.ReturnMessage="Ticket worknotes updated successfully"
+
+}else if(Process.mounting.HTTPResponseContent.indexOf('failure') >= 0){
+Process.ReturnCode =2;
+Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else
+{
+Process.ReturnCode=2;
+Process.ReturnMessage="Failure updating ticket details"
+Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+19.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand ="ansible-playbook  ~/ebs_linux/fetch_pre_post_html.yml -e 'target_host="+Process.targetServer+" ansible_user="+Process.ansible_user+" ansible_password="+Process.ansible_password+"% ctask_number="+Process.CTASK_Number+"'"
+
+Post Execution:
+
+if(Process[OpName].mainout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else if(Process[OpName].mainout.indexOf('permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Permission denied by the server."
+}
+else if(Process[OpName].mainout.indexOf('fatal:  [') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "error occurred while executing the Ansible Playbook"
+}
+else if((Process[OpName].mainout.indexOf('failed=0') >= 0)&&(Process[OpName].mainout.indexOf('Successfully Fetched Post Check HTML Report') >= 0)){
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "Pre and post HTML reports are successfully fetched from target server to share path."
+}
+else if(Process[OpName].mainout.indexOf('Pre check report fetch failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Pre check report fetch failed"
+}
+else if(Process[OpName].mainout.indexOf('Fetch Post Check HTML Report Failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Fetch Post Check HTML Report Failed"
+}
+
+else if(Process[OpName].mainout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+}
+
+
+20.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand ="ansible-playbook  ~/ebs_linux/fetch_pre_post_html.yml -e 'target_host="+Process.targetServer+" ansible_user="+Process.ansible_user+" ansible_password="+Process.ansible_password+"% ctask_number="+Process.CTASK_Number+"'"
+
+Post Execution:
+
+if(Process[OpName].mainout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else if(Process[OpName].mainout.indexOf('permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Permission denied by the server."
+}
+else if(Process[OpName].mainout.indexOf('fatal:  [') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "error occurred while executing the Ansible Playbook"
+}
+else if((Process[OpName].mainout.indexOf('failed=0') >= 0)&&(Process[OpName].mainout.indexOf('Successfully Fetched Post Check HTML Report') >= 0)){
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "Pre and post HTML reports are successfully fetched from target server to share path."
+}
+else if(Process[OpName].mainout.indexOf('Pre check report fetch failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Pre check report fetch failed"
+}
+else if(Process[OpName].mainout.indexOf('Fetch Post Check HTML Report Failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Fetch Post Check HTML Report Failed"
+}
+
+else if(Process[OpName].mainout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+}
+
+
+21.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand ="ansible-playbook  ~/ebs_linux/pre_post_pdf.yml -e 'ctask_number="+Process.CTASK_Number+"'"
+
+Post Execution:
+
+if(Process[OpName].mainout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else if(Process[OpName].mainout.indexOf('permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Permission denied by the server."
+}
+else if(Process[OpName].mainout.indexOf('fatal:  [') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "error occurred while executing the Ansible Playbook"
+}
+else if((Process[OpName].mainout.indexOf('failed=0') >= 0)&&(Process[OpName].mainout.indexOf('Post check PDF report successfully generated') >= 0)){
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "Pre and post HTML reports are successfully fetched from target server to share path."
+}
+else if(Process[OpName].mainout.indexOf('Generating Pre Check PDF Report Failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Generating Pre Check PDF Report Failed"
+}
+else if(Process[OpName].mainout.indexOf('Generating Post Check PDF Report Failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Generating Post Check PDF Report Failed"
+}
+
+else if(Process[OpName].mainout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+}
+
+
+
+22.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand ="ansible-playbook  ~/ebs_linux/pre_post_pdf.yml -e 'ctask_number="+Process.CTASK_Number+"'"
+
+Post Execution:
+
+if(Process[OpName].mainout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else if(Process[OpName].mainout.indexOf('permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Permission denied by the server."
+}
+else if(Process[OpName].mainout.indexOf('fatal:  [') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "error occurred while executing the Ansible Playbook"
+}
+else if((Process[OpName].mainout.indexOf('failed=0') >= 0)&&(Process[OpName].mainout.indexOf('Post check PDF report successfully generated') >= 0)){
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "Pre and post HTML reports are successfully fetched from target server to share path."
+}
+else if(Process[OpName].mainout.indexOf('Generating Pre Check PDF Report Failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Generating Pre Check PDF Report Failed"
+}
+else if(Process[OpName].mainout.indexOf('Generating Post Check PDF Report Failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Generating Post Check PDF Report Failed"
+}
+
+else if(Process[OpName].mainout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+}
+
+
+
+23.Script
+
+Inline:
+
+param($number)
+#$Linux_path = "\\usawsgabb0160\Linux_Val\EBS_Linux\$($number)\*.pdf"
+$Linux_path = "\\usawsgabb0082\Linux_Prod\EBS_Linux\$($number)\*.pdf"
+$dest = "D:\EBS_Linux\Linux\$($number)"
+
+
+if(!(Test-Path -path $dest)){
+New-Item -Path $dest -ItemType directory | out-null
+}
+try {
+Copy-Item $Linux_path $dest -ErrorAction stop
+} Catch {
+Write-host "File copy failed"
+}try
+{
+$file=Get-ChildItem -Force -Recurse -File -Path "$dest" -ErrorAction stop
+$name=$file.Name
+if($name -like "*pre*"){
+write-host "PDF exist"
+$prefullPath = $($file.FullName -like "*pre*")
+$prefileName = $($file.Name -like "*pre*")
+$prefullPath
+$prefileName
+}else {
+write-host "Pre Check PDF Report not found"
+}
+}
+catch
+{
+Write-Host "Some Error Occured while uploading pre and post check pdf report"
+}
+
+Post Execution:
+
+if(Process.Attach_pdffile_pre.scriptOutput.indexOf("PDF exist")>=0)
+{
+Process.ReturnCode = 0
+Process.ReturnMessage = "PDF Generated successfully"
+Process.Data = Process.Attach_pdffile_pre.scriptOutput
+}
+else
+{
+Process.ReturnCode=2
+Process.ReturnMessage = "Error occurred while executing the verification script."
+}
+
+
+24.Ticket Update (Post Method)
+
+Pre Execution:
+
+Process.dat=Process.Attach_pdffile_pre.scriptOutput.split('\n')
+Process.fname=Process.dat[2]
+Process.pdffile=Process.dat[1]
+Process.putURL= "https://"+Process.Instance+".service-now.com/api/now/attachment/file?table_name=change_task&table_sys_id="+Process.Sys_Id+"&file_name="+Process.fname
+//Process.payload = "<request><entry><assigned_to>d2f5f34bdb5efb8036c73c9b7c961900</assigned_to><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+"</work_notes><state>2</state></entry></request>"
+
+
+Post Execution:
+
+if(Process.Pre_Success.HTTPResponseReasonPhrase=="Created" && Process.Pre_Success.HTTPResponseStatusCode==201 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="PDF updated successfully"
+  Process.Output=Process.Pre_Success.HTTPResponseContent
+
+}else if(Process.Pre_Success.Reason.indexOf('non-success') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = "Unable to upload Pre Evidence PDF File"
+
+}
+else if(Process.Pre_Success.Reason.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = "Unable to upload Pre Evidence PDF File"
+  
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Error occurred while uploading PDF file to Service Now. "
+}
+
+25.Script
+
+Inline:
+
+param($number)
+$Linux_path = "\\usawsgabb0082\Linux_Prod\EBS_Linux\$($number)\*.pdf"
+#$Linux_path = "\\usawsgabb0160\Linux_Val\EBS_Linux\$($number)\*.pdf"
+$dest = "D:\EBS_Linux\Linux\$($number)"
+
+
+
+if(!(Test-Path -path $dest)){
+New-Item -Path $dest -ItemType directory
+}
+try {
+Copy-Item $Linux_path $dest -ErrorAction stop
+
+} 
+Catch {
+Write-host "File copy failed"
+}
+try{
+$file=Get-ChildItem -Force -Recurse -File -Path "$dest" -ErrorAction stop
+$name=$file.Name
+if($name -like "*post*"){
+write-host "PDF exist"
+$postfullPath = $($file.FullName -like "*post*")
+$postfileName = $($file.Name -like "*post*")
+$postfullPath
+$postfileName
+}else {
+write-host "Post Check PDF Report not found"
+}
+}
+catch
+{
+Write-Host "Some Error Occured while uploading pre and post check pdf report"
+}
+
+Post Execution:
+
+if(Process.Post_Success_PDF_Name.scriptOutput.indexOf("PDF exist")>=0)
+{
+Process.ReturnCode = 0
+Process.ReturnMessage = "PDF Generated successfully"
+Process.Data = Process.Post_Success_PDF_Name.scriptOutput
+}
+else
+{
+Process.ReturnCode=2
+Process.ReturnMessage = "Error occurred while executing the verification script."
+}
+
+26.Ticket Update (Post Method)
+
+Pre Execution:
+
+Process.dat=Process.Post_Success_PDF_Name.scriptOutput.split('\n')
+Process.fname=Process.dat[2]
+Process.pdffile=Process.dat[1]
+Process.putURL= "https://"+Process.Instance+".service-now.com/api/now/attachment/file?table_name=change_task&table_sys_id="+Process.Sys_Id+"&file_name="+Process.fname
+//Process.payload = "<request><entry><assigned_to>d2f5f34bdb5efb8036c73c9b7c961900</assigned_to><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+"</work_notes><state>2</state></entry></request>"
+
+
+post Execution:
+
+if(Process.Post_Success.HTTPResponseReasonPhrase=="Created" && Process.Post_Success.HTTPResponseStatusCode==201 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="PDF updated successfully"
+  Process.Output=Process.Post_Success.HTTPResponseContent
+
+}else if(Process.Post_Success.Reason.indexOf('non-success') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = "Unable to upload Pre Evidence PDF File"
+
+}
+else if(Process.Post_Success.Reason.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = "Unable to upload Pre Evidence PDF File"
+  
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Error occurred while uploading PDF file to Service Now. "
+}
+
+27.Script
+
+Inline:
+
+Param(
+[String]$Sys_id,
+[String]$Instance
+)
+$sys_id = $Sys_id
+
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls, [Net.SecurityProtocolType]::Tls11, [Net.SecurityProtocolType]::Tls12, [Net.SecurityProtocolType]::Ssl3
+[Net.ServicePointManager]::SecurityProtocol = "Tls, Tls11, Tls12, Ssl3"
+$SNOWPassword="V2!RfaRE#%4GQ*J_"
+$password = ConvertTo-SecureString $SNOWPassword -AsPlainText -Force
+$Cred = New-Object System.Management.Automation.PSCredential ("svc_itpam", $password)
+
+$actual_start_date = Get-Date
+
+$update_ctask_work_start_uri = "https://$Instance.service-now.com/api/now/table/change_task/$sys_id"
+
+$Body1 = @{
+    "work_end"="$actual_start_date"
+}
+
+$BodyJson1 = $Body1 | ConvertTo-Json
+try {
+ Invoke-WebRequest -Uri $update_ctask_work_start_uri -Body $BodyJson1 -Credential $Cred -Method "PUT" -ContentType "application/json" -UseBasicParsing -ErrorAction stop
+ Write-host "Actual Start Date updated successfully"
+} catch {
+	Write-host $_.
+	Write-host "Update Actual Start Date Service NOW API failed"
+}
+
+
+Post Execution:
+
+if(Process.Update_End.scriptOutput.indexOf('failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "failed to update actual start date CTASK"
+}else if(Process.Update_End.scriptOutput.indexOf('successfully') >= 0){
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "CTASK actual start date updated successfully."
+}else {
+	Process.ReturnCode = 2
+	Process.ReturnMessage = "Some error occurred while updating CTASK work in progress state in Service Now"
+}
+
+28.Ticket Update
+
+Pre Execution:
+
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/change_task/"+Process.Sys_Id
+//Process.create_update = "<request><entry><state>3</state><close_notes>Change executed successfully</close_notes><u_close_code>successful</u_close_code><work_notes>PDF uploaded successfully</work_notes></entry></request>"
+Process.create_update = "<request><entry><state>3</state><close_notes>EBS volume created and mounted successfully</close_notes><u_close_code>successful</u_close_code><work_notes>Pre and Post evidence attached to the ticket successfully</work_notes></entry></request>"
+
+
+Post Execution:
+
+if(Process.Close_Change.HTTPResponseReasonPhrase=="OK" && Process.Close_Change.HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=1;
+  Process.ReturnMessage="Ticket worknotes updated successfully"
+
+}else if(Process.Close_Change.HTTPResponseContent.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process.Close_Change.HTTPResponseContent
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure updating ticket details"
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+
+Ansible Paybook
+
+ebs_linux/1
+
+#!/bin/bash
+
+SIZE=$1
+MOUNT=$2
+AWS_ACC_ID=$3
+INSTANCE="i-076f0f33134fb0925"
+
+        /usr/local/bin/turbot-aws -a $AWS_ACC_ID ec2 describe-instances > /dev/null 2>&1
+        if [[ "$?" != "0" ]]
+        then
+        echo Looks like you may need to fix AWS CLI permissions
+        exit
+        fi
+
+        SIZE=$1
+        if [[ $SIZE == "" ]]
+        then
+        echo Need to give a size, in GB
+        exit
+        fi
+
+        if [ "$SIZE" -eq "$SIZE" ] && [[ "$SIZE" != "0" ]] 2> /dev/null
+        then
+        echo "Input contains integer"
+        else
+        echo "Input is not a non zero integer"
+        exit
+        fi
+###Need to cheeck mount can be static
+        MOUNT=$2
+        if [[ $MOUNT == "" ]]
+        then
+        echo Need to give me a mount point name like /u01
+        exit
+        fi
+
+        if [[ "${MOUNT:0:1}" == "/" ]]
+        then
+        echo "Leading / found as expected"
+        else
+        echo "No leading / found and I am not adding one for you"
+        exit
+        fi
+
+        grep -v ^# /etc/fstab | grep -v ^$ | awk '{print $2}' | grep ^${MOUNT}$ && {
+        echo Found that mount point already listed in fstab so stopping
+        exit
+                }
+
+#INSTANCE=$(curl -q -s http://169.254.169.254/latest/meta-data/instance-id)
+if [[ $INSTANCE == "" ]]
+        then
+        echo "Unable to fetch Instance ID"
+                exit
+        fi
+
+# Get what AWS Region I am in
+#REGION=$(curl -q -s http://169.254.169.254/latest/meta-data/placement/availability-zone)
+REGION="us-east-1a"
+if [[ $REGION == "" ]]
+        then
+        echo "Unable to fetch Availability zone"
+                exit
+        fi
+
+# Get a list of current AWS volumes I have
+volumes=($(/usr/local/bin/turbot-aws -a ${AWS_ACC_ID} ec2 describe-volumes --region ${REGION%?} --filters "Name=attachment.instance-id,Values=$INSTANCE" | grep \"Device\"\:  | awk '{print $2}' | sed 's/[",]//g'))
+
+echo ${volumes[*]}
+for newdiskname in f g h i j k l m n o p q r s t u v w x y z
+do
+if [[ " ${volumes[*]} " =~ " /dev/sd${newdiskname} " ]];
+then
+echo /dev/sd${newdiskname} is already attached to this instance.
+else
+break
+fi
+done
+
+echo /dev/sd${newdiskname} is available for use.
+
+VOLUME=$(/usr/local/bin/turbot-aws -a ${AWS_ACC_ID} ec2 create-volume --region ${REGION%?} --encrypted --availability-zone ${REGION} --size ${SIZE} --volume-type gp3 --tag-specifications "ResourceType=volume,Tags=[{Key=Name,Value=${newdiskname}}]" | grep \"VolumeId\"\:  | awk '{print $2}' | sed 's/[",]//g')
+
+echo $VOLUME
+# If after waiting we still dont see any new device, we need to exit
+if [[ "${VOLUME}" == "" ]]
+then
+echo New volume not created
+exit
+else
+echo Volume created successfully
+fi
+# Lets wait for that to finish before moving on
+/usr/local/bin/turbot-aws -a ${AWS_ACC_ID} ec2 wait volume-available --region ${REGION%?} --volume-ids ${VOLUME}
+echo test
+# Now attach the new volume to me
+/usr/local/bin/turbot-aws -a ${AWS_ACC_ID} ec2 attach-volume --region ${REGION%?} --availability-zone ${REGION} --volume-id ${VOLUME} --device /dev/sd${newdiskname} --instance-id ${INSTANCE}
+
+# Lets wait for that to finish before moving on
+/usr/local/bin/turbot-aws -a ${AWS_ACC_ID} ec2 wait volume-in-use --region ${REGION%?} --volume-ids ${VOLUME}
+
+----------------------------------------------------------------------------------------------------------------------------------------
+
+ebs_linux/ansible.cfg
+
+[defaults]
+inventory = hosts
+host_key_checking = False
+
+-------------------------------------------------------------------------------------------------------------------------
+
+ebs_linux/check_mount_point
+
+---
+- name: EBS Disk Mounting
+  hosts: localhost
+  gather_facts: no
+  become_method: sudo
+  become_user: root
+  tasks:
+    - add_host:
+        hostname: "{{ target_host }}"
+        groups: ebs_server
+
+    # Checking disk size input is integer or non zero integer
+    - name: Checking disk size input contains integer or not
+      debug:
+        msg: "Disk size contains integer {{ disk_size }}"
+      when: disk_size != 0   
+
+    - fail:
+        msg: "Disk size contains not a non zero integer {{ disk_size }}"
+      when: disk_size == 0 
+    
+    # Checking mount point is starting with '/' or not
+    - name: Displaying a mount point name
+      debug: 
+        msg: "mount point: {{ mount_point }}"     
+
+    - debug:
+        msg: As expected mount point is starting with '/'
+      when: "mount_point[0] == '/'"    
+
+    - fail:
+        msg: Mount point is not starting with /. So, not proceeding with this mount point.
+      when: "mount_point[0] != '/'" 
+
+    # Check Mount point on target server 
+    - name: Checking mount point in the target server if available or not
+      shell: "grep -v ^# /etc/fstab | grep -v ^$ | awk '{print $2}' | grep ^{{ mount_point }}$"
+      register: check_mount_point_target
+      delegate_to: "{{ target_host }}"
+      ignore_errors: yes
+
+    - debug:
+        msg: "{{ check_mount_point_target }}"
+
+    - debug: 
+        msg: Mount point is not presenting on the targer server. Hence proceeding for mounting process.
+      when: check_mount_point_target.rc != 0  
+
+    - fail: 
+        msg: Mount point is already present on the targer server. Hence stopping the process.
+      when: check_mount_point_target.rc == 0
+
+
+---------------------------------------------------------------------------------------------------------------------------------------
+
+ebs_linux/copy_file.yml
+
+---
+- name: EBS Disk Mounting
+  hosts: all
+  strategy: free
+  become_method: sudo  
+  tasks:
+    - name: creating {{ ctask_number }} directory in tmp folder
+      file:
+        path: /Linux_Qualify/EBS/{{ ctask_number }}
+        state: directory
+      become: true
+      delegate_to: localhost
+    - name: generate pdf
+      shell: cp -r /tmp/{{ ctask_number }}/*.pdf /Linux_Qualify/EBS/{{ ctask_number }}/
+      become: true      
+      register: copy_file_to_share_path
+      delegate_to: localhost
+
+-----------------------------------------------------------------------------------------------------------------------------------------------
+
+ebs_linux/create_attach_ebs.yml
+
+---
+- name: Create and Attach EBS
+  hosts: localhost
+  connection: local
+  vars:
+    new_disk_names: [f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z]
+    share_path: /Linux_Prod/EBS_Linux/{{ ctask_number }}
+  gather_facts: no
+  tasks:
+    - set_fact:
+        aws_account_name: "{{ acc_name }}"
+        aws_environment: "{{ env[0] }}"
+        role: ia-role
+      tags: variables
+    - name: Get account id
+      set_fact:
+        aws_environment: "{{ env[0] }}"
+      tags: aws_configure
+    - debug:
+        msg: "Account Name: {{ aws_account_name }}"
+      tags: aws_configure
+
+    - debug:
+        msg: "Environment: {{ aws_environment }}"
+      tags: aws_configure
+
+    # - set_fact:
+    #     aws_account_type: "{{ ansible_hostname[5] }}"
+    #   tags: variables
+
+    - name: Run Kion Stak command to get the access key and secret key
+      command: kion --profile nonprod stak --l {{ aws_account_name }} --car {{ role }} -p
+      register: non_prod_stak_output
+      when: aws_environment != "P"
+
+    - debug:
+        msg: "{{ non_prod_stak_output }}"  
+      when: aws_environment != "P"   
+    
+    - name: Run Kion Stak command to get the access key and secret key
+      command: kion --profile prod stak --l {{ aws_account_name }} --car {{ role }} -p
+      register: prod_stak_output
+      when: aws_environment == "P"
+
+    - debug:
+        msg: "{{ prod_stak_output }}" 
+      when: aws_environment == "P"  
+
+    - name: setting up the variables of non Prod access key and secret key
+      set_fact:
+        AWS_ACCESS_KEY_ID: "{{ non_prod_stak_output.stdout_lines[0].split('export AWS_ACCESS_KEY_ID=')[1] }}"
+        AWS_SECRET_ACCESS_KEY: "{{ non_prod_stak_output.stdout_lines[1].split('export AWS_SECRET_ACCESS_KEY=')[1] }}"
+        AWS_SESSION_TOKEN: "{{ non_prod_stak_output.stdout_lines[2].split('export AWS_SESSION_TOKEN=')[1] }}"
+      when: aws_environment != "P"
+
+    - name: setting up the variables of Prod access key and secret key
+      set_fact:
+        AWS_ACCESS_KEY_ID: "{{ prod_stak_output.stdout_lines[0].split('export AWS_ACCESS_KEY_ID=')[1] }}"
+        AWS_SECRET_ACCESS_KEY: "{{ prod_stak_output.stdout_lines[1].split('export AWS_SECRET_ACCESS_KEY=')[1] }}"
+        AWS_SESSION_TOKEN: "{{ prod_stak_output.stdout_lines[2].split('export AWS_SESSION_TOKEN=')[1] }}"
+      when: aws_environment == "P"  
+
+    - name: Configure AWS CLI with Access Key and Secret Key
+      shell: |
+        aws configure set aws_access_key_id {{ AWS_ACCESS_KEY_ID }}
+        aws configure set aws_secret_access_key {{ AWS_SECRET_ACCESS_KEY }}
+        aws configure set aws_session_token {{ AWS_SESSION_TOKEN }}
+        aws configure set region {{ az }}
+      register: set_aws_configure  
+
+      # Setting variable for region
+    - name: remove last letter from az variable
+      set_fact:
+        region: "{{ az[:-1] }}"  
+
+    - debug:
+        msg: "region: {{ region }}"    
+
+    # Checking EBS volume existing in the target server 
+    - name: Displaying an existing EBS volume in the target server
+      shell: "aws ec2 describe-volumes --region {{ region }} --filters Name=attachment.instance-id,Values={{ ins }} --query 'Volumes[].Attachments[].Device'"
+      delegate_to: localhost
+      register: ebs_volume_info
+
+    - name: Existing EBS volumes of target server
+      set_fact:
+        volumes: "{{ ebs_volume_info.stdout_lines | join('') }}"    
+      
+    - name: Listing existing volumes of target server
+      debug:
+        msg: "{{ volumes }}"    
+
+    - name: Check attached volumes in target server
+      debug:
+        msg: "Volume /dev/sd{{ item }} is already attached"
+      loop: "{{ new_disk_names }}"
+      when: "'/dev/sd{{ item }}' in volumes"
+      register: attached_disk
+
+    - name: Check for available volumes to create EBS 
+      debug:
+        msg: "Volume /dev/sd{{ item }} is available for creation"
+      loop: "{{ new_disk_names }}"
+      when: "'/dev/sd{{ item }}' not in volumes"
+      register: available_disk
+
+    - name: storing attached volumes
+      set_fact:
+        attached_disk: "Volume /dev/sd{{ item }} is already attached"
+      loop: "{{ new_disk_names }}"
+      when: "'/dev/sd{{ item }}' in volumes"
+      # register: attached_disks
+
+    - name: Storing available volumes
+      set_fact:
+        available_disk: "Volume /dev/sd{{ item }} is available for creation"
+      loop: "{{ new_disk_names }}"
+      when: "'/dev/sd{{ item }}' not in volumes"
+      # register: available_disks
+   
+    - name: Check for first available disks to create EBS volume
+      set_fact:
+        first_available_disk: "/dev/sd{{ item }}"
+      loop: "{{ new_disk_names }}"
+      when: "'/dev/sd{{ item }}' not in volumes and first_available_disk is not defined"
+
+    # - name: Displaying attahced volume
+    #   debug:
+    #     msg: "{{ attached_disk }}"   
+
+    - name: Displaying first available volume to create EBS
+      debug:
+        msg: "{{ first_available_disk }}"  
+
+    # Create a new EBS volume
+    - name: Creating a new EBS volume with the name of {{ first_available_disk }}
+      command: aws ec2 create-volume --region {{ region }} --encrypted --availability-zone {{ az }} --size {{ disk_size }} --volume-type gp3 --tag-specifications "ResourceType=volume,Tags=[{Key=Name,Value={{ first_available_disk }}}]" --query VolumeId --output text  
+      register: create_ebs_volume
+      delegate_to: localhost
+
+    - debug:
+        msg: "{{ create_ebs_volume }}" 
+      when: create_ebs_volume.stderr == ""  
+        
+
+    - name: Storing volume ID after creating EBS volume
+      set_fact:
+        volume_id: "{{ create_ebs_volume.stdout }}" 
+      when: create_ebs_volume.stderr == "" 
+
+    - name: Storing volume ID after creating EBS volume
+      set_fact:
+        VolID: "{{ create_ebs_volume.stdout }}" 
+      when: create_ebs_volume.stderr == ""   
+
+    - name: Displaying volume ID after creating EBS volume
+      debug:
+        msg: "VolID: {{ create_ebs_volume.stdout }}" 
+      when: create_ebs_volume.stderr == ""   
+
+    - vars:
+        msg: |
+             EBS volume created successfully as for this name: {{ first_available_disk }}. 
+             Volume ID: {{ volume_id }}
+      debug:
+        msg: "{{ msg.split('\n') }}"       
+      when: create_ebs_volume.stderr == ""
+  
+    # Wait until EBS volume status changed as available
+    - name: Wait until EBS status changed as available
+      command: aws ec2 wait volume-available --volume-ids {{ volume_id }} --region {{ region }}
+      register: wait_volume_create
+      delegate_to: localhost  
+
+    - debug:
+        msg: "EBS Volume state changed as available - {{ first_available_disk }}"
+      when: wait_volume_create.stderr == ""  
+    
+    # Attach volume to EC2  
+    - name: Attaching an EBS volume to the EC2 instance
+      command: aws ec2 attach-volume --volume-id {{ volume_id }} --device {{ first_available_disk}} --instance-id {{ ins }} --region {{ region }}
+      register: attach_volume_to_ec2
+      delegate_to: localhost
+
+    - debug:
+        msg: "{{ attach_volume_to_ec2 }}" 
+      when: attach_volume_to_ec2.stderr == "" 
+
+    - debug:
+        msg: "EBS volume {{ first_available_disk }} attached successfully to EC2"
+      when: attach_volume_to_ec2.stderr == ""
+
+    - debug:
+        msg: "EBS volume attached successfully to EC2"
+      when: attach_volume_to_ec2.stderr == ""  
+
+    # Wait until volume state changes as in use
+    - name: Wait until volume state changes as volume-in-use
+      command: aws ec2 wait volume-in-use --volume-ids {{ volume_id }} --region {{ region }}
+      register: wait_volume_in_use
+      delegate_to: localhost    
+
+    - debug: 
+        msg: EBS volume {{ first_available_disk }} state changed as volume-in-use  
+      when: wait_volume_in_use.stderr == "" 
+
+    - debug: 
+        msg: EBS volume state changed as volume-in-use  
+      when: wait_volume_in_use.stderr == ""   
+
+    # creating destination folder with ctask number
+    - name: creating {{ ctask_number }} directory in Shared path
+      file:
+        path: "{{ share_path }}"
+        state: directory
+      become: true
+      register: create_dir_ctask
+      delegate_to: localhost
+      tags: pre_check   
+
+    - debug:
+        msg: "ctask number is successfully created in the share path"
+      when: create_dir_ctask.changed == true
+
+    - name: Displaying volume ID which is attached 
+      debug:
+        msg: "Volume-ID: {{ VolID }}"
+
+---------------------------------------------------------------------------------------------------------------------------------------------
+
+ebs_linux/disk.yml
+
+---
+- name: EBS Disk Mounting
+  hosts: localhost
+  gather_facts: no
+  become_method: sudo 
+  become_user: root 
+  tasks: 
+    - add_host:
+        hostname: "{{ target_host }}"
+        groups: ebs_server 
+- hosts: ebs_server
+  vars:    
+    fetch_path: /Linux_Val/EBS/{{ ctask_number }}
+    remote_path: /tmp/{{ ctask_number }}
+  gather_facts: true
+  tasks:     
+    - debug:
+        msg: "{{ target_host}}"        
+    - name: Get account id
+      set_fact:
+        aws_account_id: "{{ ansible_hostname[6:9] | lower }}"
+      tags: aws_configure
+    - debug:
+        msg: "{{ aws_account_id }}"      
+      tags: aws_configure    
+    - set_fact:
+        aws_account_type: "{{ ansible_hostname[5] }}"
+      tags: variables
+    - name: getting disk name from remote machine
+      shell: echo `lsblk -a | grep -v ^NAME | grep -v ^'├' | grep -v ^'└' | awk '{print $1}' | tail -1`
+      register: new_disk_name
+      tags: get_disk_name
+    - debug:
+        msg: "{{ new_disk_name }}"
+      tags: get_disk_name
+    - set_fact:
+        vol_disk_name: "{{ new_disk_name.stdout }}"
+      tags: get_disk_name
+
+
+----------------------------------------------------------------------------------------------------------------------------------------------
+
+ebs_linux/ebs_disk_mount.sh
+
+#!/bin/bash
+
+SIZE=$1
+MOUNT=$2
+AWS_ACC_ID=$3
+
+#         /usr/local/bin/turbot-aws -a $AWS_ACC_ID ec2 describe-instances > /dev/null 2>&1
+#         if [[ "$?" != "0" ]]
+#         then
+#         echo Looks like you may need to fix AWS CLI permissions
+#         exit
+#         fi
+
+#         SIZE=$1
+#         if [[ $SIZE == "" ]]
+#         then
+#         echo Need to give a size, in GB
+#         exit
+#         fi
+
+#         if [ "$SIZE" -eq "$SIZE" ] && [[ "$SIZE" != "0" ]] 2> /dev/null
+#         then
+#         echo "Input contains integer"
+#         else
+#         echo "Input is not a non zero integer"
+#         exit
+#         fi
+# ###Need to cheeck mount can be static
+#         MOUNT=$2
+#         if [[ $MOUNT == "" ]]
+#         then
+#         echo Need to give me a mount point name like /u01
+#         exit
+#         fi
+
+#         if [[ "${MOUNT:0:1}" == "/" ]]
+#         then
+#         echo "Leading / found as expected"
+#         else
+#         echo "No leading / found and I am not adding one for you"
+#         exit
+#         fi
+
+#         grep -v ^# /etc/fstab | grep -v ^$ | awk '{print $2}' | grep ^${MOUNT}$ && {
+#         echo Found that mount point already listed in fstab so stopping
+#         exit
+#                 }
+# CURRENTDISKS=($(lsblk -a | grep -v ^NAME | grep -v ^'├' | grep -v ^'└' | awk '{print $1}'))
+
+# echo ${CURRENTDISKS[@]}
+# INSTANCE=$(curl -q -s http://169.254.169.254/latest/meta-data/instance-id)
+# if [[ $INSTANCE == "" ]]
+#         then
+#         echo "Unable to fetch Instance ID"
+#                 exit
+#         fi
+
+# # Get what AWS Region I am in
+# REGION=$(curl -q -s http://169.254.169.254/latest/meta-data/placement/availability-zone)
+# if [[ $REGION == "" ]]
+#         then
+#         echo "Unable to fetch Availability zone"
+#                 exit
+#         fi
+
+# # Get a list of current AWS volumes I have
+# volumes=($(/usr/local/bin/turbot-aws -a ${AWS_ACC_ID} ec2 describe-volumes --region ${REGION%?} --filters "Name=attachment.instance-id,Values=$INSTANCE" | grep \"Device\"\:  | awk '{print $2}' | sed 's/[",]//g'))
+
+# echo ${volumes[*]}
+# for newdiskname in f g h i j k l m n o p q r s t u v w x y z
+# do
+# if [[ " ${volumes[*]} " =~ " /dev/sd${newdiskname} " ]];
+# then
+# echo /dev/sd${newdiskname} is already attached to this instance.
+# else
+# break
+# fi
+# done
+
+# echo /dev/sd${newdiskname} is available for use.
+
+# VOLUME=$(/usr/local/bin/turbot-aws -a ${AWS_ACC_ID} ec2 create-volume --encrypted --availability-zone ${REGION} --size ${SIZE} --volume-type gp3 --tag-specifications "ResourceType=volume,Tags=[{Key=Name,Value=${newdiskname}}]" | grep \"VolumeId\"\:  | awk '{print $2}' | sed 's/[",]//g')
+
+# echo $VOLUME
+# # If after waiting we still dont see any new device, we need to exit
+# if [[ "${VOLUME}" == "" ]]
+# then
+# echo New volume not created
+# exit
+# else
+# echo Volume created successfully
+# fi
+
+CURRENTDISKS=($(lsblk -a | grep -v ^NAME | grep -v ^'├' | grep -v ^'└' | awk '{print $1}'))
+
+echo ${CURRENTDISKS[@]}
+
+for count in {1..30}
+do
+NEWDISKS=($(lsblk -a | grep -v ^NAME | grep -v ^'├' | grep -v ^'└' | awk '{print $1}'))
+echo ${NEWDSISKS[@]}
+if [[ "${NEWDISKS[@]}" ==  "${CURRENTDISKS[@]}" ]]
+then
+echo sleeping for 1 second
+sleep 1
+else
+break
+fi
+done
+
+# Now we just compare this new list with the original list and anything new must be our new disk
+NEWDEVICE=($(echo ${NEWDISKS[@]} ${CURRENTDISKS[@]} | tr ' ' '\n' | sort | uniq -u))
+
+echo ${NEWDEVICE[@]}
+
+# If after waiting we still dont see any new device, we need to exit
+if [[ "${NEWDEVICE[@]}" == "" ]]
+then
+echo No new device file found for attaching
+exit
+else
+echo Volume attached successfully
+fi
+
+#Lets just double check there is only one NEWDEVICE and if not lets exit as something isn't right
+if [[ `echo ${NEWDEVICE[@]} | awk '{print $2}'` == "" ]]
+then
+echo No second disk
+else echo More than 1 volume is unused. Cannot mount the volume
+exit
+fi
+
+# Now lets check if this new disk is unpartitioned before we partition it
+if [[ $(/sbin/sfdisk -d /dev/${NEWDEVICE} 2>/dev/null) == "" ]]
+then
+echo No partition necessary for XFS
+# Assumine the use of xfs but could add lvm2 - if its installed - to do pvcreate etc
+sudo mkfs.xfs /dev/${NEWDEVICE}
+sudo mkdir $MOUNT
+UUID=($(sudo xfs_admin -u /dev/${NEWDEVICE} | sed 's/\ //g' | cut -f2 -d"="))
+# cat >> sudo /etc/fstab << EOF
+# UUID=${UUID}    $MOUNT          xfs    defaults        1 2
+# #/dev/$NEWDEVICE        $MOUNT          xfs    defaults        1 2
+# EOF
+echo "UUID=${UUID}    $MOUNT          xfs    defaults        1 2" | sudo tee -a /etc/fstab
+sudo mount $MOUNT
+echo Disk Mounted successfully
+echo VolID:$VOLUME
+else
+echo Disk seems to have a partition so existing rapidly
+exit
+fi
+
+--------------------------------------------------------------------------------------------------------------------------------------------------
+
+ebs_linux/ebs_disk_volume.sh
+
+#!/bin/bash
+
+SIZE=$1
+MOUNT=$2
+AWS_ACC_ID=$3
+INSTANCE=$4
+REGION=$5
+
+
+        /usr/local/bin/turbot-aws -a $AWS_ACC_ID --role-name=admin ec2 describe-instances --instance-ids INSTANCE --region $REGION > /dev/null 2>&1
+        if [[ "$?" != "0" ]]
+        then
+        echo Looks like you may need to fix AWS CLI permissions
+        exit
+        fi
+
+        SIZE=$1
+        if [[ $SIZE == "" ]]
+        then
+        echo Need to give a size, in GB
+        exit
+        fi
+
+        if [ "$SIZE" -eq "$SIZE" ] && [[ "$SIZE" != "0" ]] 2> /dev/null
+        then
+        echo "Input contains integer"
+        else
+        echo "Input is not a non zero integer"
+        exit
+        fi
+###Need to cheeck mount can be static
+        MOUNT=$2
+        if [[ $MOUNT == "" ]]
+        then
+        echo Need to give me a mount point name like /u01
+        exit
+        fi
+
+        if [[ "${MOUNT:0:1}" == "/" ]]
+        then
+        echo "Leading / found as expected"
+        else
+        echo "No leading / found and I am not adding one for you"
+        exit
+        fi
+
+        grep -v ^# /etc/fstab | grep -v ^$ | awk '{print $2}' | grep ^${MOUNT}$ && {
+        echo Found that mount point already listed in fstab so stopping
+        exit
+                }
+
+#INSTANCE=$(curl -q -s http://169.254.169.254/latest/meta-data/instance-id)
+if [[ $INSTANCE == "" ]]
+        then
+        echo "Unable to fetch Instance ID"
+                exit
+        fi
+
+# Get what AWS Region I am in
+#REGION=$(curl -q -s http://169.254.169.254/latest/meta-data/placement/availability-zone)
+REGION=$5
+if [[ $REGION == "" ]]
+        then
+        echo "Unable to fetch Availability zone"
+                exit
+        fi
+ 
+# Get a list of current AWS volumes I have
+volumes=($(/usr/local/bin/turbot-aws -a ${AWS_ACC_ID} --role-name=admin ec2 describe-volumes --region ${REGION%?} --filters "Name=attachment.instance-id,Values=$INSTANCE" | grep \"Device\"\:  | awk '{print $2}' | sed 's/[",]//g'))
+
+
+echo ${volumes[*]}
+for newdiskname in f g h i j k l m n o p q r s t u v w x y z
+do
+if [[ " ${volumes[*]} " =~ " /dev/sd${newdiskname} " ]];
+then
+echo /dev/sd${newdiskname} is already attached to this instance.
+else
+break
+fi
+done
+
+echo /dev/sd${newdiskname} is available for use.
+#echo xvd${newdiskname} > /home/svc-linux-snow/ebsdev/drivelist/${CTASK_NUMBER}.txt
+
+ 
+VOLUME=$(/usr/local/bin/turbot-aws -a ${AWS_ACC_ID} --role-name=admin ec2 create-volume --region ${REGION%?} --encrypted --availability-zone ${REGION} --size ${SIZE} --volume-type gp3 --tag-specifications "ResourceType=volume,Tags=[{Key=Name,Value=${newdiskname}}]" | grep \"VolumeId\"\:  | awk '{print $2}' | sed 's/[",]//g')
+
+
+echo $VOLUME
+# If after waiting we still dont see any new device, we need to exit
+if [[ "${VOLUME}" == "" ]]
+then
+echo New volume not created
+exit
+else
+echo Volume created successfully
+fi
+# Lets wait for that to finish before moving on
+/usr/local/bin/turbot-aws -a ${AWS_ACC_ID} --role-name=admin ec2 wait volume-available --volume-ids ${VOLUME} --region ${REGION%?}
+
+# Now attach the new volume to me
+/usr/local/bin/turbot-aws -a ${AWS_ACC_ID} --role-name=admin ec2 attach-volume --volume-id ${VOLUME} --device /dev/sd${newdiskname} --instance-id ${INSTANCE} --region ${REGION%?}
+
+# Lets wait for that to finish before moving on
+/usr/local/bin/turbot-aws -a ${AWS_ACC_ID} --role-name=admin ec2 wait volume-in-use --volume-ids ${VOLUME} --region ${REGION%?}
+echo $VOLUME
+echo xvd${newdiskname}
+
+
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+
+ebs_linux/non_prod.yml
+
+---
+- name: EBS Disk Mounting
+  hosts: localhost
+  gather_facts: no
+  # connection: local
+  tasks:
+    - name: Run Kion Stak command to get the access key and secret key
+      command: kion --profile nonprod stak --l {{ aws_account_name }} --car {{ role }} -p
+      register: non_prod_stak_output
+      when: env != "P"
+
+    - debug:
+        msg: "{{ non_prod_stak_output }}"  
+      when: env != "P"   
+    
+    - name: Run Kion Stak command to get the access key and secret key
+      command: kion --profile prod stak --l {{ aws_account_name }} --car {{ role }} -p
+      register: prod_stak_output
+      when: env == "P"
+
+    - debug:
+        msg: "{{ prod_stak_output }}" 
+      when: env == "P"  
+
+    - name: setting up the variables of non Prod access key and secret key
+      set_fact:
+        AWS_ACCESS_KEY_ID: "{{ non_prod_stak_output.stdout_lines[0].split('export AWS_ACCESS_KEY_ID=')[1] }}"
+        AWS_SECRET_ACCESS_KEY: "{{ non_prod_stak_output.stdout_lines[1].split('export AWS_SECRET_ACCESS_KEY=')[1] }}"
+        AWS_SESSION_TOKEN: "{{ non_prod_stak_output.stdout_lines[2].split('export AWS_SESSION_TOKEN=')[1] }}"
+      when: env != "P"
+
+    - name: setting up the variables of Prod access key and secret key
+      set_fact:
+        AWS_ACCESS_KEY_ID: "{{ prod_stak_output.stdout_lines[0].split('export AWS_ACCESS_KEY_ID=')[1] }}"
+        AWS_SECRET_ACCESS_KEY: "{{ prod_stak_output.stdout_lines[1].split('export AWS_SECRET_ACCESS_KEY=')[1] }}"
+        AWS_SESSION_TOKEN: "{{ prod_stak_output.stdout_lines[2].split('export AWS_SESSION_TOKEN=')[1] }}"
+      when: env == "P"  
+
+    - name: Configure AWS CLI with Access Key and Secret Key
+      shell: |
+        aws configure set aws_access_key_id {{ AWS_ACCESS_KEY_ID }}
+        aws configure set aws_secret_access_key {{ AWS_SECRET_ACCESS_KEY }}
+        aws configure set aws_session_token {{ AWS_SESSION_TOKEN }}
+        aws configure set region {{ az }}
+      register: set_aws_configure  
+
+
+---------------------------------------------------------------------------------------------------------------------------------------------------
+
+ebs_linux/ebs_main.yml
+
+---
+- name: EBS Disk Mounting
+  hosts: localhost
+  gather_facts: no
+  become_method: sudo
+  become_user: root
+  # connection: local
+  tasks:
+    - add_host:
+        hostname: "{{ target_host }}"
+        groups: ebs_server
+- hosts: localhost
+  connection: local
+  vars:
+    new_disk_names: [f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z]
+    remote_path: /tmp/{{ ctask_number }}
+    share_path: /Linux_Qualify/EBS/{{ ctask_number }}
+    target_host: "{{ target_host }}"
+  gather_facts: no
+  tasks:
+    - set_fact:
+        aws_account_name: "{{ acc_name }}"
+        aws_environment: "{{ env[0] }}"
+        role: ia-role
+      tags: variables
+    - debug:
+        msg: "target_host {{ target_host }}"
+    - name: Get account id
+      set_fact:
+        aws_environment: "{{ env[0] }}"
+      tags: aws_configure
+    - debug:
+        msg: "Account Name: {{ aws_account_name }}"
+      tags: aws_configure
+
+    - debug:
+        msg: "Environment: {{ aws_environment }}"
+      tags: aws_configure
+
+    # - set_fact:
+    #     aws_account_type: "{{ ansible_hostname[5] }}"
+    #   tags: variables
+
+    - name: Run Kion Stak command to get the access key and secret key
+      command: kion --profile nonprod stak --l {{ aws_account_name }} --car {{ role }} -p
+      register: non_prod_stak_output
+      when: env != "P"
+
+    - debug:
+        msg: "{{ non_prod_stak_output }}"  
+      when: env != "P"   
+    
+    - name: Run Kion Stak command to get the access key and secret key
+      command: kion --profile prod stak --l {{ aws_account_name }} --car {{ role }} -p
+      register: prod_stak_output
+      when: env == "P"
+
+    - debug:
+        msg: "{{ prod_stak_output }}" 
+      when: env == "P"  
+
+    - name: setting up the variables of non Prod access key and secret key
+      set_fact:
+        AWS_ACCESS_KEY_ID: "{{ non_prod_stak_output.stdout_lines[0].split('export AWS_ACCESS_KEY_ID=')[1] }}"
+        AWS_SECRET_ACCESS_KEY: "{{ non_prod_stak_output.stdout_lines[1].split('export AWS_SECRET_ACCESS_KEY=')[1] }}"
+        AWS_SESSION_TOKEN: "{{ non_prod_stak_output.stdout_lines[2].split('export AWS_SESSION_TOKEN=')[1] }}"
+      when: env != "P"
+
+    - name: setting up the variables of Prod access key and secret key
+      set_fact:
+        AWS_ACCESS_KEY_ID: "{{ prod_stak_output.stdout_lines[0].split('export AWS_ACCESS_KEY_ID=')[1] }}"
+        AWS_SECRET_ACCESS_KEY: "{{ prod_stak_output.stdout_lines[1].split('export AWS_SECRET_ACCESS_KEY=')[1] }}"
+        AWS_SESSION_TOKEN: "{{ prod_stak_output.stdout_lines[2].split('export AWS_SESSION_TOKEN=')[1] }}"
+      when: env == "P"  
+
+    - name: Configure AWS CLI with Access Key and Secret Key
+      shell: |
+        aws configure set aws_access_key_id {{ AWS_ACCESS_KEY_ID }}
+        aws configure set aws_secret_access_key {{ AWS_SECRET_ACCESS_KEY }}
+        aws configure set aws_session_token {{ AWS_SESSION_TOKEN }}
+        aws configure set region {{ az }}
+      register: set_aws_configure  
+
+- name: EBS Disk Mounting
+  hosts: localhost
+  gather_facts: no
+  become_method: sudo
+  become_user: root
+  # connection: local
+  tasks:
+    - add_host:
+        hostname: "{{ target_host }}"
+        groups: ebs_server
+
+    - name: check mount point exists on remote server
+      shell: "grep -v ^# /etc/fstab | grep -v ^$ | awk '{print $2}' | grep ^{{ mount_point }}$"
+      register: check_mount_point_exists
+      ignore_errors: yes
+      delegate_to: "{{ target_host }}"
+      tags: check_mount_point
+    - debug:
+        msg: "{{ check_mount_point_exists }}"
+      tags: check_mount_point
+    - fail:
+        msg: "Found that mount point already listed in fstab, So stopping"
+      when: check_mount_point_exists.rc == 0
+      tags: check_mount_point
+    - debug:
+        msg: "mount point not exists"
+      when: check_mount_point_exists.rc != 0
+      tags: check_mount_point
+
+   # Setting variable for region
+    - name: remove last letter from az variable
+      set_fact:
+        region: "{{ az[:-1] }}"  
+
+    - debug:
+        msg: "region: {{ region }}"    
+    
+    # Checking EC2 instance status
+    - name: Checking instance is running or not
+      command: aws ec2 describe-instances --instance-ids {{ ins }} --region {{ region }} --output text --query 'Reservations[*].Instances[*].State.Name'
+      register: check_ins_status
+      delegate_to: localhost
+
+    - debug:
+        msg: "{{ check_ins_status }}"    
+
+    - set_fact:
+        ins_state: "{{ check_ins_status.stdout }}"  
+
+    - debug:
+        msg: "{{ check_ins_status.stdout }}" 
+      when: ins_state == "running"     
+
+
+
+
+
+    - fail:
+        msg: "Stopping the process since EC2 is not in the running state"
+      when: ins_state != "running"
+
+    # Checking disk size input is integer or non zero integer
+    - name: Checking disk size input contains integer or not
+      debug:
+        msg: "Disk size contains integer {{ disk_size }}"
+      when: disk_size != 0   
+
+    - fail:
+        msg: "Disk size contains not a non zero integer {{ disk_size }}"
+      when: disk_size == 0 
+    
+    # Checking mount point is starting with '/' or not
+    - name: Displaying a mount point name
+      debug: 
+        msg: "mount point: {{ mount_point }}"     
+
+    - debug:
+        msg: As expected mount point is starting with '/'
+      when: "mount_point[0] == '/'"    
+
+    - fail:
+        msg: Mount point is not starting with /. So, not proceeding with this mount point.
+      when: "mount_point[0] != '/'" 
+    
+    # Checking mount point in the target server if available or not
+    - name: Checking mount point in the target server if available or not
+      shell: "grep -v ^# /etc/fstab | grep -v ^$ | awk '{print $2}' | grep ^{{ mount_point }}$"
+      register: check_mount_point_target
+      delegate_to: "{{ target_host }}"
+      ignore_errors: yes
+
+    - debug: 
+        msg: Mount point is not presenting on the targer server. Hence proceeding for mounting process.
+      when: check_mount_point_target.rc != 0  
+
+    - fail: 
+        msg: Mount point is already present on the targer server. Hence stopping the process.
+      when: check_mount_point_target.rc == 0
+
+    # Checking EBS volume existing in the target server 
+    - name: Displaying an existing EBS volume in the target server
+      shell: "aws ec2 describe-volumes --region {{ region }} --filters Name=attachment.instance-id,Values={{ ins }} --query 'Volumes[].Attachments[].Device'"
+      delegate_to: localhost
+      register: ebs_volume_info
+
+    - name: Existing EBS volumes of target server
+      set_fact:
+        volumes: "{{ ebs_volume_info.stdout_lines | join('') }}"    
+      
+    - name: Listing existing volumes of target server
+      debug:
+        msg: "{{ volumes }}"    
+
+    - name: Check attached volumes in target server
+      debug:
+        msg: "Volume /dev/sd{{ item }} is already attached"
+      loop: "{{ new_disk_names }}"
+      when: "'/dev/sd{{ item }}' in volumes"
+      register: attached_disk
+
+    - name: Check for available volumes to create EBS 
+      debug:
+        msg: "Volume /dev/sd{{ item }} is available for creation"
+      loop: "{{ new_disk_names }}"
+      when: "'/dev/sd{{ item }}' not in volumes"
+      register: available_disk
+
+    - name: storing attached volumes
+      set_fact:
+        attached_disk: "Volume /dev/sd{{ item }} is already attached"
+      loop: "{{ new_disk_names }}"
+      when: "'/dev/sd{{ item }}' in volumes"
+      # register: attached_disks
+
+    - name: Storing available volumes
+      set_fact:
+        available_disk: "Volume /dev/sd{{ item }} is available for creation"
+      loop: "{{ new_disk_names }}"
+      when: "'/dev/sd{{ item }}' not in volumes"
+      # register: available_disks
+   
+    - name: Check for first available disks to create EBS volume
+      set_fact:
+        first_available_disk: "/dev/sd{{ item }}"
+      loop: "{{ new_disk_names }}"
+      when: "'/dev/sd{{ item }}' not in volumes and first_available_disk is not defined"
+
+    # - name: Displaying attahced volume
+    #   debug:
+    #     msg: "{{ attached_disk }}"   
+
+    - name: Displaying first available volume to create EBS
+      debug:
+        msg: "{{ first_available_disk }}"  
+
+    # Create a new EBS volume
+    - name: Creating a new EBS volume with the name of {{ first_available_disk }}
+      command: aws ec2 create-volume --region {{ region }} --encrypted --availability-zone {{ az }} --size {{ disk_size }} --volume-type gp3 --tag-specifications "ResourceType=volume,Tags=[{Key=Name,Value={{ first_available_disk }}}]" --query VolumeId --output text  
+      register: create_ebs_volume
+      delegate_to: localhost
+
+    - debug:
+        msg: "{{ create_ebs_volume }}" 
+      when: create_ebs_volume.stderr == ""    
+
+    - name: Storing volume ID after creating EBS volume
+      set_fact:
+        volume_id: "{{ create_ebs_volume.stdout }}" 
+      when: create_ebs_volume.stderr == "" 
+
+    - name: Storing volume ID after creating EBS volume
+      set_fact:
+        VolID: "{{ create_ebs_volume.stdout }}" 
+      when: create_ebs_volume.stderr == ""   
+
+    - name: Displaying volume ID after creating EBS volume
+      debug:
+        msg: "VolID: {{ create_ebs_volume.stdout }}" 
+      when: create_ebs_volume.stderr == ""   
+
+    - vars:
+        msg: |
+             EBS volume {{ first_available_disk }} created successfully. 
+             Volume ID: {{ volume_id }}
+      debug:
+        msg: "{{ msg.split('\n') }}"       
+      when: create_ebs_volume.stderr == ""
+  
+    # Wait until EBS volume status changed as available
+    - name: Wait until EBS status changed as available
+      command: aws ec2 wait volume-available --volume-ids {{ volume_id }} --region {{ region }}
+      register: wait_volume_create
+      delegate_to: localhost  
+
+    - debug:
+        msg: "EBS Volume {{ first_available_disk }} state changed as available"
+      when: wait_volume_create.stderr == ""  
+    
+    # Attach volume to EC2  
+    - name: Attaching an EBS volume to the EC2 instance
+      command: aws ec2 attach-volume --volume-id {{ volume_id }} --device {{ first_available_disk}} --instance-id {{ ins }} --region {{ region }}
+      register: attach_volume_to_ec2
+      delegate_to: localhost
+
+    - debug:
+        msg: "{{ attach_volume_to_ec2 }}" 
+      when: attach_volume_to_ec2.stderr == "" 
+
+    - debug:
+        msg: "EBS volume {{ first_available_disk }} attached successfully to EC2"
+      when: attach_volume_to_ec2.stderr == ""
+
+    # Wait until volume state changes as in use
+    - name: Wait until volume state changes as volume-in-use
+      command: aws ec2 wait volume-in-use --volume-ids {{ volume_id }} --region {{ region }}
+      register: wait_volume_in_use
+      delegate_to: localhost    
+
+    - debug: 
+        msg: EBS volume {{ first_available_disk }} state changed as volume-in-use  
+      when: wait_volume_in_use.stderr == "" 
+
+    # creating destination folder with ctask number
+    - name: creating {{ ctask_number }} directory in Shared path
+      file:
+        path: "{{ share_path }}"
+        state: directory
+      become: true
+      delegate_to: localhost
+      tags: pre_check   
+
+    - name: creating {{ ctask_number }} directory in tmp folder
+      file:
+        path: "{{ remote_path }}"
+        state: directory
+      become: true
+      delegate_to: "{{ target_host }}"  
+  
+
+    # Copying the pre and post SHELL SCRIPT in target server
+    - name: Copying pre and post Shell Script to the target server
+      become: true
+      copy:
+        src: /home/svc-linux-snow/ebs_linux/{{item}}
+        dest: "{{ remote_path }}/{{item}}"
+        mode: 0777
+        owner: svc-linux-snow
+      with_items:
+        - pre_check_report.sh
+        - post_check_report.sh
+      register: copy_status
+      delegate_to: "{{ target_host }}" 
+    - debug:
+        msg: "{{ copy_status }}"
+      # when: copy_status.changed == true
+
+
+    - debug:
+        msg: "Pre and Post shell script successfully copied on the target server"
+      when: copy_status.changed == true
+    # - fail:
+    #     msg: "Failed to copy Pre and Post shell script in target server"
+    #   when: copy_status.changed != true
+
+    - name: check pre and post shell script exists in target server
+      stat:
+        path: "{{ remote_path }}/{{item}}"
+      with_items:
+        - pre_check_report.sh
+        - post_check_report.sh
+      register: check_copy_status
+      delegate_to: "{{ target_host }}"
+      tags: file_copy
+    - debug:
+        msg: "Pre and Post File copied successfully"
+      when: item.stat.exists == true
+      with_items: "{{ check_copy_status.results}}"
+      tags: file_copy
+    - debug:
+        msg: "Pre and Post File copy failed"
+      when: item.stat.exists == false
+      with_items: "{{ check_copy_status.results}}"
+      tags: file_copy  
+
+    # Generating pre check html report
+    - name: Generate the pre check html report
+      shell: sh {{ remote_path }}/pre_check_report.sh {{ remote_path }}
+      register: pre_check_report
+      become: true
+      delegate_to: "{{ target_host }}"
+      tags: pre_check
+    - debug:
+        msg: "Pre Check Report executed successfully"
+      when: "pre_check_report.rc == 0"
+      delegate_to: localhost
+      tags: pre_check
+    - debug:
+        msg: "Pre Check Report execution failed"
+      when: "pre_check_report.rc != 0"
+      tags: pre_check
+
+    # fetch pre check html report
+    - name: fetching pre check report from remote server
+      fetch:
+        src: "{{ remote_path }}/pre_check_report.html"
+        dest:  "{{ share_path }}/pre_check_report.html"
+        flat: yes
+      register: fetch_pre_check_report
+      ignore_errors: yes
+      become: true
+      delegate_to: "{{ target_host }}"
+      tags: pre_check
+    - fail:
+        msg: "Pre check report fetch failed"
+      when: "fetch_pre_check_report.failed == true"
+      tags: pre_check  
+
+    # Generating pre check report pdf
+    - name: Generate report to post check pdf format
+      shell: /usr/local/bin/wkhtmltopdf {{ share_path }}/pre_check_report.html {{ share_path }}/pre_check_ebs_disk_mount.pdf
+      become: true
+      register: pre_check_pdf_report
+      delegate_to: localhost
+      no_log: true
+      tags: pdf_report
+    - debug:
+        msg: "{{ pre_check_pdf_report }}"
+      tags: pdf_report
+    - debug:
+        msg: "Generating Pre Check PDF Report Failed"
+      when: "pre_check_pdf_report.rc != 0"
+    
+    
+    # Getting disk name from target server
+    - name: getting disk name from remote machine
+      shell: echo `lsblk -a | grep -v ^NAME | grep -v ^'├' | grep -v ^'└' | awk '{print $1}' | tail -1`
+      register: new_disk_name
+      delegate_to: "{{ target_host }}"
+      tags: get_disk_name
+    - debug:
+        msg: "{{ new_disk_name }}"
+      tags: get_disk_name  
+    - set_fact:
+        vol_disk_name: "{{ new_disk_name.stdout }}"
+      tags: get_disk_name    
+    - debug:
+        msg: "{{ vol_disk_name }}"
+      tags: get_disk_name
+    
+
+    # Compare new disk with existing disk on the target server
+    - name: Checking unique disk
+      shell: echo {{ vol_disk_name }} | tr ' ' '\n' | sort | uniq -u
+      register: check_uniq_disk
+      delegate_to: "{{ target_host }}"
+      tags: mount
+
+    - debug: 
+        msg: "No new device file found for attaching"
+      when: check_uniq_disk.stdout == ""
+      tags: mount
+
+    - debug: 
+        msg: "Volume attached successfully"
+      when: check_uniq_disk.stdout != ""
+      tags: mount  
+
+    - set_fact: 
+        new_device: "{{ check_uniq_disk.stdout }}"
+      when: check_uniq_disk.stdout != ""
+      tags: mount    
+
+    - name: Double check if target server has the new disk or not
+      shell: echo {{ new_device }} | awk '{print $2}'
+      register: check_disk
+      delegate_to: "{{ target_host }}" 
+      tags: mount 
+
+    - debug: 
+        msg: "{{ check_disk }}"
+    - debug: 
+        msg: "No second disk"
+      when: check_disk.stderr == "" 
+      tags: mount
+    - fail: 
+        msg: "More than 1 volume is unused. Cannot mount the volume"
+      when: check_disk.stderr != ""  
+      tags: mount
+
+    # check if this new disk is unpartitioned before we partition it
+    - name: Check new disk is partitioned or not
+      shell: "/sbin/sfdisk -d /dev/{{ new_device }}"
+      register: check_partition
+      become: yes
+      delegate_to: "{{ target_host }}" 
+      ignore_errors: yes
+      tags: mount
+
+    - debug: 
+        msg: "{{ check_partition }}"
+    - debug:
+        msg: "No partition necessary for XFS"
+      when: check_partition.stdout == "" 
+      tags: mount  
+
+    # Creating a new xfs file system 
+    - name: Create new xfs file system
+      shell: "sudo mkfs.xfs /dev/{{ new_device }}"
+      register: create_xfs_file_system
+      delegate_to: "{{ target_host }}" 
+      tags: mount 
+    - debug:
+        msg: "{{ create_xfs_file_system }}"  
+    - debug:
+        msg: "Created a new file system /dev/{{ new_device }} successfully."
+      when: create_xfs_file_system.stderr == ""  
+      tags: mount     
+    - fail:
+        msg: "Failed to created a new file system /dev/{{ new_device }}."
+      when: create_xfs_file_system.stderr != ""  
+      tags: mount     
+
+    # Creating a directory with mount point name
+    - name: Create directory with {{ mount_point }} name
+      shell: "sudo mkdir {{ mount_point }}"
+      delegate_to: "{{ target_host }}" 
+      register: create_dir_mount
+      tags: mount 
+    - debug:
+        msg: "{{ create_dir_mount }}"   
+    - debug:
+        msg: "Created a new directory with {{ mount_point }}"  
+      when: create_dir_mount.stderr == ""
+      tags: mount
+    - fail:
+        msg: "Failed to create a new directory with mount_point."  
+      when: create_dir_mount.stderr != ""
+      tags: mount  
+
+    # Taking UUID
+    - name: Taking UUID
+      shell: sudo xfs_admin -u /dev/{{ new_device }} | sed 's/\ //g' | cut -f2 -d"="
+      register: check_uuid
+      delegate_to: "{{ target_host }}"
+      tags: mount   
+    - set_fact:
+        uuid: "{{ check_uuid.stdout }}"  
+    - debug:
+        msg: "UUID taken successfully"
+      when: check_uuid.stdout != ""      
+    - fail:
+        msg: "Failed to take UUID"
+      when: check_uuid.stdout == ""  
+
+    # Adding entry in fstab
+    - name: Adding entry in /etc/fstab
+      shell: "echo UUID={{ uuid }}    {{ mount_point }}         xfs    defaults        1 2 | sudo tee -a /etc/fstab"
+      register: fstab_entry
+      delegate_to: "{{ target_host }}"
+      tags: mount  
+    - debug:
+        msg: "{{ fstab_entry }}"  
+      tags: mount   
+    - debug: 
+        msg: "Entry added in /etc/fstab"  
+      when: fstab_entry.stdout != ""
+      tags: mount  
+    - fail:
+        msg: "Failed to add entry in /etc/fstab"  
+      when: fstab_entry.stdout == "" 
+      tags: mount      
+
+    # Mounting with disk
+    - name: Mounting with Disk
+      shell: "sudo mount {{ mount_point }}"  
+      register: mount_disk
+      delegate_to: "{{ target_host }}"
+      tags: mount
+    - debug: 
+        msg: "{{ mount_disk }}"   
+    - debug: 
+        msg: "Disk Mounted successfully"  
+      when: mount_disk.stderr == ""
+      tags: mount  
+    - fail:
+        msg: "Failed to mount with disk"  
+      when: mount_disk.stderr != "" 
+      tags: mount    
+
+    - name: Displaying volume ID which is attached 
+      debug:
+        msg: "{{ volume_id }}"
+
+    # Generating post check html report
+    - name: Generate the post check html report
+      shell: sh {{ remote_path }}/post_check_report.sh {{ remote_path }} {{ mount_point }} 
+      register: post_check_report
+      become: true
+      tags: post_check
+      delegate_to: "{{ target_host }}"  
+    - debug:
+        msg: "Post Check Report executed successfully"
+      when: "post_check_report.rc == 0"
+      tags: post_check
+    - debug:
+        msg: "Post Check Report execution failed"
+      when: "post_check_report.rc != 0"
+      tags: post_check
+
+    # fetch post check html report
+    - name: fetching post check report from remote server
+      fetch:
+        src: "{{ remote_path }}/post_check_report.html"
+        dest:  "{{ share_path }}/post_check_report.html"
+        flat: yes
+      ignore_errors: yes
+      become: true
+      register: fetch_post_check_report
+      delegate_to: "{{ target_host }}"
+      tags: post_check  
+    - fail:
+        msg: "Fetch Post Check HTML Report Failed"
+      when: "fetch_pre_check_report.failed == true"
+      tags: post_check  
+
+    # Generating post check report pdf
+    - name: Generate report to pre check pdf format
+      shell: /usr/local/bin/wkhtmltopdf  {{ share_path }}/post_check_report.html {{ share_path }}/post_check_ebs_disk_mount.pdf
+      become: true
+      register: post_check_pdf_report
+      delegate_to: localhost
+      no_log: true
+      tags: pdf_report
+    - debug:
+        msg: "{{ post_check_pdf_report }}"
+      tags: pdf_report  
+    - debug:
+        msg: "Generating Post Check PDF Report Failed"
+      when: "post_check_pdf_report.rc != 0"    
+
+    - name: Deleting pre and post Shell Script to the target server
+      become: true
+      shell: "rm -rf {{ remote_path }}/*"
+      delegate_to: "{{ target_host }}"
+      register: delete_shell
+
+    - debug:
+        msg: "{{ delete_shell }}"  
+
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+
+ebs_linux/ebs_vol_mount.sh
+
+#!/bin/bash
+MOUNT=$1
+NEWDISKS=$2
+VOLUMEID=$3
+
+# mount
+# volume disk
+# volume id
+
+for count in {1..30}
+do
+echo ${NEWDSISKS[@]}
+if [[ "${NEWDISKS[@]}" ==  "${CURRENTDISKS[@]}" ]]
+then
+echo sleeping for 1 second
+sleep 1
+else
+break
+fi
+done
+
+# Now we just compare this new list with the original list and anything new must be our new disk
+NEWDEVICE=($(echo ${NEWDISKS[@]} ${CURRENTDISKS[@]} | tr ' ' '\n' | sort | uniq -u))
+
+echo ${NEWDEVICE[@]}
+
+# If after waiting we still dont see any new device, we need to exit
+if [[ "${NEWDEVICE[@]}" == "" ]]
+then
+echo No new device file found for attaching
+exit
+else
+echo Volume attached successfully
+fi
+
+
+
+#Lets just double check there is only one NEWDEVICE and if not lets exit as something isn't right
+if [[ `echo ${NEWDEVICE[@]} | awk '{print $2}'` == "" ]]
+then
+echo No second disk
+else echo More than 1 volume is unused. Cannot mount the volume
+exit
+fi
+
+# Now lets check if this new disk is unpartitioned before we partition it
+if [[ $(/sbin/sfdisk -d /dev/${NEWDEVICE} 2>/dev/null) == "" ]]
+then
+echo No partition necessary for XFS
+# Assumine the use of xfs but could add lvm2 - if its installed - to do pvcreate etc
+sudo mkfs.xfs /dev/${NEWDEVICE}
+sudo mkdir $MOUNT
+
+
+UUID=($(sudo xfs_admin -u /dev/${NEWDEVICE} | sed 's/\ //g' | cut -f2 -d"="))
+echo "UUID=${UUID}    $MOUNT          xfs    defaults        1 2" | sudo tee -a /etc/fstab
+sudo mount $MOUNT
+echo Disk Mounted successfully
+echo VolID:$VOLUMEID
+else
+echo Disk seems to have a partition so existing rapidly
+exit
+fi
+
+------------------------------------------------------------------------------------------------------------------------------------------------------
+
+ebs_linux/ec2_start.yml
+
+---
+- name: Check EC2 Status 
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  tasks:
+    - set_fact:
+        aws_account_name: "{{ acc_name }}"
+        aws_environment: "{{ env[0] }}"
+        role: ia-role
+      tags: variables
+    # - debug:
+    #     msg: "target_host {{ target_host }}"
+    - name: Get account id
+      set_fact:
+        aws_environment: "{{ env[0] }}"
+      tags: aws_configure
+    - debug:
+        msg: "Account Name: {{ aws_account_name }}"
+      tags: aws_configure
+
+    - debug:
+        msg: "Environment: {{ aws_environment }}"
+      tags: aws_configure
+
+    - name: Run Kion Stak command to get the access key and secret key
+      command: kion --profile nonprod stak --l {{ aws_account_name }} --car {{ role }} -p
+      register: non_prod_stak_output
+      when: aws_environment != "P"
+
+    - debug:
+        msg: "{{ non_prod_stak_output }}"  
+      when: aws_environment != "P"   
+    
+    - name: Run Kion Stak command to get the access key and secret key
+      command: kion --profile prod stak --l {{ aws_account_name }} --car {{ role }} -p
+      register: prod_stak_output
+      when: aws_environment == "P"
+
+    - debug:
+        msg: "{{ prod_stak_output }}" 
+      when: aws_environment == "P"  
+
+    - name: setting up the variables of non Prod access key and secret key
+      set_fact:
+        AWS_ACCESS_KEY_ID: "{{ non_prod_stak_output.stdout_lines[0].split('export AWS_ACCESS_KEY_ID=')[1] }}"
+        AWS_SECRET_ACCESS_KEY: "{{ non_prod_stak_output.stdout_lines[1].split('export AWS_SECRET_ACCESS_KEY=')[1] }}"
+        AWS_SESSION_TOKEN: "{{ non_prod_stak_output.stdout_lines[2].split('export AWS_SESSION_TOKEN=')[1] }}"
+      when: aws_environment != "P"
+
+    - name: setting up the variables of Prod access key and secret key
+      set_fact:
+        AWS_ACCESS_KEY_ID: "{{ prod_stak_output.stdout_lines[0].split('export AWS_ACCESS_KEY_ID=')[1] }}"
+        AWS_SECRET_ACCESS_KEY: "{{ prod_stak_output.stdout_lines[1].split('export AWS_SECRET_ACCESS_KEY=')[1] }}"
+        AWS_SESSION_TOKEN: "{{ prod_stak_output.stdout_lines[2].split('export AWS_SESSION_TOKEN=')[1] }}"
+      when: aws_environment == "P"  
+
+    - name: Configure AWS CLI with Access Key and Secret Key
+      shell: |
+        aws configure set aws_access_key_id {{ AWS_ACCESS_KEY_ID }}
+        aws configure set aws_secret_access_key {{ AWS_SECRET_ACCESS_KEY }}
+        aws configure set aws_session_token {{ AWS_SESSION_TOKEN }}
+        aws configure set region {{ az }}
+      register: set_aws_configure  
+
+      # Setting variable for region
+    - name: remove last letter from az variable
+      set_fact:
+        region: "{{ az[:-1] }}"  
+
+    - debug:
+        msg: "region: {{ region }}"    
+
+    # Checking EC2 instance status
+    - name: Checking instance is running or not
+      command: aws ec2 describe-instances --instance-ids {{ ins }} --region {{ region }} --output text --query 'Reservations[*].Instances[*].State.Name'
+      register: check_ins_status
+      delegate_to: localhost
+
+    - debug:
+        msg: "{{ check_ins_status }}"    
+
+    - set_fact:
+        ins_state: "{{ check_ins_status.stdout }}"  
+
+    - debug:
+        msg: "{{ check_ins_status.stdout }}" 
+      when: ins_state == "running"  
+
+    - debug:
+        msg: "Current Instance Status is running. So, Proceeding for the EBS creation" 
+      when: ins_state == "running"   
+
+    - name: Starting the instance
+      command: aws ec2 start-instances --instance-ids {{ ins }} --region {{ region }}
+      when: ins_state != "running"  
+      register: start_ins_status
+      ignore_errors: yes 
+      delegate_to: localhost    
+
+    - name: Wait until the EC2 Instance status changed to running
+      command: aws ec2 describe-instances --instance-ids {{ ins }} --region {{ region }} --output text --query 'Reservations[*].Instances[*].State.Name'
+      register: start_ec2_info
+      when: ins_state != "running"  
+      until: "'running' in start_ec2_info.stdout"
+      retries: 90
+      delay: 60
+
+    - debug: 
+        msg: EC2 instance started successfully. So, Proceeding for the EBS creation
+      when: start_ec2_info.changed == true 
+
+    - fail:
+        msg: Failed to start the EC2 instance
+      when: start_ec2_info.changed == false and ins_state != "running"    
+
+------------------------------------------------------------------------------------------------------------------------------------------------------
+
+ebs_linux/fetch_pre_post_html.yml
+
+---
+- name: Kion 
+  hosts: localhost
+  vars:
+    remote_path: /tmp/{{ ctask_number }}
+    share_path: /Linux_Prod/EBS_Linux/{{ ctask_number }}
+    target_host: "{{ target_host }}"
+  gather_facts: no
+  tasks:
+    - add_host:
+        hostname: "{{ target_host }}"
+        groups: ebs_server
+  # fetch pre check html report
+    - name: fetching pre check report from remote server
+      fetch:
+        src: "{{ remote_path }}/pre_check_report.html"
+        dest:  "{{ share_path }}/pre_check_report.html"
+        flat: yes
+      register: fetch_pre_check_report
+      ignore_errors: yes
+      become: true
+      delegate_to: "{{ target_host }}"
+      tags: pre_check
+    - debug:
+        msg: "{{ fetch_pre_check_report }}"
+
+
+    - debug:
+        msg: "Successfully Fetched Pre Check HTML Report"
+      when: "fetch_pre_check_report.failed == false"  
+    - fail:
+        msg: "Pre check report fetch failed"
+      when: "fetch_pre_check_report.failed == true"
+      tags: pre_check  
+
+  # fetch post check html report
+    - name: fetching post check report from remote server
+      fetch:
+        src: "{{ remote_path }}/post_check_report.html"
+        dest:  "{{ share_path }}/post_check_report.html"
+        flat: yes
+      ignore_errors: yes
+      become: true
+      register: fetch_post_check_report
+      delegate_to: "{{ target_host }}"
+      tags: post_check  
+    - debug:
+        msg: "Successfully Fetched Post Check HTML Report"
+      when: "fetch_post_check_report.failed == false"
+    - fail:
+        msg: "Fetch Post Check HTML Report Failed"
+      when: "fetch_post_check_report.failed == true"
+      tags: post_check    
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+
+ebs_linux/main.yml
+
+---
+- name: EBS Disk Mounting
+  hosts: localhost
+  gather_facts: no
+  become_method: sudo
+  become_user: root
+  tasks:
+    - add_host:
+        hostname: "{{ target_host }}"
+        groups: ebs_server
+- hosts: ebs_server
+  vars:
+    fetch_path: /Linux_Qualify/EBS/{{ ctask_number }}
+    remote_path: /tmp/{{ ctask_number }}
+  gather_facts: true
+  tasks:
+    - debug:
+        msg: "{{ target_host }}"
+    - name: Get account id
+      set_fact:
+        aws_account_id: "{{ ansible_hostname[6:9] | lower }}"
+        aws_environment: "{{ env[0] }}"
+      tags: aws_configure
+    - debug:
+        msg: "{{ aws_account_id }}"
+      tags: aws_configure
+
+    - debug:
+        msg: "{{ aws_environment }}"
+      tags: aws_configure
+
+    - set_fact:
+        aws_account_type: "{{ ansible_hostname[5] }}"
+      tags: variables
+
+
+    - name: AWS Prod keys information
+      include_vars: prod.yml
+      when: aws_environment == "P"
+      delegate_to: localhost
+      tags: aws_configure_keys
+    - name: AWS Non-Prod keys information
+      include_vars: non_prod.yml
+      when: aws_environment != "P"
+      delegate_to: localhost
+      tags: aws_configure_keys
+
+    - name: Setting up turbot aws cli for Prod servers
+      command:  "{{ item }}"
+      with_items:
+        - aws configure set default.turbot_host console.prod.amazon.biogen.com
+        - aws configure set default.turbot_access_key_id {{ turbot_access_key_id }}
+        - aws configure set default.turbot_secret_access_key {{ turbot_secret_access_key }}
+        - aws configure set default.turbot_account_id {{ aws_account_id }}
+      register: set_aws_cli
+      delegate_to: localhost
+      when: aws_environment == "P"
+      no_log: true
+      tags: aws_configure
+
+    - name: Setting up turbot aws cli for Non Prod servers
+      command:  "{{ item }}"
+      with_items:
+        - aws configure set default.turbot_host console.nonprod.amazon.biogen.com
+        - aws configure set default.turbot_access_key_id {{ turbot_access_key_id }}
+        - aws configure set default.turbot_secret_access_key {{ turbot_secret_access_key }}
+        - aws configure set default.turbot_account_id {{ aws_account_id }}
+      no_log: true
+      when: aws_environment != "P"
+      tags: aws_configure
+      register: set_aws_cli
+
+    - name: check mount point exists on remote server
+      shell: "grep -v ^# /etc/fstab | grep -v ^$ | awk '{print $2}' | grep ^{{ mount_point }}$"
+      register: check_mount_point_exists
+      ignore_errors: yes
+      tags: check_mount_point
+    - debug:
+        msg: "{{ check_mount_point_exists }}"
+      tags: check_mount_point
+    - debug:
+        msg: "ITPAM mount"
+      when: check_mount_point_exists.rc == 0
+      tags: check_mount_point
+    - debug:
+        msg: "Found that mount point already listed in fstab so stopping"
+      failed_when: check_mount_point_exists.rc == 0
+      tags: check_mount_point
+    - debug:
+        msg: "mount point not exists"
+      when: check_mount_point_exists.rc != 0
+      tags: check_mount_point
+
+    - name: listing all the existings EBS volumes
+      command: turbot-aws -a agr --role-name=admin ec2 describe-volumes --region {{ az }} --filters "Name=attachment.instance-id,Values={{ ins }}"
+      register: Existing_EBS
+
+    - debug:
+        msg: "{{ Existing_EBS }}"  
+
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+
+ebs_linux/mount.yml
+
+---
+- name: EBS Disk Mounting
+  hosts: localhost
+  gather_facts: no
+  become_method: sudo
+  become_user: root
+  vars:
+    # new_disk_names: [f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z]
+    remote_path: /tmp/{{ ctask_number }}
+    share_path: /Linux_Prod/EBS_Linux/{{ ctask_number }}
+    target_host: "{{ target_host }}"
+  # connection: local
+  tasks:
+    - add_host:
+        hostname: "{{ target_host }}"
+        groups: ebs_server
+
+    - name: creating {{ ctask_number }} directory in tmp folder
+      file:
+        path: "{{ remote_path }}"
+        state: directory
+        mode: 0777
+      become: true
+      delegate_to: "{{ target_host }}"  
+
+    # Copying the pre and post SHELL SCRIPT in target server
+    - name: Copying pre and post Shell Script to the target server
+      become: true
+      copy:
+        src: /home/svc-linux-snow/ebs_linux/{{item}}
+        dest: "{{ remote_path }}/{{item}}"
+        mode: 0777
+        owner: svc-linux-snow
+      with_items:
+        - pre_check_report.sh
+        - post_check_report.sh
+      register: copy_status
+      delegate_to: "{{ target_host }}" 
+    - debug:
+        msg: "{{ copy_status }}"
+      when: copy_status.changed == true
+
+
+    - debug:
+        msg: "Pre and Post shell script successfully copied on the target server"
+      when: copy_status.changed == true
+    - fail:
+        msg: "Failed to copy Pre and Post shell script in target server"
+      when: copy_status.changed != true
+
+    - name: check pre and post shell script exists in target server
+      stat:
+        path: "{{ remote_path }}/{{item}}"
+      with_items:
+        - pre_check_report.sh
+        - post_check_report.sh
+      register: check_copy_status
+      delegate_to: "{{ target_host }}"
+      tags: file_copy
+    - debug:
+        msg: "Pre and Post File copied successfully"
+      when: item.stat.exists == true
+      with_items: "{{ check_copy_status.results}}"
+      tags: file_copy
+    - debug:
+        msg: "Pre and Post File copy failed"
+      when: item.stat.exists == false
+      with_items: "{{ check_copy_status.results}}"
+      tags: file_copy  
+
+    # Generating pre check html report
+    - name: Generate the pre check html report
+      shell: sh {{ remote_path }}/pre_check_report.sh {{ remote_path }}
+      register: pre_check_report
+      become: true
+      delegate_to: "{{ target_host }}"
+      tags: pre_check
+    - debug:
+        msg: "Pre Check Report executed successfully"
+      when: "pre_check_report.rc == 0"
+      delegate_to: localhost
+      tags: pre_check
+    - fail:
+        msg: "Pre Check Report execution failed"
+      when: "pre_check_report.rc != 0"
+      tags: pre_check
+
+    # Getting disk name from target server
+    - name: getting disk name from remote machine
+      shell: echo `lsblk -a | grep -v ^NAME | grep -v ^'├' | grep -v ^'└' | awk '{print $1}' | tail -1`
+      register: new_disk_name
+      delegate_to: "{{ target_host }}"
+      tags: get_disk_name
+    - debug:
+        msg: "{{ new_disk_name }}"
+      tags: get_disk_name  
+    - set_fact:
+        vol_disk_name: "{{ new_disk_name.stdout }}"
+      tags: get_disk_name    
+    - debug:
+        msg: "{{ vol_disk_name }}"
+      tags: get_disk_name
+    
+
+    # Compare new disk with existing disk on the target server
+    - name: Checking unique disk
+      shell: echo {{ vol_disk_name }} | tr ' ' '\n' | sort | uniq -u
+      register: check_uniq_disk
+      delegate_to: "{{ target_host }}"
+      tags: mount
+
+    - debug: 
+        msg: "No new device file found for attaching"
+      when: check_uniq_disk.stdout == ""
+      tags: mount
+
+    - debug: 
+        msg: "Volume attached successfully"
+      when: check_uniq_disk.stdout != ""
+      tags: mount  
+
+    - set_fact: 
+        new_device: "{{ check_uniq_disk.stdout }}"
+      when: check_uniq_disk.stdout != ""
+      tags: mount    
+
+    - name: Double check if target server has the new disk or not
+      shell: echo {{ new_device }} | awk '{print $2}'
+      register: check_disk
+      delegate_to: "{{ target_host }}" 
+      tags: mount 
+
+    - debug: 
+        msg: "{{ check_disk }}"
+    - debug: 
+        msg: "No second disk"
+      when: check_disk.stderr == "" 
+      tags: mount
+    - fail: 
+        msg: "More than 1 volume is unused. Cannot mount the volume"
+      when: check_disk.stderr != ""  
+      tags: mount
+
+    # check if this new disk is unpartitioned before we partition it
+    - name: Check new disk is partitioned or not
+      shell: "/sbin/sfdisk -d /dev/{{ new_device }}"
+      register: check_partition
+      become: yes
+      delegate_to: "{{ target_host }}" 
+      ignore_errors: yes
+      tags: mount
+
+    - debug: 
+        msg: "{{ check_partition }}"
+    - debug:
+        msg: "No partition necessary for XFS"
+      when: check_partition.stdout == "" 
+      tags: mount  
+
+    # Creating a new xfs file system 
+    - name: Create new xfs file system
+      shell: "sudo mkfs.xfs /dev/{{ new_device }}"
+      register: create_xfs_file_system
+      delegate_to: "{{ target_host }}" 
+      tags: mount 
+    - debug:
+        msg: "{{ create_xfs_file_system }}"  
+    - debug:
+        msg: "Created a new file system /dev/{{ new_device }} successfully."
+      when: create_xfs_file_system.stderr == ""  
+      tags: mount     
+    - fail:
+        msg: "Failed to created a new file system /dev/{{ new_device }}."
+      when: create_xfs_file_system.stderr != ""  
+      tags: mount     
+
+    # Creating a directory with mount point name
+    - name: Create directory with {{ mount_point }} name
+      shell: "sudo mkdir {{ mount_point }}"
+      delegate_to: "{{ target_host }}" 
+      register: create_dir_mount
+      tags: mount 
+    - debug:
+        msg: "{{ create_dir_mount }}"   
+    - debug:
+        msg: "Created a new directory with {{ mount_point }}"  
+      when: create_dir_mount.stderr == ""
+      tags: mount
+    - fail:
+        msg: "Failed to create a new directory with mount_point."  
+      when: create_dir_mount.stderr != ""
+      tags: mount  
+
+    # Taking UUID
+    - name: Taking UUID
+      shell: sudo xfs_admin -u /dev/{{ new_device }} | sed 's/\ //g' | cut -f2 -d"="
+      register: check_uuid
+      delegate_to: "{{ target_host }}"
+      tags: mount   
+    - set_fact:
+        uuid: "{{ check_uuid.stdout }}"  
+    - debug:
+        msg: "UUID taken successfully"
+      when: check_uuid.stdout != ""      
+    - fail:
+        msg: "Failed to take UUID"
+      when: check_uuid.stdout == ""  
+
+    # Adding entry in fstab
+    - name: Adding entry in /etc/fstab
+      shell: "echo UUID={{ uuid }}    {{ mount_point }}         xfs    defaults        1 2 | sudo tee -a /etc/fstab"
+      register: fstab_entry
+      delegate_to: "{{ target_host }}"
+      tags: mount  
+    - debug:
+        msg: "{{ fstab_entry }}"  
+      tags: mount   
+    - debug: 
+        msg: "Entry added in /etc/fstab"  
+      when: fstab_entry.stdout != ""
+      tags: mount  
+    - fail:
+        msg: "Failed to add entry in /etc/fstab"  
+      when: fstab_entry.stdout == "" 
+      tags: mount      
+
+    # Mounting with disk
+    - name: Mounting with Disk
+      shell: "sudo mount {{ mount_point }}"  
+      register: mount_disk
+      delegate_to: "{{ target_host }}"
+      tags: mount
+    - debug: 
+        msg: "{{ mount_disk }}"   
+    - debug: 
+        msg: "Disk Mounted successfully"  
+      when: mount_disk.stderr == ""
+      tags: mount  
+    - fail:
+        msg: "Failed to mount with disk"  
+      when: mount_disk.stderr != "" 
+      tags: mount    
+
+    # Generating post check html report
+    - name: Generate the post check html report
+      shell: sh {{ remote_path }}/post_check_report.sh {{ remote_path }} {{ mount_point }} 
+      register: post_check_report
+      become: true
+      tags: post_check
+      delegate_to: "{{ target_host }}"  
+    - debug:
+        msg: "Post Check Report executed successfully"
+      when: "post_check_report.rc == 0"
+      tags: post_check
+    - fail:
+        msg: "Post Check Report execution failed"
+      when: "post_check_report.rc != 0"
+      tags: post_check
+
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+
+ebs_linux/multiple.yml
+
+---
+- name: EBS Disk Mounting
+  hosts: all
+  connection: local
+  gather_facts: false
+  tasks:
+    - add_host:
+        name: "localhost"
+        instance: "{{ ins }}"
+        acc_name: "{{ an }}"
+        cn: "CTASK00123456"
+    - debug:
+        msg: "{{ instance }}"
+    - debug:
+        msg: "{{ acc_name }}"
+  
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+
+ebs_linux/post_check_report.sh
+
+#!/bin/sh
+remote_path=$1
+MNT_POINT=$2
+MOUNT_POINT=`df -Ph | grep -i "${MNT_POINT}" | awk -F' ' '{print $6}'`
+
+echo $MOUNT_POINT
+#---create report
+(
+echo '<HTML><HEAD><TITLE>POST EBS DISK MOUNT</TITLE></HEAD><BODY>'
+
+echo ' <h1><b>
+            <center>EBS DISK MOUNT</center>
+        </b></h1>
+    <table width=100% border=1>'
+echo ' <tr> <br> </tr>
+        <tr>
+            <th class="label" colspan=2> Server Baseline Information </th>
+        </tr>
+        <tr>
+            <td><b> Host Name </b></td>
+            <td>'$(uname -n)'</td>
+        </tr>       
+        <tr>
+            <td><b> Server Platform </b></td>
+            <td>'$(hostnamectl | grep Kernel | awk -F ':' '{print $2}')'</td>
+        </tr>           
+        <tr>
+            <td><b> Report Date and Time </b></td>
+            <td>'$(date '+%d%b%Y %H%M | %Z')' </td>
+        </tr>
+    </table><BR /><BR />'
+echo '<table width=100% border=1><TR><TH>Filesystem</TH><TH>1048576-blocks</TH>'
+echo '<TH>Mounted On</TH></TR><tbody>'
+
+df -Ph |awk 'NR>1 && NF==6'|sort|while read FS SIZE USED FREE PERC MOUNT
+do
+PERCENT=${PERC%%%}
+echo '<TR><TD>'$FS'</TD><TD ALIGN=RIGHT>'$SIZE'</TD>'
+#echo '<TD>'
+# echo '<TD WIDTH='$((2 * $PERCENT))'"></TD>'
+# echo '<TD WIDTH='$((2 * (100 - $PERCENT)))'></TD>'
+#echo '<TD>'$PERC'</FONT></TD>'
+if [ -z "$MOUNT_POINT" ];
+then
+    echo '<TD>'$MOUNT'</TD></TR>'
+else 
+    if [ "$MOUNT_POINT" = "$MOUNT" ];
+    then
+        echo '<TD style="font-weight: bold;color: #20A608;">'$MOUNT'</TD></TR>'
+    else 
+        echo '<TD>'$MOUNT'</TD></TR>'
+fi
+fi
+
+done
+echo '</tbody></TABLE><center><b>**Note: The Drive marked in Green is the newly mounted Drive.</b></center></BODY></HTML>'
+) > $remote_path/post_check_report.html
+
+#/Linux_Qualify/EBS_Linux/$CTASK_NUMBER/post_check_report.html
+
+---------------------------------------------------------------------------------------------------------------------------------------------------
+
+ebs_linux/pre_check_report.sh
+
+#!/bin/sh
+remote_path=$1
+#---create report
+(
+echo '<HTML><HEAD><TITLE>PRE EBS DISK MOUNT</TITLE></HEAD><BODY>'
+
+echo ' <h1><b>
+            <center>EBS DISK MOUNT</center>
+        </b></h1>
+    <table width=100% border=1>'
+echo ' <tr> <br> </tr>
+        <tr>
+            <th class="label" colspan=2> Server Baseline Information </th>
+        </tr>
+        <tr>
+            <td><b> Host Name </b></td>
+            <td>'$(uname -n)'</td>
+        </tr>
+        <tr>
+            <td><b> Server Platform </b></td>
+            <td>'$(hostnamectl | grep Kernel | awk -F ':' '{print $2}')'</td>
+        </tr>           
+        <tr>
+            <td><b> Report Date and Time </b></td>
+            <td>'$(date '+%d%b%Y %H%M | %Z')' </td>
+        </tr>
+    </table><BR /><BR />'
+echo '<table width=100% border=1><TR><TH>Filesystem</TH><TH>1048576-blocks</TH>'
+echo '<TH>Mounted On</TH></TR><tbody>'
+df -Ph |awk 'NR>1 && NF==6'|sort|while read FS SIZE USED FREE PERC MOUNT
+do
+PERCENT=${PERC%%%}
+echo '<TR><TD>'$FS'</TD><TD ALIGN=RIGHT>'$SIZE'</TD>'
+#echo '<TD>'
+# echo '<TD WIDTH='$((2 * $PERCENT))'"></TD>'
+# echo '<TD WIDTH='$((2 * (100 - $PERCENT)))'></TD>'
+#echo '<TD>'$PERC'</FONT></TD>'
+echo '<TD>'$MOUNT'</TD></TR>'
+done
+echo '</tbody></table></body></html>'
+) > $remote_path/pre_check_report.html
+
+
+---------------------------------------------------------------------------------------------------------------------------------------------------
+
+ebs_linux/pre_post_pdf.yml
+
+---
+- name: Pre and post pdf conversion 
+  hosts: localhost
+  connection: local
+  vars:
+    remote_path: /tmp/{{ ctask_number }}
+    share_path: /Linux_Prod/EBS_Linux/{{ ctask_number }}
+  gather_facts: no
+  tasks:
+    # Generating pre check report pdf
+    - name: Generate report to post check pdf format
+      shell: /usr/local/bin/wkhtmltopdf {{ share_path }}/pre_check_report.html {{ share_path }}/pre_check_ebs_disk_mount.pdf
+      become: true
+      register: pre_check_pdf_report
+      delegate_to: localhost
+      no_log: true
+      tags: pdf_report
+    - debug:
+        msg: "Pre check PDF report successfully generated"
+      when: "pre_check_pdf_report.rc == 0" 
+    - fail:
+        msg: "Generating Pre Check PDF Report Failed"
+      when: "pre_check_pdf_report.rc != 0"
+
+    # Generating post check report pdf
+    - name: Generate report to pre check pdf format
+      shell: /usr/local/bin/wkhtmltopdf  {{ share_path }}/post_check_report.html {{ share_path }}/post_check_ebs_disk_mount.pdf
+      become: true
+      register: post_check_pdf_report
+      delegate_to: localhost
+      no_log: true
+      tags: pdf_report
+    - debug:
+        msg: "Post check PDF report successfully generated"
+      when: "post_check_pdf_report.rc == 0"   
+    - fail:
+        msg: "Generating Post Check PDF Report Failed"
+      when: "post_check_pdf_report.rc != 0"  
+
+----------------------------------------------------------------------------------------------------------------------------------------------
+
+ebs_linux/prod.yml
+
+
+---
+turbot_access_key_id: ""
+turbot_secret_access_key: ""
+...
+-------------------------------------------------------------------------------------------------------------------------------------------
+
+ebs_linux/hosts
+
+localhost
+
+---------------------------------------------------------------------------------------------------------------------------------------------------
+
+ebs_linux/vault_key
+
+ebs_linux
+
+------------------------------------------------------------------------------------------------------------------------------------------------------
+
+ebs_linux/volume.txt
+
+["/dev/sda1", "/dev/sdd", "/dev/sdf", "/dev/sdb", "/dev/sde", "/dev/sdc", "/dev/sdg", "/dev/sdh", "/dev/sdi", "/dev/sdj", "/dev/sdk", "/dev/sdl", "/dev/sdm"]
+
+----------------------------------------------------------------------------------------------------------------------------------------

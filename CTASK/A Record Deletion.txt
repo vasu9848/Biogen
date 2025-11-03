@@ -1,0 +1,717 @@
+1.Get Ticket
+
+Pre Execution:
+
+Process.url = "https://"+Process.SNOW_Env+".service-now.com/api/now/table/change_task?number="+Process.CTASK_Number
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket details fetched successfully"
+  Process.Output=Process[OpName].HTTPResponseContent
+  
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure fetching ticket details"
+}
+
+2.Second Operator (Read)
+
+Inline:
+
+var str =Process.Output
+var start=str.indexOf('[')+2;
+var end=str.indexOf(']')-1;
+var res = str.substring(start,end);
+var out1= res.split(',');
+for(var i=0;i < out1.length;i++)
+{
+  out1[i]=out1[i].replace(/\"/g,"");
+  if(out1[i].indexOf('active')>=0)
+  {Process.active=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('sys_id')>=0)
+  {Process.Sys_Id=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('description')>=0)
+  {Process.description=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('state')>=0)
+  {Process.state=(out1[i].split(':'))[1]}
+  out1[i]=(out1[i].split(':'))[1]
+}
+
+Post Execution:
+
+if(Process.active=='true')
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket is active.";
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Ticket is inactive.";
+}
+
+3.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.SNOW_Env+".service-now.com/api/now/table/change_task/"+Process.Sys_Id+""
+Process.payload = "<request><entry><assigned_to>d2f5f34bdb5efb8036c73c9b7c961900</assigned_to><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+"</work_notes><state>2</state></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  if(Process[OpName].HTTPResponseContent.indexOf("state\":\"")>=0)
+  {
+	Process.ReturnCode=0;
+	Process.ReturnMessage="Ticket updated successfully ";
+  }
+  else
+  {
+	Process.ReturnCode=2;
+	Process.ReturnMessage="Error occurred while  updating ticket";
+  }
+}
+else
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Failure occurred while updating ticket."
+}
+
+4.Script
+
+Inline:
+
+####"Bulk_A_record_deletion"
+
+param(
+$Number,
+$user,
+#$pass,
+$snowkey,
+#$snowp,
+#$snowpa,
+$SNOW_Env,
+$infoblox_server,
+$Bulk_existinghost,
+$Bulk_existingip
+)
+
+$Number
+$user
+#$pass
+$snowkey
+#$snowp
+#$snowpa
+$SNOW_Env
+$infoblox_server
+$Bulk_existinghost
+$Bulk_existingip
+
+
+$DNS = "10.106.17.10"
+$hostName = $Bulk_existinghost.ToLower()
+$table = "change_task"
+$script_name = "A_record_deletion"
+$log = @()
+$path = "D:\Network\$script_name\$Number"
+$log_path = "$path\Logs"
+$network = "238994d1db0caf00fa0f8e5c29961941"
+$snowpass = "V2!RfaRE#%4GQ*J_"
+
+$pwd = ConvertTo-SecureString "n398ttGt1MHXoXYvkv31UA63" -AsPlainText -Force
+$creds = New-Object Management.Automation.PSCredential ($user, $pwd) -ErrorAction stop
+
+$DNS_exist             = @()
+$DNS_doesnt_exist      = @()
+$ptr_created           = @()
+$ptr_failed            = @()
+$A_created             = @()
+$A_failed              = @()
+$servers               = @()
+$Post_DNS_exist        = @()
+$Post_DNS_doesnt_exist = @()
+
+#Creating File path for logs
+$filePaths = "$path\Logs", "$path\Command_Output", "$path\Evidence"
+foreach($filePath in $filePaths)
+{
+    If(!(test-path $filePath))
+    {
+          New-Item -ItemType Directory -Force -Path $filePath 
+    }
+}
+
+If(!(test-path "$log_path\log.txt"))
+{
+    New-Item -ItemType File -Name "Log.txt" -Path $log_path
+}
+
+$host_Name = $hostName.split(",")
+$ipv4_Addr =$Bulk_existingip.split(",")
+
+
+Add-Content -Path "$log_path\Log.txt" -Value "-----------------"
+Add-Content -Path "$log_path\Log.txt" -Value "Service Account used for execution is Svc-linux-snow"
+
+#Importing biogen module
+Try
+{
+    Import-Module "D:\Wave 1 Scripts\Biogen_Module\Biogen_Module.psm1"
+}
+catch
+{
+	Write-Host "Failed to import module"
+    Exit
+}
+
+function timestamp{
+    Get-Date -Format "dd_MMM_yyyy_HH:mm:ss tt"
+}
+
+#Fetching SYSID of the ticket
+try
+{
+    [Net.ServicePointManager]::SecurityProtocol = "tls12, tls11, tls"
+    $global:headers = @{"Authorization" = "Basic "+[System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($snowkey+":"+$snowpass))}
+
+    [Net.ServicePointManager]::SecurityProtocol = "tls12, tls11, tls"
+    $get_inc = "https://$SNOW_Env.service-now.com/api/now/v2/table/change_task?number=$Number"
+    $inc_result = Invoke-WebRequest -Uri $get_inc -Headers $global:headers -Method Get -ContentType "application/json" -UseBasicParsing
+    $incout = $inc_result | ConvertFrom-JSON
+    $inc_sysid = $incout.result.sys_id
+    $description = $incout.result.u_document_results
+}
+catch
+{
+    Write-Host "Failed to fetch Ticket details"
+    Add-Content -Path "$log_path\Log.txt" -Value "Failed to fetch Ticket details"
+    Exit
+}
+
+Add-Content -Path "$log_path\Log.txt" -Value "Script Execution Started at $(timestamp)"
+
+#Updating start
+Try
+{
+    Update-Start -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -table $table
+    Add-Content -Path "$log_path\Log.txt" -Value "Updated Start"
+}
+catch
+{
+	Write-Host "Failed to update start"
+    Add-Content -Path "$log_path\Log.txt" -Value "Failed to update start"
+    try{Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass  -work_notes "Failed to update start" -table $table -asign_grp $network}
+    catch{Write-Host "Failed to Route Ticket"; Exit}
+    Exit
+}
+
+if($host_Name.Count -gt 0)
+{
+   if($host_Name.count -eq $ipv4_Addr.Count)
+   {
+        $count=0
+        foreach($new_host in $host_Name)
+        {
+            $servers += [PSCustomObject]@{
+            "Hostname"= $new_host
+            "IP"=$ipv4_Addr[$count]
+            }
+            $count+=1
+        }
+    }
+    else
+    {
+        Write-Host "Please provide correct inputs"
+        try{Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass  -work_notes "Please provide correct inputs" -table $table -asign_grp $network}
+        catch{Write-Host "Failed to Route Ticket"; Exit}
+        Exit
+    }
+}
+write-host "Server `n $servers"
+
+#Setting Certs Policy
+try
+{
+    Write-Host "Adding TrustAllCertsPolicy type." -ForegroundColor White
+Add-Type -TypeDefinition @"
+using System.Net;
+using System.Security.Cryptography.X509Certificates;
+public class TrustAllCertsPolicy : ICertificatePolicy
+{
+public bool CheckValidationResult(
+ServicePoint srvPoint, X509Certificate certificate,
+WebRequest request, int certificateProblem)
+{
+return true;
+}
+}
+"@
+    Write-Host "TrustAllCertsPolicy type added." -ForegroundColor White
+}
+catch
+{
+    Write-Host $_ -ForegroundColor "Yellow"
+}
+
+[System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+$pre_pdf = "$path\Evidence\pre_check_dns_resolve_logs.txt"
+#Generating Pre-evidence
+Start-Transcript -Path $pre_pdf
+
+foreach($server in $servers)
+{
+    Write-Host "Hostname $($server.hostname)"
+    Write-Host "Ip $($server.ip)"
+    try
+    {
+        $Error.Clear()
+        $DNS_output_hostname = Resolve-DnsName -Server $DNS -Name $($server.Hostname) -Type ALL
+        $DNS_output_ip = Resolve-DnsName -Server $DNS -Name $($server.ip) -Type ALL
+
+        #Checking if the DNS entry already exists
+        if(($Error -like "*DNS name does not exist*").Count -eq 2)
+        {
+            "DNS entry does not exist for $($server.ip)"
+            Add-Content -Path "$log_path\Log.txt" -Value "DNS entry does not exist for $($server.ip)"
+            #Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "A Record does exists IP: $($server.ip) and it is available for usage." -table $table
+            $DNS_doesnt_exist += $server
+        }
+        elseif($Error -like "*DNS operation refused*")
+        {
+            write-host "DNS entry check failed $($server.ip)"
+            Add-Content -Path "$log_path\Log.txt" -Value "DNS entry check failed for $server"
+            $DNS_doesnt_exist += $server
+        }
+        elseif($DNS_output_hostname -and $DNS_output_ip)
+        {
+            "DNS entry exists for $($server.Hostname)"
+            #Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "A Record exists IP: $($server.Hostname)." -table $table
+            Add-Content -Path "$log_path\Log.txt" -Value "DNS entry exists for $($server.Hostname)"
+            $DNS_exist += $server
+        }
+        <#elseif($DNS_output_ip)
+        {
+            "DNS entry exists for $($server.ip)"
+            #Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "A Record exists IP: $($server.ip)." -table $table
+            Add-Content -Path "$log_path\Log.txt" -Value "DNS entry exists for $($server.ip)"
+            $DNS_exist += $server
+        }#>
+        else
+        {
+            "All conditions didnt match, else in Pre evidence for $server"
+            Add-Content -Path "$log_path\Log.txt" -Value "All conditions didnt match, else in Pre evidence for $server"
+            $DNS_doesnt_exist += $server
+        }
+    }
+    Catch 
+    {
+        Write-Host $_.
+        Write-host "Some error occurred.. while Resolve the A Record $($server.Hostname)"
+        Add-Content -Path "$log_path\Log.txt" -Value "Some error occurred.. while Resolve the A Record $($server.Hostname)"
+        Add-Content -Path "$log_path\Log.txt" -Value "$_"
+        $DNS_doesnt_exist += $server
+    }
+}
+
+Stop-Transcript
+
+#Checking and routing ticket if DNS doesnot exist
+if($DNS_doesnt_exist.Count -eq $servers.Count)
+{
+    #Route-ticket
+    "Failed"
+    $dns_doesnt = $DNS_doesnt_exist.Hostname -join "`n"
+    Add-Content -Path "$log_path\Log.txt" -Value "DNS does not exists for all servers"
+    try{Route-Ticket -number $Number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "A Record does not Exist $($dns_doesnt), Routing change request to Network Assignment Group" -table $table -asign_grp $network}
+    catch{Write-Host "Failed to Route Ticket"; Exit}
+    Exit
+}
+elseif($DNS_doesnt_exist -ne $null)
+{
+    # update to Bulk A Record deletion proceed
+    $Dnsexists = $DNS_exist.hostname -join "`n"
+    $Dnsdoesnotexists = $DNS_doesnt_exist.hostname -join "`n"
+    Add-Content -Path "$log_path\Log.txt" -Value "DNS entry exists for $DNSexists servers"
+    Add-Content -Path "$log_path\Log.txt" -Value "DNS entry doesn't exists $Dnsdoesnotexists for all servers"
+    Add-Content -Path "$log_path\Log.txt" -Value "A Record exists for all servers"
+    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "A Record exists for: $Dnsexists, proceeding to delete" -table $table
+    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "A Record does not exists for: $Dnsdoesnotexists" -table $table
+}
+else
+{
+    Add-Content -Path "$log_path\Log.txt" -Value "A Record exists for all servers"
+    $Dnsexists = $DNS_exist.hostname -join "`n"
+    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "A Record exists for: $Dnsexists, proceeding to delete" -table $table 
+}
+
+#Attaching Pre-edivence
+$pre_pdf       = Get-ChildItem -Path $pre_pdf
+$pre_FullName  = $pre_pdf.FullName               
+$pre_Name      = $pre_pdf.Name
+try
+{
+    Upload-PreAttachment -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -pre_Name $pre_Name -pre_FullName $pre_FullName -table $table
+    Add-Content -Path "$log_path\Log.txt" -Value "Uploaded Pre Attachement"
+}
+catch
+{
+    write-Host "Failed to Upload Pre Attachment"
+    Add-Content -Path "$log_path\Log.txt" -Value "Failed to Upload Pre Attachment"
+    try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Failed to Upload Pre Attachment" -table $table -asign_grp $storage_sysID}
+    catch{Write-Host "Failed to Route Ticket"}
+    Exit
+}
+
+foreach($server in $DNS_exist)
+{
+    $ptr_record = $null
+    $a_record = $null
+    Write-Host "Hostname $($server.hostname)"
+    Write-Host "Ip $($server.ip)"
+    Add-Content -Path "$log_path\Log.txt" -Value "Hostname $($server.hostname) `n Ip $($server.ip)"
+    #Getting A record details
+    try 
+    {
+        $a_record_get_url = "https://$infoblox_server/wapi/v1.2/record:a?name=$($server.Hostname)"
+        $output_get_a = Invoke-RestMethod -Uri $a_record_get_url -Method GET -Credential $creds -ErrorAction Stop
+        if($output_get_a)
+        {
+            $a_record = $output_get_a._ref
+            $ptr_hostname = $output_get_a.name
+            $ptr_ipv4addr = $output_get_a.ipv4addr
+            if(($ptr_hostname -match $($server.Hostname)) -and ($ptr_ipv4addr -match $($server.ip)))
+            {
+                $a_record_ip = $output_get_a.ipv4addr
+                Write-host "IP does belongs to the Hostname"
+                Add-Content -Path "$log_path\Log.txt" -Value "IP does belongs to the Hostname"
+            }
+            else
+            {
+                "IP does not belongs to the Hostname $($server.Hostname)"
+                Add-Content -Path "$log_path\Log.txt" -Value "IP does not belongs to the Hostname $($server.Hostname)"
+                Add-Content -Path "$log_path\Log.txt" -Value "Host Name in Infoblox $ptr_hostname"
+                Add-Content -Path "$log_path\Log.txt" -Value "Host Name in Input $($server.Hostname)"
+                Add-Content -Path "$log_path\Log.txt" -Value "IP in Infoblox ptr_ipv4addr"
+                Add-Content -Path "$log_path\Log.txt" -Value "IP in Input $($server.ip)"
+                $A_failed += $server
+                continue
+            }
+        }
+        else
+        {
+            Write-Host "No A record found"
+            Add-Content -Path "$log_path\Log.txt" -Value "No A record found"
+            $A_failed += $server
+            continue #(If added doesnt delete host record, else deleted host)
+        }
+        #Deleting A record
+        If($a_record -ne $null -and $a_record_ip -ne $null)
+        {
+            $a_record_del_url = "https://$infoblox_server/wapi/v1.2/$a_record"
+            $output_del_a = Invoke-WebRequest -Uri $a_record_del_url -Method DELETE -Credential $creds -ContentType 'application/json' -UseBasicParsing -Body $body -ErrorAction Stop
+            if($output_del_a.StatusCode -eq 200)
+            {
+                Write-host "A record deleted successfully."
+                #Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "" -table $table
+                $A_created += $server
+                Add-Content -Path "$log_path\Log.txt" -Value "A record deleted successfully $($server.hostname)."
+            }
+            else 
+            {
+                Write-Host "Some error occurred during A record deletion $($server.hostname)."
+                $A_failed += $server
+                Add-Content -Path "$log_path\Log.txt" -Value "Some error occurred during A record deletion $($server.hostname)."
+            }
+        }
+        else
+        {
+            Write-Host "No A record found"
+            Add-Content -Path "$log_path\Log.txt" -Value "No A record found $($server.hostname)."
+            $A_failed += $server
+        }
+    }
+    Catch 
+    {
+        Write-host $_.
+        $A_failed += $server
+        Write-Host "Some error occurred during A record fetching $($server.hostname)."
+    }
+
+    #Getting the PTR record
+    try 
+    {
+        $ptr_record_get_url = "https://$infoblox_server/wapi/v1.2/record:ptr?ptrdname=$($server.Hostname)"
+        $output_get_ptr = Invoke-RestMethod -Uri $ptr_record_get_url -Method GET -Credential $creds -ErrorAction Stop
+        $ptr_record = $output_get_ptr._ref
+        #Deleting the PTR record
+        If($ptr_record)
+        {
+            $ptr_record_del_url = "https://$infoblox_server/wapi/v1.2/$ptr_record"
+            $output_del_ptr = Invoke-WebRequest -Uri $ptr_record_del_url -Method DELETE -Credential $creds -ContentType 'application/json' -UseBasicParsing -Body $body -ErrorAction Stop
+            if($output_del_ptr.StatusCode -eq 200)
+            {
+                Write-host "PTR record deleted successfully."
+                #Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "PTR record deleted successfully $($server.hostname)." -table $table
+                $ptr_created += $server
+                Add-Content -Path "$log_path\Log.txt" -Value "PTR record deleted successfully $($server.hostname)."
+            }
+            else
+            {
+                Write-Host "Some error occurred during PTR deletion"
+                Add-Content -Path "$log_path\Log.txt" -Value "Some error occurred during PTR record deletion $($server.hostname)."
+                $ptr_failed += $server
+            }
+        }
+        else
+        {
+            Write-Host "No PTR record found $($server.hostname)."
+            Add-Content -Path "$log_path\Log.txt" -Value "No PTR record found $($server.hostname)."
+            $ptr_failed += $server
+        }
+    }
+    Catch 
+    {
+        Write-host $_.
+        $ptr_failed += $server
+        Write-Host "Some error occurred during PTR record fetching $($server.hostname)."
+        Add-Content -Path "$log_path\Log.txt" -Value "Some error occurred during PTR record fetching $($server.hostname)."
+    }
+
+    #Getting the host record
+    try 
+    {
+        #$host_record_get_url = "https://$infoblox_server/wapi/v1.2/record:host?name=$($server.Hostname)"
+        $host_record_get_url = "https://$infoblox_server/wapi/v1.2/record:host?ipv4addr=$($server.ip)"
+        $output_get_host = Invoke-RestMethod -Uri $host_record_get_url -Method GET -Credential $creds -ErrorAction Stop
+        $host_record = $output_get_host._ref
+        #Deleting the host record
+        if($host_record)
+        {
+            $ptr_record_del_url = "https://$infoblox_server/wapi/v1.2/$host_record"
+            $output_del_host = Invoke-WebRequest -Uri $ptr_record_del_url -Method DELETE -Credential $creds -ContentType 'application/json' -UseBasicParsing -Body $body -ErrorAction Stop
+            if($output_del_host.StatusCode -eq 200)
+            {
+                Write-host "Host record deleted successfully."
+                Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Host record deleted successfully $($server.hostname)." -table $table
+                $host_created += $server
+                Add-Content -Path "$log_path\Log.txt" -Value "Host record deleted successfully $($server.hostname)."
+            }
+            else
+            {
+                Write-Host "Some error occurred during host record deletion $($server.hostname)."
+                Add-Content -Path "$log_path\Log.txt" -Value "Some error occurred during host record deletion- $($server.hostname)."
+                $host_failed += $server
+            }
+        }
+        else
+        {
+            Write-Host "No host record found $($server.hostname)."
+            Add-Content -Path "$log_path\Log.txt" -Value "No host record found $($server.hostname)."
+            $host_failed += $server
+        }
+    }
+    Catch 
+    {
+        Write-host $_.
+        $host_failed += $server
+        Write-Host "Some error occurred during host record fetching $($server.hostname)."
+    }
+}
+
+
+#A Failed
+if($A_failed.Count -eq $DNS_exist.count)
+{
+    $Afail = $A_failed.hostname -join "`n"
+    Write-Host "A deletion failed for $Afail"
+    Add-Content -Path "$log_path\Log.txt" -Value "A deletion failed for $Afail"
+    try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "A deletion failed for $Afail, Hence routing the ticket" -table $table -asign_grp $network}
+    catch{Write-Host "Failed to Route Ticket"}
+    Exit
+}
+elseif($A_failed -ne $null)
+{
+    $Afail = $A_failed.hostname -join "`n"
+    Write-Host "A deletion failed for $ptr_failed.hostname"
+    Add-Content -Path "$log_path\Log.txt" -Value "A deletion failed for $ptr_failed.hostname"
+    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "A deletion failed for $Afail" -table $table
+}
+else
+{
+    $A = $A_created.hostname -join "`n"
+    Write-Host "A record deletion successfully for `n $A"
+    Add-Content -Path "$log_path\Log.txt" -Value "A record deletion successfully for `n $A"
+    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "A record deletion successfully for `n $A" -table $table
+}
+
+#PTR Failed
+if($ptr_failed.Count -eq $DNS_exist.count)
+{
+    $ptrfail = $ptr_failed.hostname -join "`n"
+    Write-Host "Ptr deletion failed for $ptr_failed.hostname"
+    Add-Content -Path "$log_path\Log.txt" -Value "Ptr deletion failed for $ptr_failed.hostname"
+    try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "PTR deletion failed for $ptr_failed, Hence routing the ticket" -table $table -asign_grp $network}
+    catch{Write-Host "Failed to Route Ticket"}
+    Exit
+}
+elseif($ptr_failed -ne $null)
+{
+    $ptrfail = $ptr_failed.hostname -join "`n"
+    Write-Host "Ptr deletion failed for $ptr_failed.hostname"
+    Add-Content -Path "$log_path\Log.txt" -Value "Ptr deletion failed for ptrfail"
+    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Ptr deletion failed for $ptrfail" -table $table
+}
+else
+{
+    $ptr = $ptr_created.hostname -join "`n"
+    Write-Host "PTR record deleted successfully for $ptr"
+    Add-Content -Path "$log_path\Log.txt" -Value "PTR record deleted successfully for $ptr"
+    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "PTR record deletion successfully for `n $ptr" -table $table
+}
+
+#Generating Post-evidence
+#Start-Transcript -Path "D:\Testing\post_check_dns_resolve_logs.txt"
+Start-sleep -Seconds 30
+$post_pdf = "$path\Evidence\post_check_dns_resolve_logs.txt"
+Start-Transcript -Path $post_pdf
+
+foreach($server in $DNS_exist)
+{
+    try
+    {
+        $Error.Clear()
+        #$DNS_output = Resolve-DnsName -Server $infoblox_server -Name $($server.hostname) -Type ALL
+        $DNS_output = Resolve-DnsName -Server $DNS -Name $($server.hostname) -Type ALL
+
+        #Checking if the DNS entry already exists/not
+        if($Error -like "*DNS name does not exist*")
+        {
+            "DNS entry does not exist for $($server.hostname)"
+            $Post_DNS_doesnt_exist += $server
+            Add-Content -Path "$log_path\Log.txt" -Value "DNS entry does not exist for $($server.hostname)"
+        }
+        elseif($Error -like "*DNS operation refused*")
+        {
+            write-host "DNS entry check failed $server"
+            Add-Content -Path "$log_path\Log.txt" -Value "DNS entry check failed for $server"
+            $Post_DNS_doesnt_exist += $server
+        }
+        else
+        {
+            "DNS entry exists for $($server.hostname)"
+            $Post_DNS_exist += $server
+            Add-Content -Path "$log_path\Log.txt" -Value "DNS entry already exists for $($server.hostname)"
+        }
+    }
+    Catch 
+    {
+        Write-Host $_.
+        Write-host "Failed to update using InfoBlox API"
+        Add-Content -Path "$log_path\Log.txt" -Value "Failed to update using InfoBlox API"
+        Add-Content -Path "$log_path\Log.txt" -Value "$_"
+        $Post_DNS_doesnt_exist += $server
+    }
+}
+
+Stop-Transcript
+
+if($Post_DNS_doesnt_exist.Count -eq $servers.Count)
+{
+    #Attaching Post-edivence
+    $post_pdf       = Get-ChildItem -Path $post_pdf
+    $post_FullName  = $post_pdf.FullName               
+    $post_Name      = $post_pdf.Name
+    try
+    {
+        Upload-PostAttachment -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass  -post_Name $post_Name -post_FullName $post_FullName -table $table
+        $log += "Uploaded Post Attachement"
+    }
+    catch
+    {
+        write-Host "Failed to Upload Post Attachment"
+        $Log += "Failed to Upload Post Attachment"
+        try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Failed to Upload Post Attachment" -table $table -asign_grp $storage_sysID}
+        catch{Write-Host "Failed to Route Ticket"}
+        Exit
+    }
+    #$Document_Results = $description+ "`n" + "`n" + "A record has been Deleted successfully"
+    "A Deleted successfully for $Post_DNS_doesnt_exist"
+    #Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "A Record $($post_hostname) points to $($post_ip) deleted successfully." -table $table
+    Add-Content -Path "$log_path\Log.txt" -Value "A record deleted successfully for `n $Post_DNS_doesnt_exist"
+    try{Resolve-Ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -close_Notes "CR implemented successfully" -work_notes "A Record(s) Deleted Successfully. Hence Closing the ticket." -table $table -Document_Results "A records deleted successfully" }
+    catch{Add-Content -Path "$log_path\Log.txt" -Value "Unable to update ticket `n"; Write-Host "Failed to Route Ticket"; Exit}
+    Exit
+}
+elseif($Post_DNS_doesnt_exist -ne $null)
+{
+    #Attaching Post-edivence
+    $post_pdf       = Get-ChildItem -Path $post_pdf
+    $post_FullName  = $post_pdf.FullName               
+    $post_Name      = $post_pdf.Name
+    try
+    {
+        Upload-PostAttachment -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass  -post_Name $post_Name -post_FullName $post_FullName -table $table
+        $log += "Uploaded Post Attachement"
+    }
+    catch
+    {
+        write-Host "Failed to Upload Post Attachment"
+        $Log += "Failed to Upload Post Attachment"
+        try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Failed to Upload Post Attachment" -table $table -asign_grp $storage_sysID}
+        catch{Write-Host "Failed to Route Ticket"}
+        Exit
+    }
+    "A Deleted successfully for $Post_DNS_doesnt_exist"
+    $postdoesntexist = $Post_DNS_doesnt_exist.Hostname -join "`n"
+    $postexist = $Post_DNS_exist.IP -join "`n"
+    #Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "A Record $($post_hostname) points to $($post_ip) deleted successfully." -table $table
+    Add-Content -Path "$log_path\Log.txt" -Value "A Record(s) Deleted Successfully `n $postdoesntexist"
+    Add-Content -Path "$log_path\Log.txt" -Value "Route" 
+    try{Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to delete the A record(s). Hence routing the ticket" -asign_grp $network -table $table}
+    catch{Add-Content -Path "$log_path\Log.txt" -Value "Unable to update ticket `n"; Write-Host "Failed to Route Ticket"; Exit}
+    Exit
+}
+
+else
+{
+        "Route"
+    Add-Content -Path "$log_path\Log.txt" -Value "Failed to delete the A record(s). Hence routing the ticket $Post_DNS_doesnt_exist" 
+    try{Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to delete the A record(s). Hence routing the ticket" -asign_grp $network -table $table}
+    catch{Add-Content -Path "$log_path\Log.txt" -Value "Unable to update ticket `n"; Write-Host "Failed to Route Ticket"; Exit}
+    Exit
+}
+
+Post Execution:
+
+if(Process.Ping_check.scriptOutput.indexOf("Ticket Resolved Successfully")>=0)
+{
+  Process.ReturnCode=1
+  Process.ReturnMessage="Ticket Resolved Successfully. "
+}
+else if(Process.Ping_check.scriptOutput.indexOf("Assignment Group updated successfully")>=0)
+{
+  Process.ReturnCode=1
+  Process.ReturnMessage="Assignment Group updated successfully"
+
+}
+else
+{
+Process.ReturnCode=-1
+Process.returnMessage = "Failed to perform the activity"
+}
+
+5. Fatal Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.SNOW_Env+".service-now.com/api/now/table/change_task/"+Process.Sys_Id+""
+Process.FatalErrorPayLoad ="<request><entry><u_automation_result>Unsuccessful</u_automation_result><state>1</state><work_notes>"+Process.returnMessage+"Hence Routing the ticket.</work_notes></entry></request>"
+

@@ -1,0 +1,1994 @@
+1. Get Ticket
+
+Pre Execution:
+
+Process.RunbookName = Process.InstanceName
+Process.RunbookID = Process.RuntimeROID
+var uri="https://"+Process.Instance+".service-now.com/api/now/table/task?sysparm_fields=number%2Cactive%2Csys_id%2Cincident_state%2Cdescription%2Cu_document_results%2Cassigned_to=SVC-itpam@biogen.com&sysparm_limit=1&number="+Process.CTASK_Number
+Process.url=uri
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  	Process.ReturnCode=0;
+	Process.ReturnMessage="Ticket details fetched successfully."
+   Process.Output=Process[OpName].HTTPResponseContent
+} 
+else if(Process[OpName].Reason.indexOf('non-success') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent  
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent
+
+}
+else
+{
+  	Process.ReturnCode=2;
+  	Process.ReturnMessage="Failure fetching ticket details."
+
+}
+
+2.Second Operator (Read)
+
+Inline:
+
+var str =Process.Output
+var start=str.indexOf('[')+2;
+var end=str.indexOf(']')-1;
+var res = str.substring(start,end);
+var out1= res.split(',');
+for(var i=0;i < out1.length;i++)
+{
+  out1[i]=out1[i].replace(/\"/g,"");
+  if(out1[i].indexOf('active')>=0)
+  {Process.active=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('sys_id')>=0)
+  {Process.Sys_Id=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('description')>=0)
+  {Process.description=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('incident_state')>=0)
+  {Process.Incidentstate=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('u_document_results')>=0)
+  {Process.document_results=(out1[i].split(':'))[1]}
+  out1[i]=(out1[i].split(':'))[1]
+}
+
+Post Execution:
+
+if(Process.active)
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket is active.";
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Ticket is inactive.";
+}
+
+3.Script
+
+Inline:
+
+Param(
+[String]$Sys_id,
+[String]$Instance
+)
+$sys_id = $Sys_id
+
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls, [Net.SecurityProtocolType]::Tls11, [Net.SecurityProtocolType]::Tls12, [Net.SecurityProtocolType]::Ssl3
+[Net.ServicePointManager]::SecurityProtocol = "Tls, Tls11, Tls12, Ssl3"
+$SNOWPassword="V2!RfaRE#%4GQ*J_"
+$password = ConvertTo-SecureString $SNOWPassword -AsPlainText -Force
+$Cred = New-Object System.Management.Automation.PSCredential ("svc_itpam", $password)
+
+$actual_start_date = Get-Date
+
+$update_ctask_work_start_uri = "https://$Instance.service-now.com/api/now/table/change_task/$sys_id"
+
+$Body1 = @{
+    "work_start"="$actual_start_date"
+}
+
+$BodyJson1 = $Body1 | ConvertTo-Json
+try {
+ Invoke-WebRequest -Uri $update_ctask_work_start_uri -Body $BodyJson1 -Credential $Cred -Method "PUT" -ContentType "application/json" -UseBasicParsing -ErrorAction stop
+ Write-host "Actual Start Date updated successfully"
+} catch {
+	Write-host $_.
+	Write-host "Update Actual Start Date Service NOW API failed"
+}
+
+Post Execution:
+
+if(Process[OpName].scriptOutput.indexOf('successfully') >= 0)
+{
+
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "CTASK actual start date updated successfully."
+
+}
+
+else if(Process[OpName].scriptOutput.indexOf('failed') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to update actual start date CTASK."
+
+}
+else 
+{
+	Process.ReturnCode = 2
+	Process.ReturnMessage = "Some error occurred while updating CTASK work in progress state in Service Now."
+	
+}
+
+4.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/change_task/"+Process.Sys_Id
+Process.updateWorkNotes = "<request><entry><state>2</state><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+" </work_notes></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket worknotes updated successfully."
+
+}
+else if(Process[OpName].Reason.indexOf('non-success') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else
+{
+    Process.ReturnCode=2;
+    Process.ReturnMessage="Failure updating ticket details."
+
+}
+
+5.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand = "ansible-playbook ~/prod_ec2_resize/ec2_stop.yml -e 'hn="+Process.computer+" env="+Process.env+" acc_name="+Process.account_name+" az="+Process.available_zone+" cn="+Process.CTASK_Number+" type="+Process.type+" os_platform="+Process.os_platform+" an="+Process.account_name+" ins="+Process.ins+"'"
+//Process.ansibleCommand = "ansible-playbook ~/vasu/ec2_stop.yml -e 'hn="+Process.computer+" env="+Process.env+" acc_name="+Process.account_name+" az="+Process.available_zone+" cn="+Process.CTASK_Number+" type="+Process.type+" os_platform="+Process.os_platform+" an="+Process.account_name+" ins="+Process.ins+"'"
+
+Post Execution:
+
+if(Process[OpName].stopout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else if((Process[OpName].stopout.indexOf('Server Stopped successfully') >= 0)||(Process[OpName].stopout.indexOf('Instance is already in stopped state. So, proceeding with Resize') >= 0)){
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "Proceeding for the Resize."
+}
+else if(Process[OpName].stopout.indexOf('Failed to Fetch EC2 Status') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch EC2 Status."
+}
+else if(Process[OpName].stopout.indexOf('Instance already in same type. So, not proceeding for Resize') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Existing instance type and requested instance type are same"
+}
+else if(Process[OpName].stopout.indexOf('Pre Check Report execution failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Pre Check Report execution failed."
+}
+else if(Process[OpName].stopout.indexOf('Generating Pre Check PDF Report Failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Generating Pre Check PDF Report Failed."
+}
+else if(Process[OpName].stopout.indexOf('Failed to Stop the server') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Stop the server."
+}
+else if(Process[OpName].stopout.indexOf('permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Permission denied by the server."
+}
+else if(Process[OpName].stopout.indexOf("the field 'args' has an invalid value") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Error occured while executing playbook."
+}
+else if(Process[OpName].stopout.indexOf(Process.ins+" does not exist") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage =Process.ins +" does not exist."
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+
+}
+
+
+6.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand = "ansible-playbook ~/prod_ec2_resize/ec2_stop.yml -e 'hn="+Process.computer+" env="+Process.env+" acc_name="+Process.account_name+" az="+Process.available_zone+" cn="+Process.CTASK_Number+" type="+Process.type+" os_platform="+Process.os_platform+" an="+Process.account_name+" ins="+Process.ins+"'"
+//Process.ansibleCommand = "ansible-playbook ~/vasu/ec2_stop.yml -e 'hn="+Process.computer+" env="+Process.env+" acc_name="+Process.account_name+" az="+Process.available_zone+" cn="+Process.CTASK_Number+" type="+Process.type+" os_platform="+Process.os_platform+" an="+Process.account_name+" ins="+Process.ins+"'"
+
+Post Execution:
+
+if(Process[OpName].stopout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else if((Process[OpName].stopout.indexOf('Server Stopped successfully') >= 0)||(Process[OpName].stopout.indexOf('Instance is already in stopped state. So, proceeding with Resize') >= 0)){
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "Proceeding for the Resize."
+}
+else if(Process[OpName].stopout.indexOf('Failed to Fetch EC2 Status') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch EC2 Status."
+}
+else if(Process[OpName].stopout.indexOf('Instance already in same type. So, not proceeding for Resize') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Instance already in same type. So, not proceeding for Resize."
+}
+else if(Process[OpName].stopout.indexOf('Pre Check Report execution failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Pre Check Report execution failed."
+}
+else if(Process[OpName].stopout.indexOf('Generating Pre Check PDF Report Failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Generating Pre Check PDF Report Failed."
+}
+else if(Process[OpName].stopout.indexOf('Failed to Stop the server') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Stop the server."
+}
+else if(Process[OpName].stopout.indexOf('permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Permission denied by the server."
+}
+else if(Process[OpName].stopout.indexOf("the field 'args' has an invalid value") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Error occured while executing playbook."
+}
+else if(Process[OpName].stopout.indexOf(Process.ins+" does not exist") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage =Process.ins +" does not exist."
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+
+}
+
+
+
+7.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand = "ansible-playbook ~/prod_ec2_resize/ec2_stop.yml -e 'hn="+Process.computer+" env="+Process.env+" acc_name="+Process.account_name+" az="+Process.available_zone+" cn="+Process.CTASK_Number+" type="+Process.type+" os_platform="+Process.os_platform+" an="+Process.account_name+" ins="+Process.ins+"'"
+//Process.ansibleCommand = "ansible-playbook ~/vasu/ec2_stop.yml -e 'hn="+Process.computer+" env="+Process.env+" acc_name="+Process.account_name+" az="+Process.available_zone+" cn="+Process.CTASK_Number+" type="+Process.type+" os_platform="+Process.os_platform+" an="+Process.account_name+" ins="+Process.ins+"'"
+
+Post Execution:
+
+if(Process[OpName].stopout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else if((Process[OpName].stopout.indexOf('Server Stopped successfully') >= 0)||(Process[OpName].stopout.indexOf('Instance is already in stopped state. So, proceeding with Resize') >= 0)){
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "Proceeding for the Resize."
+}
+else if(Process[OpName].stopout.indexOf('Failed to Fetch EC2 Status') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch EC2 Status."
+}
+else if(Process[OpName].stopout.indexOf('Instance already in same type. So, not proceeding for Resize') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Instance already in same type. So, not proceeding for Resize."
+}
+else if(Process[OpName].stopout.indexOf('Pre Check Report execution failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Pre Check Report execution failed."
+}
+else if(Process[OpName].stopout.indexOf('Generating Pre Check PDF Report Failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Generating Pre Check PDF Report Failed."
+}
+else if(Process[OpName].stopout.indexOf('Failed to Stop the server') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Stop the server."
+}
+else if(Process[OpName].stopout.indexOf('permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Permission denied by the server."
+}
+else if(Process[OpName].stopout.indexOf("the field 'args' has an invalid value") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Error occured while executing playbook."
+}
+else if(Process[OpName].stopout.indexOf(Process.ins+" does not exist") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage =Process.ins +" does not exist."
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+
+}
+
+
+
+8.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand = "ansible-playbook ~/prod_ec2_resize/ec2_stop.yml -e 'hn="+Process.computer+" env="+Process.env+" acc_name="+Process.account_name+" az="+Process.available_zone+" cn="+Process.CTASK_Number+" type="+Process.type+" os_platform="+Process.os_platform+" an="+Process.account_name+" ins="+Process.ins+"'"
+//Process.ansibleCommand = "ansible-playbook ~/vasu/ec2_stop.yml -e 'hn="+Process.computer+" env="+Process.env+" acc_name="+Process.account_name+" az="+Process.available_zone+" cn="+Process.CTASK_Number+" type="+Process.type+" os_platform="+Process.os_platform+" an="+Process.account_name+" ins="+Process.ins+"'"
+
+Post Execution:
+
+if(Process[OpName].stopout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else if((Process[OpName].stopout.indexOf('Server Stopped successfully') >= 0)||(Process[OpName].stopout.indexOf('Instance is already in stopped state. So, proceeding with Resize') >= 0)){
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "Proceeding for the Resize."
+}
+else if(Process[OpName].stopout.indexOf('Failed to Fetch EC2 Status') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch EC2 Status."
+}
+else if(Process[OpName].stopout.indexOf('Instance already in same type. So, not proceeding for Resize') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Instance already in same type. So, not proceeding for Resize."
+}
+else if(Process[OpName].stopout.indexOf('Pre Check Report execution failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Pre Check Report execution failed."
+}
+else if(Process[OpName].stopout.indexOf('Generating Pre Check PDF Report Failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Generating Pre Check PDF Report Failed."
+}
+else if(Process[OpName].stopout.indexOf('Failed to Stop the server') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Stop the server."
+}
+else if(Process[OpName].stopout.indexOf('permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Permission denied by the server."
+}
+else if(Process[OpName].stopout.indexOf("the field 'args' has an invalid value") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Error occured while executing playbook."
+}
+else if(Process[OpName].stopout.indexOf(Process.ins+" does not exist") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage =Process.ins +" does not exist."
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+
+}
+
+
+9.Script
+
+Inline:
+
+Param($computer)
+
+
+
+for($i=0;$i -le 30; $i++)
+{
+if(!(Test-Connection -ComputerName $computer -Quiet))
+{
+write-host "False"
+break
+}
+else{
+write-host "True"
+Start-sleep -seconds 60}
+}
+
+Post Execution:
+
+if(Process[OpName].scriptOutput.indexOf("True")>=0)
+{
+Process.ReturnCode=2
+Process.ReturnMessage="Connection to Target Server " +Process.computer+" is reachable."
+
+}
+else if(Process[OpName].scriptOutput.indexOf("False")>=0)
+{
+Process.ReturnCode=0
+Process.ReturnMessage="Server stopped successfully and  "+Process.computer+" is unreachable."
+
+}
+else
+{
+Process.ReturnCode=2
+Process.returnMessage ="Connection to reach the server" +Process.computer+" is failed."
+
+}
+
+10.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/change_task/"+Process.Sys_Id
+Process.Ping_status = "<request><entry><state>2</state><work_notes>"+Process.ReturnMessage+"</work_notes></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket worknotes updated successfully."
+
+}
+else if(Process[OpName].Reason.indexOf('non-success') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else
+{
+    Process.ReturnCode=2;
+    Process.ReturnMessage="Failure updating ticket details."
+
+}
+
+11.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand = "ansible-playbook ~/prod_ec2_resize/ec2_resize.yml -e 'hn="+Process.computer+" env="+Process.env+" acc_name="+Process.account_name+" az="+Process.available_zone+" cn="+Process.CTASK_Number+" type="+Process.type+" os_platform="+Process.os_platform+" an="+Process.account_name+" ins="+Process.ins+"'"
+//Process.ansibleCommand = "ansible-playbook ~/vasu/ec2_resize.yml -e 'hn="+Process.computer+" env="+Process.env+" acc_name="+Process.account_name+" az="+Process.available_zone+" cn="+Process.CTASK_Number+" type="+Process.type+" os_platform="+Process.os_platform+" an="+Process.account_name+" ins="+Process.ins+"'"
+
+Post Execution:
+
+if(Process[OpName].resizeout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else if(Process[OpName].resizeout.indexOf('Failed to Fetch EC2 Status') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch EC2 Status."
+}
+else if(Process[OpName].resizeout.indexOf('Instance has been successfully resized') >= 0){
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "Server Resize completed successfully."
+   //Process.ReturnCode = 2
+   //Process.ReturnMessage = "Error occured while executing playbook."
+}
+else if(Process[OpName].resizeout.indexOf('Failed to resize for this instance') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to resize for this instance."
+}
+else if(Process[OpName].resizeout.indexOf('Failed to Resize Instance') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Resize Instance."
+}
+else if(Process[OpName].resizeout.indexOf('permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Permission denied by the server."
+}
+else if(Process[OpName].resizeout.indexOf("the field 'args' has an invalid value") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Error occured while executing playbook."
+}
+else if(Process[OpName].resizeout.indexOf(Process.ins+" does not exist") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage =Process.ins +" does not exist."
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+}
+
+
+12.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand = "ansible-playbook ~/prod_ec2_resize/ec2_resize.yml -e 'hn="+Process.computer+" env="+Process.env+" acc_name="+Process.account_name+" az="+Process.available_zone+" cn="+Process.CTASK_Number+" type="+Process.type+" os_platform="+Process.os_platform+" an="+Process.account_name+" ins="+Process.ins+"'"
+//Process.ansibleCommand = "ansible-playbook ~/vasu/ec2_resize.yml -e 'hn="+Process.computer+" env="+Process.env+" acc_name="+Process.account_name+" az="+Process.available_zone+" cn="+Process.CTASK_Number+" type="+Process.type+" os_platform="+Process.os_platform+" an="+Process.account_name+" ins="+Process.ins+"'"
+
+Post Execution:
+
+if(Process[OpName].resizeout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else if(Process[OpName].resizeout.indexOf('Failed to Fetch EC2 Status') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch EC2 Status."
+}
+else if(Process[OpName].resizeout.indexOf('Instance has been successfully resized') >= 0){
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "Instance has been successfully resized."
+}
+else if(Process[OpName].resizeout.indexOf('Failed to resize for this instance') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to resize for this instance."
+}
+else if(Process[OpName].resizeout.indexOf('Failed to Resize Instance') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Resize Instance."
+}
+else if(Process[OpName].resizeout.indexOf('permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Permission denied by the server."
+}
+else if(Process[OpName].resizeout.indexOf("the field 'args' has an invalid value") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Error occured while executing playbook."
+}
+else if(Process[OpName].resizeout.indexOf(Process.ins+" does not exist") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage =Process.ins +" does not exist."
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+}
+
+
+13.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand = "ansible-playbook ~/prod_ec2_resize/ec2_resize.yml -e 'hn="+Process.computer+" env="+Process.env+" acc_name="+Process.account_name+" az="+Process.available_zone+" cn="+Process.CTASK_Number+" type="+Process.type+" os_platform="+Process.os_platform+" an="+Process.account_name+" ins="+Process.ins+"'"
+//Process.ansibleCommand = "ansible-playbook ~/vasu/ec2_resize.yml -e 'hn="+Process.computer+" env="+Process.env+" acc_name="+Process.account_name+" az="+Process.available_zone+" cn="+Process.CTASK_Number+" type="+Process.type+" os_platform="+Process.os_platform+" an="+Process.account_name+" ins="+Process.ins+"'"
+
+Post Execution:
+
+if(Process[OpName].resizeout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else if(Process[OpName].resizeout.indexOf('Failed to Fetch EC2 Status') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch EC2 Status."
+}
+else if(Process[OpName].resizeout.indexOf('Instance has been successfully resized') >= 0){
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "Instance has been successfully resized."
+}
+else if(Process[OpName].resizeout.indexOf('Failed to resize for this instance') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to resize for this instance."
+}
+else if(Process[OpName].resizeout.indexOf('Failed to Resize Instance') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Resize Instance."
+}
+else if(Process[OpName].resizeout.indexOf('permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Permission denied by the server."
+}
+else if(Process[OpName].resizeout.indexOf("the field 'args' has an invalid value") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Error occured while executing playbook."
+}
+else if(Process[OpName].resizeout.indexOf(Process.ins+" does not exist") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage =Process.ins +" does not exist."
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+}
+
+
+14.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand = "ansible-playbook ~/prod_ec2_resize/ec2_resize.yml -e 'hn="+Process.computer+" env="+Process.env+" acc_name="+Process.account_name+" az="+Process.available_zone+" cn="+Process.CTASK_Number+" type="+Process.type+" os_platform="+Process.os_platform+" an="+Process.account_name+" ins="+Process.ins+"'"
+//Process.ansibleCommand = "ansible-playbook ~/vasu/ec2_resize.yml -e 'hn="+Process.computer+" env="+Process.env+" acc_name="+Process.account_name+" az="+Process.available_zone+" cn="+Process.CTASK_Number+" type="+Process.type+" os_platform="+Process.os_platform+" an="+Process.account_name+" ins="+Process.ins+"'"
+
+Post Execution:
+
+if(Process[OpName].resizeout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else if(Process[OpName].resizeout.indexOf('Failed to Fetch EC2 Status') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch EC2 Status."
+}
+else if(Process[OpName].resizeout.indexOf('Instance has been successfully resized') >= 0){
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "Instance has been successfully resized."
+}
+else if(Process[OpName].resizeout.indexOf('Failed to resize for this instance') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to resize for this instance."
+}
+else if(Process[OpName].resizeout.indexOf('Failed to Resize Instance') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Resize Instance."
+}
+else if(Process[OpName].resizeout.indexOf('permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Permission denied by the server."
+}
+else if(Process[OpName].resizeout.indexOf("the field 'args' has an invalid value") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Error occured while executing playbook."
+}
+else if(Process[OpName].resizeout.indexOf(Process.ins+" does not exist") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage =Process.ins +" does not exist."
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+}
+
+
+15.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/change_task/"+Process.Sys_Id
+Process.Ping_update_status = "<request><entry><state>2</state><work_notes>"+Process.ReturnMessage+"</work_notes></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket worknotes updated successfully."
+
+}
+else if(Process[OpName].Reason.indexOf('non-success') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else
+{
+    Process.ReturnCode=2;
+    Process.ReturnMessage="Failure updating ticket details."
+
+}
+
+16.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand = "ansible-playbook ~/prod_ec2_resize/ec2_start.yml -e 'hn="+Process.computer+" env="+Process.env+" acc_name="+Process.account_name+" az="+Process.available_zone+" cn="+Process.CTASK_Number+" type="+Process.type+" os_platform="+Process.os_platform+" an="+Process.account_name+" ins="+Process.ins+"'"
+//Process.ansibleCommand = "ansible-playbook ~/vasu/ec2_start.yml -e 'hn="+Process.computer+" env="+Process.env+" acc_name="+Process.account_name+" az="+Process.available_zone+" cn="+Process.CTASK_Number+" type="+Process.type+" os_platform="+Process.os_platform+" an="+Process.account_name+" ins="+Process.ins+"'"
+
+Post Execution:
+
+if(Process[OpName].startout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else if(Process[OpName].startout.indexOf('Failed to Fetch EC2 Status') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch EC2 Status."
+}
+else if(Process[OpName].startout.indexOf('Server Started successfully') >= 0){
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "Server Started successfully."
+}
+else if(Process[OpName].startout.indexOf('Failed to Start the server') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Start the server."
+}
+else if(Process[OpName].startout.indexOf('Post Check Report execution failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Post Check Report execution failed."
+}
+else if(Process[OpName].startout.indexOf('Generating Post Check PDF Report Failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Generating Post Check PDF Report Failed."
+}
+else if(Process[OpName].startout.indexOf('permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Permission denied by the server."
+}
+else if(Process[OpName].startout.indexOf("the field 'args' has an invalid value") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Error occured while executing playbook."
+}
+else if(Process[OpName].startout.indexOf("'skipping: [localhost] => (item={u'Code': 16, u'Name': u'running'})'") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Skipping Server is already in running state."
+}
+else if(Process[OpName].startout.indexOf(Process.ins+" does not exist") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage =Process.ins +" does not exist."
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+}
+
+17.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand = "ansible-playbook ~/prod_ec2_resize/ec2_start.yml -e 'hn="+Process.computer+" env="+Process.env+" acc_name="+Process.account_name+" az="+Process.available_zone+" cn="+Process.CTASK_Number+" type="+Process.type+" os_platform="+Process.os_platform+" an="+Process.account_name+" ins="+Process.ins+"'"
+//Process.ansibleCommand = "ansible-playbook ~/vasu/ec2_start.yml -e 'hn="+Process.computer+" env="+Process.env+" acc_name="+Process.account_name+" az="+Process.available_zone+" cn="+Process.CTASK_Number+" type="+Process.type+" os_platform="+Process.os_platform+" an="+Process.account_name+" ins="+Process.ins+"'"
+
+Post Execution:
+
+if(Process[OpName].startout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else if(Process[OpName].startout.indexOf('Failed to Fetch EC2 Status') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch EC2 Status."
+}
+else if(Process[OpName].startout.indexOf('Server Started successfully') >= 0){
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "Server Started successfully."
+}
+else if(Process[OpName].startout.indexOf('Failed to Start the server') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Start the server."
+}
+else if(Process[OpName].startout.indexOf('Post Check Report execution failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Post Check Report execution failed."
+}
+else if(Process[OpName].startout.indexOf('Generating Post Check PDF Report Failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Generating Post Check PDF Report Failed."
+}
+else if(Process[OpName].startout.indexOf('permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Permission denied by the server."
+}
+else if(Process[OpName].startout.indexOf("the field 'args' has an invalid value") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Error occured while executing playbook."
+}
+else if(Process[OpName].startout.indexOf("'skipping: [localhost] => (item={u'Code': 16, u'Name': u'running'})'") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Skipping Server is already in running state."
+}
+else if(Process[OpName].startout.indexOf(Process.ins+" does not exist") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage =Process.ins +" does not exist."
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+}
+
+18.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand = "ansible-playbook ~/prod_ec2_resize/ec2_start.yml -e 'hn="+Process.computer+" env="+Process.env+" acc_name="+Process.account_name+" az="+Process.available_zone+" cn="+Process.CTASK_Number+" type="+Process.type+" os_platform="+Process.os_platform+" an="+Process.account_name+" ins="+Process.ins+"'"
+//Process.ansibleCommand = "ansible-playbook ~/vasu/ec2_start.yml -e 'hn="+Process.computer+" env="+Process.env+" acc_name="+Process.account_name+" az="+Process.available_zone+" cn="+Process.CTASK_Number+" type="+Process.type+" os_platform="+Process.os_platform+" an="+Process.account_name+" ins="+Process.ins+"'"
+
+Post Execution:
+
+if(Process[OpName].startout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else if(Process[OpName].startout.indexOf('Failed to Fetch EC2 Status') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch EC2 Status."
+}
+else if(Process[OpName].startout.indexOf('Server Started successfully') >= 0){
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "Server Started successfully."
+}
+else if(Process[OpName].startout.indexOf('Failed to Start the server') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Start the server."
+}
+else if(Process[OpName].startout.indexOf('Post Check Report execution failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Post Check Report execution failed."
+}
+else if(Process[OpName].startout.indexOf('Generating Post Check PDF Report Failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Generating Post Check PDF Report Failed."
+}
+else if(Process[OpName].startout.indexOf('permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Permission denied by the server."
+}
+else if(Process[OpName].startout.indexOf("the field 'args' has an invalid value") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Error occured while executing playbook."
+}
+else if(Process[OpName].startout.indexOf("'skipping: [localhost] => (item={u'Code': 16, u'Name': u'running'})'") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Skipping Server is already in running state."
+}
+else if(Process[OpName].startout.indexOf(Process.ins+" does not exist") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage =Process.ins +" does not exist."
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+}
+
+19.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand = "ansible-playbook ~/prod_ec2_resize/ec2_start.yml -e 'hn="+Process.computer+" env="+Process.env+" acc_name="+Process.account_name+" az="+Process.available_zone+" cn="+Process.CTASK_Number+" type="+Process.type+" os_platform="+Process.os_platform+" an="+Process.account_name+" ins="+Process.ins+"'"
+//Process.ansibleCommand = "ansible-playbook ~/vasu/ec2_start.yml -e 'hn="+Process.computer+" env="+Process.env+" acc_name="+Process.account_name+" az="+Process.available_zone+" cn="+Process.CTASK_Number+" type="+Process.type+" os_platform="+Process.os_platform+" an="+Process.account_name+" ins="+Process.ins+"'"
+
+Post Execution:
+
+if(Process[OpName].startout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh."
+}
+else if(Process[OpName].startout.indexOf('Failed to Fetch EC2 Status') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Fetch EC2 Status."
+}
+else if(Process[OpName].startout.indexOf('Server Started successfully') >= 0){
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "Server Started successfully."
+}
+else if(Process[OpName].startout.indexOf('Failed to Start the server') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to Start the server."
+}
+else if(Process[OpName].startout.indexOf('Post Check Report execution failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Post Check Report execution failed."
+}
+else if(Process[OpName].startout.indexOf('Generating Post Check PDF Report Failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Generating Post Check PDF Report Failed."
+}
+else if(Process[OpName].startout.indexOf('permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Permission denied by the server."
+}
+else if(Process[OpName].startout.indexOf("the field 'args' has an invalid value") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Error occured while executing playbook."
+}
+else if(Process[OpName].startout.indexOf("'skipping: [localhost] => (item={u'Code': 16, u'Name': u'running'})'") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Skipping Server is already in running state."
+}
+else if(Process[OpName].startout.indexOf(Process.ins+" does not exist") >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage =Process.ins +" does not exist."
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+}
+
+20.Script
+
+Inline:
+
+#EC2 Start
+#$computer = "Usawsaaaus0059"
+Param($computer)
+
+for($i=0;$i -le 30; $i++)
+{
+if(Test-Connection -ComputerName $computer -Quiet)
+{
+write-host "True"
+break
+}
+else{
+write-host "False"
+Start-sleep -seconds 60}
+}
+
+Post Execution:
+
+if(Process[OpName].scriptOutput.indexOf("True")>=0)
+{
+  Process.ReturnCode=0
+  Process.ReturnMessage="Server started successfully and  "+Process.computer+" is reachable."
+
+
+}
+else if(Process[OpName].scriptOutput.indexOf("False")>=0)
+{
+  Process.ReturnCode=2
+  Process.ReturnMessage="Connection to Target Server " +Process.computer+" is unreachable."
+
+}
+else
+{
+Process.ReturnCode=2
+Process.returnMessage ="Connection to reach the server " +Process.computer+" is failed."
+
+}
+
+
+
+21.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/change_task/"+Process.Sys_Id
+Process.Ping_update = "<request><entry><state>2</state><work_notes>"+Process.ReturnMessage+"</work_notes></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket worknotes updated successfully."
+
+}
+else if(Process[OpName].Reason.indexOf('non-success') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else
+{
+    Process.ReturnCode=2;
+    Process.ReturnMessage="Failure updating ticket details."
+
+}
+
+22.Script
+
+Inline:
+
+Param(
+[String]$CTASK_Number
+)
+$Linux_path = "\\usawsgabb0082\Linux_Prod\EC2_Resize\$($CTASK_Number)\*.pdf"
+#$Linux_path = "\\usawsgabb0160\Linux_Val\EC2_Resize\$($CTASK_Number)\*.pdf"
+#"\\usawsgabb0160\Linux_Val\EC2_Restart\$($number)\*.pdf"
+
+$dest = "D:\EC2_Resize\$($CTASK_Number)"
+
+
+if(!(Test-Path -path $dest)){
+New-Item -Path $dest -ItemType directory | out-null
+}
+try {
+Copy-Item $Linux_path $dest -ErrorAction stop
+} Catch {
+Write-host "File copy failed"
+}try
+{
+$file=Get-ChildItem -Force -Recurse -File -Path "$dest" -ErrorAction stop
+$name=$file.Name
+if($name -like "*pre*"){
+write-host "PDF exist"
+$prefullPath = $($file.FullName -like "*pre*")
+$prefileName = $($file.Name -like "*pre*")
+$prefullPath
+$prefileName
+}else {
+write-host "Pre Check PDF Report not found"
+}
+}
+catch
+{
+Write-Host "Some Error Occured while uploading pre and post check pdf report"
+}
+
+Post Execution:
+
+if(Process[OpName].scriptOutput.indexOf("PDF exist")>=0)
+{
+Process.ReturnCode = 0
+Process.ReturnMessage = "PDF Generated successfully"
+Process.Data = Process[OpName].scriptOutput
+}
+else if(Process[OpName].scriptOutput.indexOf("Pre Check PDF Report not found")>=0)
+{
+Process.ReturnCode = 2
+Process.ReturnMessage = "Pre Check PDF Report not found."
+
+}
+else
+{
+Process.ReturnCode=2
+Process.ReturnMessage = "Error occurred while executing the verification script."
+}
+
+
+
+23.Ticket Update
+
+Pre Execution:
+
+Process.dat=Process.pre_evi.scriptOutput.split('\n')
+Process.fname=Process.dat[2]
+Process.pdffile=Process.dat[1]
+
+//Process.putURL= "https://"+Process.Instance+".service-now.com/api/now/attachment/file?table_name=change_task&table_sys_id="+Process.Sys_Id+"&file_name="+Process.fname
+
+
+Process.putURL= "https://"+Process.Instance+".service-now.com/api/now/attachment/file?table_name=change_task&table_sys_id="+Process.Sys_Id+"&file_name="+Process.fname
+//Process.payload = "<request><entry><assigned_to>d2f5f34bdb5efb8036c73c9b7c961900</assigned_to><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+"</work_notes><state>2</state></entry></request>"
+
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="Created" && Process[OpName].HTTPResponseStatusCode==201 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="PDF updated successfully"
+  
+
+}
+else if(Process[OpName].Reason.indexOf('non-success') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Error occurred while uploading PDF file to Service Now. "
+  
+}
+
+24.Script
+
+Inline:
+
+Param([String]$CTASK_Number)
+$Linux_path = "\\usawsgabb0082\Linux_Prod\EC2_Resize\$($CTASK_Number)\*.pdf"
+#$Linux_path = "\\usawsgabb0160\Linux_Val\EC2_Resize\$($CTASK_Number)\*.pdf"
+#"\\usawsgabb0160\Linux_Val\EC2_Restart\$($number)\*.pdf"
+
+$dest = "D:\EC2_Resize\$($CTASK_Number)"
+
+if(!(Test-Path -path $dest)){
+New-Item -Path $dest -ItemType directory
+}
+try {
+Copy-Item $Linux_path $dest -ErrorAction stop
+
+} 
+Catch {
+Write-host "File copy failed"
+}
+try{
+$file=Get-ChildItem -Force -Recurse -File -Path "$dest" -ErrorAction stop
+$name=$file.Name
+if($name -like "*post*"){
+write-host "PDF exist"
+$postfullPath = $($file.FullName -like "*post*")
+$postfileName = $($file.Name -like "*post*")
+$postfullPath
+$postfileName
+}else {
+write-host "Post Check PDF Report not found"
+}
+}
+catch
+{
+Write-Host "Some Error Occured while uploading pre and post check pdf report"
+}
+
+Post Execution:
+
+if(Process[OpName].scriptOutput.indexOf("PDF exist")>=0)
+{
+Process.ReturnCode = 0
+Process.ReturnMessage = "PDF Generated successfully"
+Process.Data1 = Process[OpName].scriptOutput
+}
+else if(Process[OpName].scriptOutput.indexOf("Post Check PDF Report not found")>=0)
+{
+Process.ReturnCode = 2
+Process.ReturnMessage = "Post Check PDF Report not found."
+
+}
+else
+{
+Process.ReturnCode=2
+Process.ReturnMessage = "Error occurred while executing the verification script."
+}
+
+
+25.Ticket Update
+
+Pre Execution:
+
+
+Process.dat=Process.post_evi.scriptOutput.split('\n')
+Process.fname=Process.dat[2]
+Process.pdffile=Process.dat[1]
+
+
+
+Process.putURL= "https://"+Process.Instance+".service-now.com/api/now/attachment/file?table_name=change_task&table_sys_id="+Process.Sys_Id+"&file_name="+Process.fname
+//Process.payload = "<request><entry><assigned_to>d2f5f34bdb5efb8036c73c9b7c961900</assigned_to><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+"</work_notes><state>2</state></entry></request>"
+
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="Created" && Process[OpName].HTTPResponseStatusCode==201 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="PDF updated successfully."
+
+
+}else if(Process[OpName].Reason.indexOf('non-success') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Error occurred while uploading PDF file to Service Now."
+  
+}
+
+26.Script
+
+Inline:
+
+Param(
+[String]$Sys_id,
+[String]$Instance
+)
+$sys_id = $Sys_id
+
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls, [Net.SecurityProtocolType]::Tls11, [Net.SecurityProtocolType]::Tls12, [Net.SecurityProtocolType]::Ssl3
+[Net.ServicePointManager]::SecurityProtocol = "Tls, Tls11, Tls12, Ssl3"
+$SNOWPassword="V2!RfaRE#%4GQ*J_"
+$password = ConvertTo-SecureString $SNOWPassword -AsPlainText -Force
+$Cred = New-Object System.Management.Automation.PSCredential ("svc_itpam", $password)
+
+$actual_start_date = Get-Date
+
+$update_ctask_work_start_uri = "https://$Instance.service-now.com/api/now/table/change_task/$sys_id"
+
+$Body1 = @{
+    "work_end"="$actual_start_date"
+}
+
+$BodyJson1 = $Body1 | ConvertTo-Json
+try {
+ Invoke-WebRequest -Uri $update_ctask_work_start_uri -Body $BodyJson1 -Credential $Cred -Method "PUT" -ContentType "application/json" -UseBasicParsing -ErrorAction stop
+ Write-host "Actual Start Date updated successfully"
+} catch {
+	Write-host $_.
+	Write-host "Update Actual Start Date Service NOW API failed"
+}
+
+Post Execution:
+
+if(Process[OpName].scriptOutput.indexOf('successfully') >= 0)
+{
+
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "CTASK actual end date updated successfully."
+
+}
+
+else if(Process[OpName].scriptOutput.indexOf('failed') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to update actual end date CTASK."
+
+}
+else 
+{
+	Process.ReturnCode = 2
+	Process.ReturnMessage = "Some error occurred while updating CTASK work in progress state in Service Now."
+	
+}
+
+27.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/change_task/"+Process.Sys_Id
+Process.Process_update_status = "<request><entry><u_document_results>EC2 Resize completed.</u_document_results><u_close_code>successful</u_close_code><close_notes>EC2 resize executed successfully.</close_notes><work_notes>Pre and Post evidence attached to the ticket successfully.</work_notes><state>3</state></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=1;
+  Process.ReturnMessage="Ticket worknotes updated successfully."
+
+}
+else if(Process[OpName].Reason.indexOf('non-success') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else
+{
+    Process.ReturnCode=2;
+    Process.ReturnMessage="Failure updating ticket details."
+
+}
+
+28.Fatal Ticket Update
+
+Pre Execution:
+
+if(Process.os_platform.indexOf('Linux') >= 0){
+
+Process.assignment_group =  "5b2d41c5dbe73e00d41dd3cb5e961955"
+
+}
+else
+{
+
+Process.assignment_group =  "d32d41c5dbe73e00d41dd3cb5e96194f"
+
+}
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/table/change_task/"+Process.Sys_Id+""
+Process.FatalErrorPayLoad ="<request><entry><work_start></work_start><assigned_to></assigned_to><assignment_group>"+Process.assignment_group+"</assignment_group><work_notes>"+Process.ReturnMessage+" Hence routing the ticket</work_notes><state>1</state><u_close_code>unsuccessful</u_close_code></entry></request>"
+
+
+
+Ansible Playbook
+
+prod_ec2_resize/ec2_stop.yml
+
+---
+- name: EC2 Stop
+  hosts: localhost
+  gather_facts: no
+  become_method: sudo 
+  become_user: root
+  connection: local
+  vars:
+    share_path: /Linux_Prod
+  tasks:
+    - set_fact:
+        server_name: "{{ an }}"
+        aws_account_name: "{{ acc_name }}" 
+        aws_environment: "{{ env[0] }}"  
+        role: ia-role
+      tags: variables
+
+    - name: Run Kion Stak command to get the access key and secret key
+      command: kion --profile nonprod stak --l {{ aws_account_name }} --car {{ role }} -p
+      register: non_prod_stak_output
+      when: aws_environment != "P"
+
+    - debug:
+        msg: "{{ non_prod_stak_output }}"  
+      when: aws_environment != "P"   
+    
+    - name: Run Kion Stak command to get the access key and secret key
+      command: kion --profile prod stak --l {{ aws_account_name }} --car {{ role }} -p
+      register: prod_stak_output
+      when: aws_environment == "P"
+
+    - debug:
+        msg: "{{ prod_stak_output }}" 
+      when: aws_environment == "P"  
+
+    - name: setting up the variables of non Prod access key and secret key
+      set_fact:
+        AWS_ACCESS_KEY_ID: "{{ non_prod_stak_output.stdout_lines[0].split('export AWS_ACCESS_KEY_ID=')[1] }}"
+        AWS_SECRET_ACCESS_KEY: "{{ non_prod_stak_output.stdout_lines[1].split('export AWS_SECRET_ACCESS_KEY=')[1] }}"
+        AWS_SESSION_TOKEN: "{{ non_prod_stak_output.stdout_lines[2].split('export AWS_SESSION_TOKEN=')[1] }}"
+      when: aws_environment != "P"
+
+    - name: setting up the variables of Prod access key and secret key
+      set_fact:
+        AWS_ACCESS_KEY_ID: "{{ prod_stak_output.stdout_lines[0].split('export AWS_ACCESS_KEY_ID=')[1] }}"
+        AWS_SECRET_ACCESS_KEY: "{{ prod_stak_output.stdout_lines[1].split('export AWS_SECRET_ACCESS_KEY=')[1] }}"
+        AWS_SESSION_TOKEN: "{{ prod_stak_output.stdout_lines[2].split('export AWS_SESSION_TOKEN=')[1] }}"
+      when: aws_environment == "P"  
+
+    - name: Configure AWS CLI with Access Key and Secret Key
+      shell: |
+        aws configure set aws_access_key_id {{ AWS_ACCESS_KEY_ID }}
+        aws configure set aws_secret_access_key {{ AWS_SECRET_ACCESS_KEY }}
+        aws configure set aws_session_token {{ AWS_SESSION_TOKEN }}
+        aws configure set region {{ az }}
+      register: set_aws_configure  
+ 
+
+
+    - name: Check Current state of the EC2 instance
+      command: aws ec2 describe-instances --instance-ids {{ ins }} --region {{ az }} --output text --query 'Reservations[*].Instances[*].State.Name'
+      register: instance_state
+      delegate_to: localhost
+      tags: check
+      
+    - debug:
+        msg: "{{ instance_state }}"
+
+    - fail:
+        msg: "Failed to Fetch EC2 Status"
+      when: instance_state.stdout == ""        
+
+    - name: displaying post instance status
+      set_fact:
+        ins_state: "{{ instance_state.stdout }}"
+      when: instance_state.stdout != ""
+
+    - debug:
+        msg: "Instance State = {{ ins_state }}"  
+      when: ins_state != ""  
+
+    - name: Check launch time of the EC2 instance
+      command: aws ec2 describe-instances --instance-ids {{ ins }} --region {{ az }} --output text --query 'Reservations[*].Instances[*].LaunchTime'
+      register: instance_launch_time
+      delegate_to: localhost
+      tags: check
+
+    - name: displaying post instance Launch Time
+      set_fact:
+        launch_time: "{{ instance_launch_time.stdout }}"
+      when: instance_launch_time.stdout != ""
+
+    - debug: 
+        msg: "Instance Launch Time = {{ instance_launch_time.stdout }}"  
+      when: launch_time != ""  
+
+    - name: Check Instance Type of the EC2 instance
+      command: aws ec2 describe-instances --instance-ids {{ ins }} --region {{ az }} --output text --query 'Reservations[*].Instances[*].InstanceType'
+      register: check_instance_type
+      delegate_to: localhost
+      tags: check
+
+    - name: Instance Type details
+      set_fact:
+        instance_type: "{{ check_instance_type.stdout }}"
+      when: check_instance_type.stdout != ""
+      tags: check
+    
+    - debug:
+        msg: "Instance Type = {{ check_instance_type.stdout }}"
+      when: instance_type != ""
+    
+
+    - fail: 
+        msg: "Instance already in same type. So, not proceeding for Resize"
+      when: instance_type == type 
+        
+    - debug:
+        msg: "Instance is not in stopped state. So, stopping the instance"
+      when:  ins_state != "stopped"     
+
+    - debug:
+        msg: "Instance is already in stopped state. So, proceeding with Resize"
+      when:  ins_state == "stopped"
+
+    - set_fact: 
+        current_state: Running
+      when: ins_state == "running"
+
+    - set_fact: 
+        current_state: Stopped
+      when: ins_state != "running"
+
+    - name: Instance type RAM details
+      command: aws ec2 describe-instance-types  --instance-types {{ instance_type }} --region {{ az }} --output text --query 'InstanceTypes[*].MemoryInfo.SizeInMiB'
+      register: instance_ram_details
+
+    - set_fact:
+        ram_info: "{{ instance_ram_details.stdout }}" 
+      when: instance_ram_details.stdout != ""   
+
+    - debug:
+        msg: "Ram Info = {{ ram_info }}" 
+      when: ram_info != ""       
+
+    - name: Instance type CPU details
+      command: aws ec2 describe-instance-types  --instance-types {{ instance_type }} --region {{ az }} --output text --query 'InstanceTypes[*].VCpuInfo.DefaultVCpus'
+      register: instance_cpu_details
+
+    - set_fact:
+        cpu_info: "{{ instance_cpu_details.stdout }}" 
+      when: instance_cpu_details.stdout != ""     
+
+    - debug:
+        msg: "CPU Info = {{ cpu_info }}"  
+      when: cpu_info != ""        
+
+    # creating tmp folder with  cn on remote machine
+    - name: creating {{ cn }} directory in share path
+      file:
+        path: "{{ share_path }}/EC2_Resize/{{ cn }}"
+        state: directory
+      delegate_to: localhost
+      tags: pre_check  
+
+    # PRE CHECK REPORT
+    - name: Generate the pre check html report
+      command: sh /home/svc-linux-snow/prod_ec2_resize/stop_pre_check.sh {{ ins }} {{ current_state }} {{ cn }} {{ hn }} {{ os_platform }} {{ instance_type }} {{ cpu_info }} {{ ram_info }}
+      register: pre_check_report
+      become: true
+      tags: pre_check
+    - debug:
+        msg: "Pre Check Report executed successfully"
+      when: "pre_check_report.rc == 0"
+      tags: pre_check
+    - debug:
+        msg: "Pre Check Report execution failed"
+      when: "pre_check_report.rc != 0"
+      tags: pre_check
+
+    # PRE CHECK PDF CONVERT
+    - name: Generate Pre Check PDF File
+      shell: /usr/local/bin/wkhtmltopdf {{ share_path }}/EC2_Resize/{{ cn }}/pre_check_report.html {{ share_path }}/EC2_Resize/{{ cn }}/pre_check_report.pdf
+      become: true
+      register: pre_check_pdf_report
+      delegate_to: localhost      
+      tags: pdf_report
+
+    - fail:
+        msg: "Generating Pre Check PDF Report Failed"
+      when: "pre_check_pdf_report.rc != 0"  
+
+    - name: Stopping the EC2 instance
+      command: aws ec2 stop-instances --instance-ids {{ ins }} --region {{ az }}
+      when: ins_state != "stopped"      
+      register: stop_ins_status  
+      ignore_errors: yes   
+      delegate_to: localhost
+    
+    - debug:
+        msg: "{{ stop_ins_status }}"
+
+    - name: Wait until the EC2 Instance status changed to stopped
+      command: aws ec2 describe-instances --instance-ids {{ ins }} --region {{ az }} --output text --query 'Reservations[*].Instances[*].State.Name'
+      when: ins_state != "stopped"
+      register: stop_ec2_info
+      until: "'stopped' in stop_ec2_info.stdout"
+      retries: 90
+      delay: 60
+
+    # - debug: 
+    #     msg: "{{ stop_ec2_info }}"
+      # when: stop_ec2_info.changed == true  
+
+    - debug: 
+        msg: EC2 instance stopped successfully
+      when: stop_ec2_info.changed == true
+
+    - debug:
+        msg: Failed to stop the EC2 instance
+      when: stop_ec2_info.changed == false      
+
+    - name: Checking whether server stopped
+      debug: 
+        msg: "Server Stopped successfully"
+      when: ins_state != "stopped" and stop_ins_status.changed == true  
+
+    # - name: Checking whether server has stopped already
+    #   fail: 
+    #     msg: "Server is already in stopped state. Hence proceeding for the Resize"
+    #   when: ins_state == "stopped" and stop_ins_status.changed != true and stop_ins_status.skipped == true   
+
+    - name: Checking whether server failed to stop
+      fail: 
+        msg: "Failed to Stop the server"
+      when: ins_state == "stopped" and stop_ins_status.changed != true and stop_ins_status.skipped != true
+
+
+------------------------------------------------------------------------------------------------------------------------------------------------
+
+prod_ec2_resize/ec2_start.yml
+
+---
+- name: EC2 Start
+  hosts: localhost
+  gather_facts: no
+  # become_method: sudo 
+  become_user: root
+  connection: local
+  vars:
+    share_path: /Linux_Prod
+  tasks:
+    - set_fact:
+        server_name: "{{ an }}"
+        aws_account_name: "{{ acc_name }}" 
+        aws_environment: "{{ env[0] }}"  
+        role: ia-role
+      tags: variables
+
+    - name: Run Kion Stak command to get the access key and secret key
+      command: kion --profile nonprod stak --l {{ aws_account_name }} --car {{ role }} -p
+      register: non_prod_stak_output
+      when: aws_environment != "P"
+
+    - debug:
+        msg: "{{ non_prod_stak_output }}"  
+      when: aws_environment != "P"   
+    
+    - name: Run Kion Stak command to get the access key and secret key
+      command: kion --profile prod stak --l {{ aws_account_name }} --car {{ role }} -p
+      register: prod_stak_output
+      when: aws_environment == "P"
+
+    - debug:
+        msg: "{{ prod_stak_output }}" 
+      when: aws_environment == "P"  
+
+    - name: setting up the variables of non Prod access key and secret key
+      set_fact:
+        AWS_ACCESS_KEY_ID: "{{ non_prod_stak_output.stdout_lines[0].split('export AWS_ACCESS_KEY_ID=')[1] }}"
+        AWS_SECRET_ACCESS_KEY: "{{ non_prod_stak_output.stdout_lines[1].split('export AWS_SECRET_ACCESS_KEY=')[1] }}"
+        AWS_SESSION_TOKEN: "{{ non_prod_stak_output.stdout_lines[2].split('export AWS_SESSION_TOKEN=')[1] }}"
+      when: aws_environment != "P"
+
+    - name: setting up the variables of Prod access key and secret key
+      set_fact:
+        AWS_ACCESS_KEY_ID: "{{ prod_stak_output.stdout_lines[0].split('export AWS_ACCESS_KEY_ID=')[1] }}"
+        AWS_SECRET_ACCESS_KEY: "{{ prod_stak_output.stdout_lines[1].split('export AWS_SECRET_ACCESS_KEY=')[1] }}"
+        AWS_SESSION_TOKEN: "{{ prod_stak_output.stdout_lines[2].split('export AWS_SESSION_TOKEN=')[1] }}"
+      when: aws_environment == "P"  
+
+    - name: Configure AWS CLI with Access Key and Secret Key
+      shell: |
+        aws configure set aws_access_key_id {{ AWS_ACCESS_KEY_ID }}
+        aws configure set aws_secret_access_key {{ AWS_SECRET_ACCESS_KEY }}
+        aws configure set aws_session_token {{ AWS_SESSION_TOKEN }}
+        aws configure set region {{ az }}
+      register: set_aws_configure  
+ 
+
+
+    - name: Starting the EC2 instance
+      command: aws ec2 start-instances --instance-ids {{ ins }} --region {{ az }}
+      register: start_ins_status  
+    
+    - debug:
+        msg: "{{ start_ins_status }}"
+
+    - name: Wait until the EC2 Instance status changed to running
+      command: aws ec2 describe-instances --instance-ids {{ ins }} --region {{ az }} --output text --query 'Reservations[*].Instances[*].State.Name'
+      # when: ins_state != "available"
+      register: start_ec2_info
+      until: "'running' in start_ec2_info.stdout"
+      retries: 90
+      delay: 60
+
+    - debug: 
+        msg: EC2 instance started successfully
+      when: start_ec2_info.changed == true
+
+    - debug:
+        msg: Failed to start the EC2 instance
+      when: start_ec2_info.changed == false      
+
+    # - name: Sleeping until instance state to be changed as running
+    #   pause:
+    #     minutes: 3
+
+    - name: Check Current state of the EC2 instance
+      command: aws ec2 describe-instances --instance-ids {{ ins }} --region {{ az }} --output text --query 'Reservations[*].Instances[*].State.Name'
+      register: instance_state
+      delegate_to: localhost
+      tags: check
+      
+    - debug:
+        msg: "{{ instance_state }}"
+
+    - fail:
+        msg: "Failed to Fetch EC2 Status"
+      when: instance_state.stdout == ""       
+
+    - name: displaying post instance status
+      set_fact:
+        ins_state: "{{ instance_state.stdout }}"
+      when: instance_state.stdout != ""
+
+    - debug:
+        msg: "Instance State = {{ ins_state }}"  
+      when: ins_state != ""     
+
+    - name: Checking whether server Started
+      debug: 
+        msg: "Server Started successfully"
+      when: ins_state == "running" and start_ins_status.changed == true 
+
+    - name: Checking whether server failed to start
+      fail: 
+        msg: "Failed to Start the server"
+      when: ins_state != "running" and start_ins_status.changed != true 
+
+    - name: Check launch time of the EC2 instance
+      command: aws ec2 describe-instances --instance-ids {{ ins }} --region {{ az }} --output text --query 'Reservations[*].Instances[*].LaunchTime'
+      register: instance_launch_time
+      delegate_to: localhost
+
+    - name: displaying post instance Launch Time
+      set_fact:
+        launch_time: "{{ instance_launch_time.stdout}}"
+      when: instance_launch_time.stdout != ""   
+
+    - debug:
+        msg: "Instance Launch Time = {{ launch_time }}"  
+      when: launch_time != ""    
+
+    - name: Check Instance Type of the EC2 instance
+      command: aws ec2 describe-instances --instance-ids {{ ins }} --region {{ az }} --output text --query 'Reservations[*].Instances[*].InstanceType'
+      register: check_instance_type
+      delegate_to: localhost
+      tags: check
+
+    - name: Instance Type details
+      set_fact:
+        instance_type: "{{ check_instance_type.stdout }}"
+      when: check_instance_type.stdout != ""  
+
+    - debug:
+        msg: "Instance Type = {{ instance_type }}"  
+      when: instance_type != ""  
+
+    - name: Instance type RAM details
+      command: aws ec2 describe-instance-types  --instance-types {{ instance_type }} --region {{ az }} --output text --query 'InstanceTypes[*].MemoryInfo.SizeInMiB'
+      register: instance_ram_details
+
+    - set_fact:
+        ram_info: "{{ instance_ram_details.stdout }}" 
+      when: instance_ram_details.stdout != ""   
+
+    - debug:
+        msg: "Ram Info = {{ ram_info }}" 
+      when: ram_info != ""       
+
+    - name: Instance type CPU details
+      command: aws ec2 describe-instance-types  --instance-types {{ instance_type }} --region {{ az }} --output text --query 'InstanceTypes[*].VCpuInfo.DefaultVCpus'
+      register: instance_cpu_details
+
+    - set_fact:
+        cpu_info: "{{ instance_cpu_details.stdout }}" 
+      when: instance_cpu_details.stdout != ""     
+
+    - debug:
+        msg: "CPU Info = {{ cpu_info }}"  
+      when: cpu_info != ""       
+
+    - set_fact: 
+        current_state: Stopped
+      when: ins_state != "running"
+
+    - set_fact: 
+        current_state: Running
+      when: ins_state == "running"
+
+    # POST CHECK HTML REPORT
+    - name: Generate the pre check html report
+      command: sh /home/svc-linux-snow/prod_ec2_resize/Start_post_check.sh {{ ins }} {{ current_state }} {{ cn }} {{ hn }} {{ os_platform }} {{ instance_type }} {{ cpu_info }} {{ ram_info }}
+      register: post_check_report
+      become: true
+      tags: post_check
+    - debug:
+        msg: "Post Check Report executed successfully"
+      when: "post_check_report.rc == 0"
+      tags: post_check
+    - debug:
+        msg: "Post Check Report execution failed"
+      when: "post_check_report.rc != 0"
+      tags: post_check
+
+    #POST CHECK PDF REPORT
+    - name: Generate Post Check PDF File
+      shell: /usr/local/bin/wkhtmltopdf {{ share_path }}/EC2_Resize/{{ cn }}/post_check_report.html {{ share_path }}/EC2_Resize/{{ cn }}/post_check_report.pdf
+      become: true
+      register: post_check_pdf_report
+      delegate_to: localhost      
+      tags: pdf_report
+
+    - fail:
+        msg: "Generating Post Check PDF Report Failed"
+      when: "post_check_pdf_report.rc != 0"
+    
+    - debug: 
+        msg: "Server Resized successfully"
+      when: instance_type == type
+
+
+-----------------------------------------------------------------------------------------------------------------------------------------
+
+prod_ec2_resize/ec2_resize.yml
+
+---
+- name: EC2 Resize
+  hosts: localhost
+  gather_facts: no
+  become_method: sudo 
+  become_user: root
+  connection: local
+  tasks:
+    - set_fact:
+        server_name: "{{ an }}"
+        aws_account_name: "{{ acc_name }}" 
+        aws_environment: "{{ env[0] }}"  
+        role: ia-role
+      tags: variables
+
+    - name: Run Kion Stak command to get the access key and secret key
+      command: kion --profile nonprod stak --l {{ aws_account_name }} --car {{ role }} -p
+      register: non_prod_stak_output
+      when: aws_environment != "P"
+
+    - debug:
+        msg: "{{ non_prod_stak_output }}"  
+      when: aws_environment != "P"   
+    
+    - name: Run Kion Stak command to get the access key and secret key
+      command: kion --profile prod stak --l {{ aws_account_name }} --car {{ role }} -p
+      register: prod_stak_output
+      when: aws_environment == "P"
+
+    - debug:
+        msg: "{{ prod_stak_output }}" 
+      when: aws_environment == "P"  
+
+    - name: setting up the variables of non Prod access key and secret key
+      set_fact:
+        AWS_ACCESS_KEY_ID: "{{ non_prod_stak_output.stdout_lines[0].split('export AWS_ACCESS_KEY_ID=')[1] }}"
+        AWS_SECRET_ACCESS_KEY: "{{ non_prod_stak_output.stdout_lines[1].split('export AWS_SECRET_ACCESS_KEY=')[1] }}"
+        AWS_SESSION_TOKEN: "{{ non_prod_stak_output.stdout_lines[2].split('export AWS_SESSION_TOKEN=')[1] }}"
+      when: aws_environment != "P"
+
+    - name: setting up the variables of Prod access key and secret key
+      set_fact:
+        AWS_ACCESS_KEY_ID: "{{ prod_stak_output.stdout_lines[0].split('export AWS_ACCESS_KEY_ID=')[1] }}"
+        AWS_SECRET_ACCESS_KEY: "{{ prod_stak_output.stdout_lines[1].split('export AWS_SECRET_ACCESS_KEY=')[1] }}"
+        AWS_SESSION_TOKEN: "{{ prod_stak_output.stdout_lines[2].split('export AWS_SESSION_TOKEN=')[1] }}"
+      when: aws_environment == "P"  
+
+    - name: Configure AWS CLI with Access Key and Secret Key
+      shell: |
+        aws configure set aws_access_key_id {{ AWS_ACCESS_KEY_ID }}
+        aws configure set aws_secret_access_key {{ AWS_SECRET_ACCESS_KEY }}
+        aws configure set aws_session_token {{ AWS_SESSION_TOKEN }}
+        aws configure set region {{ az }}
+      register: set_aws_configure  
+ 
+
+ 
+    - name: Check Current state of the EC2 instance
+      command: aws ec2 describe-instances --instance-ids {{ ins }} --region {{ az }} --output text --query 'Reservations[*].Instances[*].State.Name'
+      register: instance_state
+      delegate_to: localhost
+      tags: check
+      
+    - debug:
+        msg: "{{ instance_state }}"
+
+    - fail:
+        msg: "Failed to Fetch EC2 Status"
+      when: instance_state.stdout == "" 
+            
+
+    - name: Resizing the Instance as per our input {{ type }}
+      command: aws ec2 modify-instance-attribute --instance-id {{ ins }} --region {{ az }} --instance-type {{ type }}
+      register: resize_instance_type
+      delegate_to: localhost
+    
+    - debug:
+        msg: "{{ resize_instance_type }}"
+
+    - debug:
+        msg: "Instance has been successfully resized to {{ type }}"
+      when: resize_instance_type.changed == true   
+
+    - fail:
+        msg: "Failed to resize for this instance"
+      when: resize_instance_type.changed != true   
+
+    - name: Check Instance Type of the EC2 instance after resized
+      command: aws ec2 describe-instances --instance-ids {{ ins }} --region {{ az }} --output text --query 'Reservations[*].Instances[*].InstanceType'
+      register: check_instance_type
+      delegate_to: localhost
+      tags: check
+
+    - name: Instance Type details after resize
+      set_fact:
+        instance_type: "{{ check_instance_type.stdout }}"
+      when: check_instance_type.stdout != ""  
+
+    - debug:
+        msg: "Instance Type after Resize = {{ instance_type }}"  
+      when: instance_type != "" 
+
+    - debug:
+        msg: "{{ type }}"  
+
+    - fail: 
+        msg: "Failed to Resize Instance"
+      when: instance_type != type
+
+
+---------------------------------------------------------------------------------------------------------------------------------------------
+
+prod_ec2_resize/Start_post_check.sh
+
+#!/bin/sh
+INS=$1
+INSTANCE_STATE=$2
+CTASK_NUMBER=$3
+HOSTNAME=$4
+OS_PLATFORM=$5
+INSTANCE_TYPE=$6
+CPU=$7
+RAM=$8
+
+#---create report
+(
+echo '<HTML><HEAD><TITLE>SERVER STATUS</TITLE></HEAD><BODY>'
+#echo $LTIME
+echo ' <h1><b>
+            <center>RESIZE EC2 SERVER (Post Check)</center>
+        </b></h1>
+    <table width=100% border=1>'
+echo ' <tr> <br> </tr>
+        <tr>
+            <th class="label" colspan=2> Server Baseline Information </th>
+        </tr>
+        <tr>
+            <td><b> Host Name </b></td>
+            <td>'$HOSTNAME'</td>
+        </tr>
+        <tr>
+            <td><b> Server Platform </b></td>
+            <td>'$OS_PLATFORM'</td>
+        </tr>           
+        <tr>
+            <td><b> Logon ID used for this test </b></td>
+            <td>svc-linux-snow</td>
+        </tr>   
+        <tr>
+            <td><b> Report Date and Time </b></td>
+            <td>'$(date '+%d%b%Y %H%M |%Z')'</td>
+        </tr>
+    </table><BR /><BR />'    
+
+echo '<table width=100% border=1>
+<TR><TH>Instance ID</TH>
+<TH>Current State</TH>
+<TH>CPU Cores</TH>
+<TH>RAM in MB</TH>
+<TH>Instance Type</TH>
+</TR><tbody>'
+echo '<TR>
+<TD ALIGN=CENTER>'$INS'</TD>
+<TD ALIGN=CENTER>'$INSTANCE_STATE'</TD>
+<TD ALIGN=CENTER>'$CPU'</TD>
+<TD ALIGN=CENTER>'$RAM'</TD>
+<TD ALIGN=CENTER>'$INSTANCE_TYPE'</TD></TR>'
+echo '</tbody></table></body></html>'
+) > /Linux_Prod/EC2_Resize/$CTASK_NUMBER/post_check_report.html
+
+
+
+---------------------------------------------------------------------------------------------------------------------------------------------------
+
+prod_ec2_resize/stop_post_check.sh
+
+
+#!/bin/sh
+INS=$1
+INSTANCE_STATE=$2
+CTASK_NUMBER=$3
+HOSTNAME=$4
+OS_PLATFORM=$5
+INSTANCE_TYPE=$6
+CPU=$7
+RAM=$8
+
+#---create report
+(
+echo '<HTML><HEAD><TITLE>SERVER STATUS</TITLE></HEAD><BODY>'
+#echo $LTIME
+echo ' <h1><b>
+            <center>RESIZE EC2 SERVER (Pre Check)</center>
+        </b></h1>
+    <table width=100% border=1>'
+echo ' <tr> <br> </tr>
+        <tr>
+            <th class="label" colspan=2> Server Baseline Information </th>
+        </tr>
+        <tr>
+            <td><b> Host Name </b></td>
+            <td>'$HOSTNAME'</td>
+        </tr>
+        <tr>
+            <td><b> Server Platform </b></td>
+            <td>'$OS_PLATFORM'</td>
+        </tr>           
+        <tr>
+            <td><b> Logon ID used for this test </b></td>
+            <td>svc-linux-snow</td>
+        </tr>   
+        <tr>
+            <td><b> Report Date and Time </b></td>
+            <td>'$(date '+%d%b%Y %H%M |%Z')'</td>
+        </tr>
+    </table><BR /><BR />'    
+
+echo '<table width=100% border=1>
+<TR><TH>Instance ID</TH>
+<TH>Current State</TH>
+<TH>CPU Cores</TH>
+<TH>RAM in MB</TH>
+<TH>Instance Type</TH>
+</TR><tbody>'
+echo '<TR>
+<TD ALIGN=CENTER>'$INS'</TD>
+<TD ALIGN=CENTER>'$INSTANCE_STATE'</TD>
+<TD ALIGN=CENTER>'$CPU'</TD>
+<TD ALIGN=CENTER>'$RAM'</TD>
+<TD ALIGN=CENTER>'$INSTANCE_TYPE'</TD></TR>'
+echo '</tbody></table></body></html>'
+) > /Linux_Prod/EC2_Resize/$CTASK_NUMBER/pre_check_report.html
+#/tmp/$CTASK_NUMBER/pre_check_report.html
+
+

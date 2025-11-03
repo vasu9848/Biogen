@@ -1,0 +1,1074 @@
+1. Get Ticket
+
+Pre Execution:
+
+Process.RunbookName = Process.InstanceName
+Process.RunbookID = Process.RuntimeROID
+var uri="https://"+Process.Instance+".service-now.com/api/now/table/task?sysparm_fields=number%2Cactive%2Csys_id%2Cincident_state%2Cdescription%2Cu_document_results%2Cassigned_to=SVC-itpam@biogen.com&sysparm_limit=1&number="+Process.CTASK_Number
+Process.url=uri
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  	Process.ReturnCode=0;
+	Process.ReturnMessage="Ticket details fetched successfully."
+   Process.Output=Process[OpName].HTTPResponseContent
+} 
+else if(Process[OpName].Reason.indexOf('non-success') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent  
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent
+
+}
+else
+{
+  	Process.ReturnCode=2;
+  	Process.ReturnMessage="Failure fetching ticket details."
+
+}
+
+2. Second Operator (Read)
+
+Inline:
+
+var str =Process.Output
+var start=str.indexOf('[')+2;
+var end=str.indexOf(']')-1;
+var res = str.substring(start,end);
+var out1= res.split(',');
+for(var i=0;i < out1.length;i++)
+{
+  out1[i]=out1[i].replace(/\"/g,"");
+  if(out1[i].indexOf('active')>=0)
+  {Process.active=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('sys_id')>=0)
+  {Process.Sys_Id=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('description')>=0)
+  {Process.description=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('incident_state')>=0)
+  {Process.Incidentstate=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('u_document_results')>=0)
+  {Process.document_results=(out1[i].split(':'))[1]}
+  out1[i]=(out1[i].split(':'))[1]
+}
+
+Post Execution:
+
+if(Process.active)
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket is active.";
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Ticket is inactive.";
+}
+
+3. Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/table/change_task/"+Process.Sys_Id+""
+Process.payload = "<request><entry><assigned_to>d2f5f34bdb5efb8036c73c9b7c961900</assigned_to><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+"</work_notes><state>2</state></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  if(Process[OpName].HTTPResponseContent.indexOf("state\":\"")>=0)
+  {
+	Process.ReturnCode=0;
+	Process.ReturnMessage="Ticket updated successfully ";
+  }
+  else
+  {
+	Process.ReturnCode=2;
+	Process.ReturnMessage="Error occurred while  updating ticket";
+  }
+}
+else
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Failure occurred while updating ticket."
+}
+
+4. Script
+
+Inline:
+
+Param(
+$Number,
+$snowkey,
+$SNOWPassword,
+$username,
+$password,
+$snowp,
+$snowpa,
+$SNOW_Env)
+
+$pwd = $password | ConvertTo-SecureString -AsPlainText -Force
+$cred = New-Object pscredential -ArgumentList ($username , $pwd)
+
+$snowpass = "$snowp"+"#%4"+$snowpa+"_"
+
+function timestamp{
+    Get-Date -Format "dd_MMM_yyyy_HH:mm:ss tt"
+}
+
+$routed=$null
+$log_path = "D:\Storage\NFS_Client_IP\$Number\logs"
+$filePaths = "D:\Storage\NFS_Client_IP\$Number\logs", "D:\Storage\NFS_Client_IP\$Number\Command_Output", "D:\Storage\NFS_Client_IP\$Number\Evidence"
+foreach($filePath in $filePaths)
+{
+    If(!(test-path $filePath))
+    {
+          New-Item -ItemType Directory -Force -Path $filePath 
+    }
+}
+
+$log=@()
+$log += "-----------------"
+$log += "Script Execution Started at $(timestamp)"
+$log += "Service Account used for execution is Svc-linux-snow"
+
+try
+{
+    [Net.ServicePointManager]::SecurityProtocol = "tls12, tls11, tls"
+    $global:headers = @{"Authorization" = "Basic "+[System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($snowkey+":"+$snowpass))}
+
+    [Net.ServicePointManager]::SecurityProtocol = "tls12, tls11, tls"
+    $get_inc = "https://$SNOW_Env.service-now.com/api/now/v2/table/change_task?number=$Number"
+    $inc_result = Invoke-WebRequest -Uri $get_inc -Headers $global:headers -Method Get -ContentType "application/json" -UseBasicParsing
+    $incout = $inc_result | ConvertFrom-JSON
+    $inc_sysid = $incout.result.sys_id
+    $execution_notes = $incout.result.u_execution_notes
+    $inc_sysid = $incout.result.sys_id
+    $execution_notes    
+    $inc_sysid
+
+    $log += "Sys ID of the Ticket is $inc_sysid"
+    $log += "Execution Notes of the Ticket is `n $execution_notes"
+}
+catch
+{
+    Write-Host "Failed to fetch Ticket details"
+    $log += "Failed to fetch Ticket details"
+    exit
+}
+
+function Upload-PreAttachment
+{
+    param(
+    $inc_sysid,
+    $SNOW_Env,
+    $apikey,
+    $snowpass,
+    $pre_Name,
+    $pre_FullName
+    )
+   
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls, [Net.SecurityProtocolType]::Tls11, [Net.SecurityProtocolType]::Tls12, [Net.SecurityProtocolType]::Ssl3
+    [Net.ServicePointManager]::SecurityProtocol = "Tls, Tls11, Tls12, Ssl3"
+
+    $base64AuthInfo = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(("{0}:{1}" -f $apikey, $snowpass)))
+
+    # Set proper headers
+    $headers = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
+    $headers.Add('Authorization',('Basic {0}' -f $base64AuthInfo))
+    $headers.Add('Accept','application/json')
+    $headers.Add('Content-Type','application/json')
+
+    [Net.ServicePointManager]::SecurityProtocol = "tls12, tls11, tls"
+        
+    $update = "https://$SNOW_Env.service-now.com/api/now/attachment/file?table_name=change_task&table_sys_id=$inc_sysid&file_name=$pre_Name"
+
+    Invoke-RestMethod -Headers $headers -Method POST -Uri $update -InFile $pre_FullName -UseBasicParsing -ErrorAction Stop
+    #Write-Host "Work Notes updated successfully"    
+}
+
+
+
+function Upload-PostAttach
+{
+    param(
+    $inc_sysid,
+    $SNOW_Env,
+    $snowkey,
+    $snowpass,
+    $post_Name,
+    $post_FullName
+    )
+
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls, [Net.SecurityProtocolType]::Tls11, [Net.SecurityProtocolType]::Tls12, [Net.SecurityProtocolType]::Ssl3
+    [Net.ServicePointManager]::SecurityProtocol = "Tls, Tls11, Tls12, Ssl3"
+
+    $base64AuthInfo = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(("{0}:{1}" -f $snowkey, $snowpass)))
+
+    # Set proper headers
+    $headers = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
+    $headers.Add('Authorization',('Basic {0}' -f $base64AuthInfo))
+    $headers.Add('Accept','application/json')
+    $headers.Add('Content-Type','application/json')
+
+    [Net.ServicePointManager]::SecurityProtocol = "tls12, tls11, tls"
+        
+    $update = "https://$SNOW_Env.service-now.com/api/now/attachment/file?table_name=change_task&table_sys_id=$inc_sysid&file_name=$post_Name"
+
+    Invoke-RestMethod -Headers $headers -Method POST -Uri $update -InFile $post_FullName -UseBasicParsing -ErrorAction Stop
+    #Write-Host "Work Notes updated successfully"    
+}
+
+function Update-Ticket
+{
+    param(
+    $inc_sysid,
+    $SNOW_Env,
+    $apikey,
+    $password,
+    $work_notes
+    )
+    
+    [Net.ServicePointManager]::SecurityProtocol = "tls12, tls11, tls"
+    $global:headers = @{"Authorization" = "Basic "+[System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($apikey+":"+$password))}
+        
+    $update = "https://$SNOW_Env.service-now.com/api/now/v2/table/change_task/$($inc_sysid)"
+    $body=@{
+            work_notes = $work_notes
+            }
+    $bodyJson=$body|ConvertTo-Json
+    $createTicket=Invoke-RestMethod -Headers $global:headers -Method Put -Uri $update -Body $bodyJson -ContentType "application/json"
+    $result=$createTicket.result
+    #Write-Host "Work Notes updated successfully"
+    $log += "Work Notes updated successfully" 
+}
+
+#start
+function Update-Start
+{
+ param(
+    $inc_sysid,
+    $SNOW_Env,
+    $apikey,
+    $password
+    #$work_notes
+    )
+    
+    [Net.ServicePointManager]::SecurityProtocol = "tls12, tls11, tls"
+    $global:headers = @{"Authorization" = "Basic "+[System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($apikey+":"+$password))}
+    
+    $actual_start_date = Get-Date
+    
+    $update = "https://$SNOW_Env.service-now.com/api/now/v2/table/change_task/$($inc_sysid)"
+    $body=@{
+           "work_start"="$actual_start_date"
+            }
+    $bodyJson=$body|ConvertTo-Json
+    $createTicket=Invoke-RestMethod -Headers $global:headers -Method Put -Uri $update -Body $bodyJson -ContentType "application/json"
+    $result=$createTicket.result
+    #Write-Host "Work Notes updated successfully"
+    $log += "Work Notes updated successfully" 
+}
+
+#End
+function Update-End
+{
+ param(
+    $inc_sysid,
+    $SNOW_Env,
+    $apikey,
+    $password
+    #$work_notes
+    )
+    
+    [Net.ServicePointManager]::SecurityProtocol = "tls12, tls11, tls"
+    $global:headers = @{"Authorization" = "Basic "+[System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($apikey+":"+$password))}
+    
+    $actual_end_date = Get-Date
+    
+    $update = "https://$SNOW_Env.service-now.com/api/now/v2/table/change_task/$($inc_sysid)"
+    $body=@{
+           "work_end"="$actual_end_date "
+            }
+    $bodyJson=$body|ConvertTo-Json
+    $createTicket=Invoke-RestMethod -Headers $global:headers -Method Put -Uri $update -Body $bodyJson -ContentType "application/json"
+    $result=$createTicket.result
+    #Write-Host "Work Notes updated successfully"
+}
+
+function Route-Ticket
+{
+    param(
+    $inc_sysid,
+    $SNOW_Env,
+    $snowkey,
+    $snowpass,
+    $work_notes
+    )
+
+    $update = "https://$SNOW_Env.service-now.com/api/now/v2/table/change_task/$($inc_sysid)"
+    $body=@{
+            assignment_group= "6e7f87abdb07d3809d6b58eadc9619ad"
+            assigned_to=""
+            work_start=""
+            u_close_code="Unsuccessful"
+            work_notes=$work_notes
+            }
+    $bodyJson=$body|ConvertTo-Json
+    $createTicket=Invoke-RestMethod -Headers $global:headers -Method Put -Uri $update -Body $bodyJson -ContentType "application/json"
+    $result=$createTicket.result
+    Write-Host "Assignment Group updated successfully"
+    $log += "Assignment Group updated successfully"
+}
+
+function Resolve-Ticket
+{
+    param(
+    $inc_sysid,
+    $SNOW_Env,
+    $snowkey,
+    $snowpass,
+    $work_notes,
+    $asign_grp,
+    $volume,
+    $vserver
+    )
+
+    $update = "https://$SNOW_Env.service-now.com/api/now/v2/table/change_task/$($inc_sysid)"
+     $body=@{
+            state=3
+            work_notes= $work_notes
+            u_document_results=$work_notes
+            u_close_code="successful"
+            close_notes= $work_notes
+            }
+    $bodyJson=$body|ConvertTo-Json
+    $createTicket=Invoke-RestMethod -Headers $global:headers -Method Put -Uri $update -Body $bodyJson -ContentType "application/json"
+    $result=$createTicket.result
+    Write-Host "Ticket Resolved Successfully"
+    $log += "Ticket Resolved Successfully"
+}
+function timestamp{
+    Get-Date -Format "dd_MMM_yyyy_HH:mm:ss tt"
+}
+
+$result, $result1, $success, $failed =@()
+
+#$execution_notes = Get-Content "D:\Storage\NFS_Client_IP\$Number\execution_notes.txt"
+if($execution_notes.Length -ne 0)
+{
+    $volume            = (((($execution_notes -split("Storage_Vserver_Name"))[0]) -split "Storage_Volumes: " | ?{$_ -ne ""})[1]).trim()
+    $vserver           = (((($execution_notes -split("Storage_Cluster_Name"))[0]) -split "Storage_Vserver_Name: ")[1] | ?{$_ -ne ""}).trim()
+    $clusterName       = ((($execution_notes -split("Storage_Cluster_IP"))[0] -split("Storage_Cluster_Name: "))[1] | ?{$_ -ne ""}).trim()
+    $clusterName_IP    = ((($execution_notes -split("Storage_NAS_Path"))[0] -split("Storage_Cluster_IP: "))[1] | ?{$_ -ne ""}).trim()
+    $NetApp_FQDN       = ((($execution_notes -split("Host_Client_IP"))[0] -split("Host_Client_FQDN: "))[1] | ?{$_ -ne ""}).trim()
+    $NetApp_Client_IPs = (($execution_notes -split("Host_Client_IP: "))[1] | ?{$_ -ne ""}).trim()
+    $NAS_Path          = ((($execution_notes -split("Host_Client_FQDN"))[0] -split("Storage_NAS_Path: "))[1] | ?{$_ -ne ""}).trim()
+
+    if($NetApp_Client_IPs -match ",")
+    {
+        $NetApp_Client_IPs = ($NetApp_Client_IPs -split "," | ?{$_ -ne ""}).trim()
+    }
+
+    $Outputreport=""
+    
+    $Outputreport +="<style>
+    BODY{background-color:white;}
+    TABLE{border-width: 1px;border-style: solid;border-color: black;border-collapse: collapse;}
+    TH{border-width: 1px;padding: 5px;border-style: solid;border-color: black;foreground-color: black;background-color: LightBlue}
+    TD{border-width: 1px;padding: 5px;border-style: solid;border-color: black;foreground-color: black;background-color: white}
+    </style>
+    <h1><center>Add NFS Client IP Address Pre Implementation Evidence</h1></center>"
+    
+    $Outputreport1=""
+
+    $Outputreport1 +="<style>
+    BODY{background-color:white;}
+    TABLE{border-width: 1px;border-style: solid;border-color: black;border-collapse: collapse;}
+    TH{border-width: 1px;padding: 5px;border-style: solid;border-color: black;foreground-color: black;background-color: LightBlue}
+    TD{border-width: 1px;padding: 5px;border-style: solid;border-color: black;foreground-color: black;background-color: white}
+    </style>
+    <h1><center>Add NFS Client IP Address Post Implementation Evidence</h1></center>"
+    try
+    {
+        Update-Start -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass
+        Write-Host "ClusterIP: $clusterName_IP" -ForegroundColor Green
+    }
+    catch
+    {
+
+    }
+
+    if(New-SSHSession -ComputerName $clusterName_IP -Credential $cred -AcceptKey)
+    {
+        $session = (Get-SSHSession).SessionId
+        Write-Host "Session Established Successfully with $clusterName_IP" -ForegroundColor Green
+        $log += "Session Established with $clusterName_IP"
+    	try{Update-Ticket -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass -work_notes "Session Established with $clusterName_IP"}
+        catch{Write-Host "Failed to Route Ticket"}
+        $routed="routed"
+    }
+    else
+    {
+        Write-Host "Failed to establish connection with $clusterName_IP"
+        $log += "Failed to establish connection with $clusterName_IP"
+        try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass -work_notes "Failed to establish connection with $NetApp_cluster_Name"}
+        catch{Write-Host "Failed to Route Ticket"}
+        $routed="routed"
+        exit
+    }
+
+    Write-Host "Vserver: $vserver"
+    $log += "Vserver: $vserver"
+    
+    try{Update-Ticket -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass -work_notes "Vserver: $vserver"}
+    catch{Write-Host "Failed to Update Ticket"}
+
+    Write-Host "Volume: $volume" -ForegroundColor Green
+                
+    try{Update-Ticket -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass -work_notes "Volume: $volume"}
+    catch{Write-Host "Failed to Update Ticket"}
+    
+    $command1 = Invoke-SSHCommand -SessionId $session -Command "vol show -volume $volume"
+    
+    if($command1.ExitStatus -eq "0")
+    {
+        $command1.Output | Out-File -FilePath "D:\Storage\NFS_Client_IP\$Number\Command_Output\command1.txt"
+        $command1_op = Get-Content -Path "D:\Storage\NFS_Client_IP\$Number\Command_Output\command1.txt"
+    
+        $command1_op = $command1_op | ?{$_ -ne ""}
+        $command1_op = $command1_op[3] -split " " | ?{$_ -ne ""}
+    
+        $log += "Command 1 Output is `n $command1_op"
+    
+        $op1_vserver      = $command1_op[0]
+        $op1_volume       = $command1_op[1]
+        $op1_aggregate    = $command1_op[2]
+        $op1_status       = $command1_op[3]
+        $op1_type         = $command1_op[4]
+        $op1_size         = $command1_op[5]
+        $op1_stauts       = $command1_op[6]
+        $op1_used         = $command1_op[7]              
+    
+        if(($op1_vserver -eq $vserver) -and ($op1_volume -eq $volume))
+        {
+            Write-Host "$volume present in $vserver"
+    
+            $log += "$volume present in $vserver"
+    
+            try
+            {
+                Update-Ticket -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass -work_notes "$volume present in $vserver"
+            }
+            catch
+            {
+                Write-Host "Failed to Update Ticket" 
+                $log += "Script Execution Ends $(timestamp)"
+                $log += "-----------------"
+                $log | Add-Content $log_path\log.txt
+                exit
+            }
+
+            $command2 = Invoke-SSHCommand -SessionId $session -Command "volume show -vserver $vserver -volume $volume -fields policy"
+    
+            if($command2.ExitStatus -eq "0")
+            {
+                $command2.Output | Out-File -FilePath "D:\Storage\NFS_Client_IP\$Number\Command_Output\command2.txt"
+                $command2_op = Get-Content -Path "D:\Storage\NFS_Client_IP\$Number\Command_Output\command2.txt"
+            
+                $command2_op = $command2_op | ?{$_ -ne ""}
+                $command2_op = ($command2_op[3]) -split " " | ?{$_ -ne ""}
+            
+                $op2_vserver = $command2_op[0]
+                $op2_volume  = $command2_op[1]
+                $op2_policy  = $command2_op[2]
+            
+                $log += "Second command Output is 1n $command2_op"
+            
+                if($op2_policy)
+                {
+                    Write-Host "Policy Name is $op2_policy"
+                    
+                    try
+                    {
+                        Update-Ticket -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass -work_notes "Policy Name is $op2_policy"
+                    }
+                    catch
+                    {
+                        Write-Host "Failed to Update Ticket" 
+                        $log += "Script Execution Ends $(timestamp)"
+                        $log += "-----------------"
+                        $log | Add-Content $log_path\log.txt
+                        exit
+                    }
+                    #From HERE
+                    Foreach($NetApp_Client_IP in $NetApp_Client_IPs)
+                    {
+                        
+                                
+                        Write-Host "NetAPP Client IP: $NetApp_Client_IP" 
+            
+                        $log += "NetAPP Client IP: $NetApp_Client_IP"
+
+                        $command3 = Invoke-SSHCommand -SessionId $session -Command "export-policy rule show -vserver $vserver -policyname $op2_policy -clientmatch $NetApp_Client_IP"
+                        $command3.Output | Out-File -FilePath "D:\Storage\NFS_Client_IP\$Number\Command_Output\command3.txt"
+                        $command3_op = Get-Content -Path "D:\Storage\NFS_Client_IP\$Number\Command_Output\command3.txt"
+                    
+                        $log += "Third Command Output is `n $command3_op"
+                        
+                        $command4 = Invoke-SSHCommand -SessionId $session -Command "export-policy check-access -vserver $vserver -volume $volume -client-ip $NetApp_Client_IP -authentication-method sys -protocol nfs3 -access-type read-write"
+                        if($command4.ExitStatus -eq "0")
+                        {
+                            $command4.Output | Out-File -FilePath "D:\Storage\NFS_Client_IP\$Number\Command_Output\command4.txt"
+                            $command4_op = Get-Content -Path "D:\Storage\NFS_Client_IP\$Number\Command_Output\command4.txt"                                    
+                            
+                            $command4_op = $command4_op | ?{$_ -ne ""}
+                            $command4_op = ($command4_op[5]) -split " " | ?{$_ -ne ""}
+                            
+                            $log += "Fourth Command Output is `n $command4_op"
+                            
+                            $op4_Path              = $command4_op[0]
+                            $op4_Policy            = $command4_op[1]
+                            $op4_Policy_Owner      = $command4_op[2]
+                            $op4_Policy_Owner_Type = $command4_op[3]
+                            $op4_Rule_Index        = $command4_op[4]
+                            $op4_Access            = $command4_op[5]
+                            
+                            $result += @([PSCustomObject] @{
+                            "VServer"         = $command1_op[0]
+                            "Volume"          = $command1_op[1]
+                            "Aggregate"       = $command1_op[2]
+                            "State"           = $command1_op[3]
+                            "TYpe"            = $command1_op[4]
+                            "Size"            = $command1_op[5]
+                            "Available Space" = $command1_op[6]
+                            "Used %"          = $command1_op[7]
+                            "Policy"          = $op2_policy
+                            "Client Ip"       = $NetApp_Client_IP
+                            "Access"          = $op4_Access
+                            })
+                        }
+                        else
+                        {
+                            try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass -work_notes "Failed to fetch the current access of the Volumes"}
+                            catch{Write-Host "Failed to Route Ticket"}
+                        }
+
+                        if($command3.ExitStatus -eq "255")
+                        {
+                        $command3_op = $command3_op | ?{$_ -ne ""}
+                        $command3_op = ($command3_op[1]) -split " " | ?{$_ -ne ""}
+                    
+                        if(($command3_op[0] -eq "There") -and ($command3_op[1] -eq "are") -and ($command3_op[2] -eq "No"))
+                        {
+                            $command4 = Invoke-SSHCommand -SessionId $session -Command "export-policy check-access -vserver $vserver -volume $volume -client-ip $NetApp_Client_IP -authentication-method sys -protocol nfs3 -access-type read-write"
+                            if($command4.ExitStatus -eq "0")
+                            {
+
+                            ################"There are no entries matching your query."
+
+                                $command4.Output | Out-File -FilePath "D:\Storage\NFS_Client_IP\$Number\Command_Output\command4.txt"
+                                $command4_op = Get-Content -Path "D:\Storage\NFS_Client_IP\$Number\Command_Output\command4.txt"                                    
+                                
+                                $command4_op = $command4_op | ?{$_ -ne ""}
+                                $command4_op = ($command4_op[5]) -split " " | ?{$_ -ne ""}
+                                
+                                $log += "Fourth Command Output is `n $command4_op"
+                                
+                                $op4_Path              = $command4_op[0]
+                                $op4_Policy            = $command4_op[1]
+                                $op4_Policy_Owner      = $command4_op[2]
+                                $op4_Policy_Owner_Type = $command4_op[3]
+                                $op4_Rule_Index        = $command4_op[4]
+                                $op4_Access            = $command4_op[5]
+                                
+                                if($op4_Access -eq "denied")
+                                {
+                                    $command5 = Invoke-SSHCommand -SessionId $session -Command "export-policy rule create -vserver $vserver -policyname $op2_policy -clientmatch $NetApp_Client_IP -rorule any -rwrule any -protocol nfs3 -superuser any"
+                                    $log += "Fifth Command output is $command5"
+    
+                                    if($command5.ExitStatus -eq "0")
+                                    {
+                                        Write-Host "Read-write Rule created for $volume in $vserver"
+    
+                                        $log += "Read-write Rule created for $volume in $vserver"
+    
+                                        try
+                                        {
+                                            Update-Ticket -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass -work_notes "Read-write Rule created for $volume in $vserver"
+                                        }
+                                        catch
+                                        {
+                                            Write-Host "Failed to Update Ticket" 
+                                            $Log+="Failed to Update Ticket Read-write Rule created for $volume in $vserver"
+                                            <#$log += "Script Execution Ends $(timestamp)"
+                                            $log += "-----------------"
+                                            $log | Add-Content $log_path\log.txt
+                                            #exit$#>
+                                        }
+
+                                        $command6 = Invoke-SSHCommand -SessionId $session -Command "export-policy rule show -vserver $vserver -policyname $op2_policy -clientmatch $NetApp_Client_IP"
+
+                                        if($command6.ExitStatus -eq "0")
+                                        {
+                                            $command6.Output | Out-File -FilePath "D:\Storage\NFS_Client_IP\$Number\Command_Output\command6.txt"
+                                            $command6_op = Get-Content -Path "D:\Storage\NFS_Client_IP\$Number\Command_Output\command6.txt"   
+                                        
+                                            $command6_op = $command6_op | ?{$_ -ne ""}
+                                        
+                                            $command6_op = ($command6_op[5]) -split " " | ?{$_ -ne ""}
+                                        
+                                            $log += "Sixth Command Output is `n $command6_op"
+                                        
+                                            $op6_Rule = $command6_op[2]
+
+                                            $command7 = Invoke-SSHCommand -SessionId $session -Command "export-policy check-access -vserver $vserver -volume $volume -client-ip $NetApp_Client_IP -authentication-method sys -protocol nfs3 -access-type read-write"
+    
+                                            if($command7.ExitStatus -eq "0")
+                                            {
+                                                $command7.Output | Out-File -FilePath "D:\Storage\NFS_Client_IP\$Number\Command_Output\command7.txt"
+                                                $command7_op = Get-Content -Path "D:\Storage\NFS_Client_IP\$Number\Command_Output\command7.txt"                                    
+                                                        
+                                                $command7_op = $command7_op | ?{$_ -ne ""}
+                                                $command7_op = ($command7_op[5]) -split " " | ?{$_ -ne ""}
+                                            
+                                                $log += "Seventh Command Output is $command7_op"
+                                            
+                                                $op7_Path              = $command7_op[0]
+                                                $op7_Policy            = $command7_op[1]
+                                                $op7_Policy_Owner      = $command7_op[2]
+                                                $op7_Policy_Owner_Type = $command7_op[3]
+                                                $op7_Rule_Index        = $command7_op[4]
+                                                $op7_Access            = $command7_op[5]
+                                            
+                                                if($op7_Access -eq "read-write")
+                                                {
+                                                    Write-Host "Access created successfully for $volume in $vserver under $NetApp_Client_IP"
+                                                    
+                                                    try
+                                                    {
+                                                        Update-Ticket -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass -work_notes "Access created successfully for $volume in $vserver under $NetApp_Client_IP"
+                                                    }
+                                                    catch
+                                                    {
+                                                        Write-Host "Failed to Update Ticket" 
+                                                        $Log += "Failed to Update Ticket Access created successfully for $volume in $vserver under $NetApp_Client_IP" 
+                                                        <#$log += "Script Execution Ends $(timestamp)"
+                                                        $log += "-----------------"
+                                                        $log | Add-Content $log_path\log.txt
+                                                        #exit#>
+                                                    }
+                                                    $result1 += @([PSCustomObject] @{
+                                                    "VServer"         = $command1_op[0]
+                                                    "Volume"          = $command1_op[1]
+                                                    "Aggregate"       = $command1_op[2]
+                                                    "State"           = $command1_op[3]
+                                                    "TYpe"            = $command1_op[4]
+                                                    "Size"            = $command1_op[5]
+                                                    "Available Space" = $command1_op[6]
+                                                    "Used %"          = $command1_op[7]
+                                                    "Policy"          = $op2_policy
+                                                    "Client Ip"       = $NetApp_Client_IP
+                                                    "Access"          = $op7_Access
+                                                    })
+                                                    #Updating Success reference variable
+                                                    $success += @($NetApp_Client_IP)
+                                                } ########################### if -eq read-write
+                                                else
+                                                { # else if -eq read-write
+                                                    $log += "Failed to create read-write access for $volume in $vserver under $NetApp_Client_IP"
+                                                    Write-Host "Failed to create read-write access for $volume in $vserver under $NetApp_Client_IP"
+                                                    
+                                                    #Updating failure reference variable
+                                                    $failed += @($NetApp_Client_IP)
+
+                                                    <#try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass -work_notes "Failed to create read-write access for $volume in $vserver under $NetApp_Client_IP"}
+                                                    catch{Write-Host "Failed to Route Ticket"; $log += "Failed to create read-write access for $volume in $vserver under $NetApp_Client_IP"}
+                                                    $log += "Script Execution Ends $(timestamp)"
+                                                    $log += "-----------------"
+                                                    $log | Add-Content $log_path\log.txt
+                                                    exit#>
+                                                    
+                                                }
+                                            } # if command 7
+                                            else # else command 7
+                                            {
+                                                $log += "Failed to execute export-policy check-access for $volume in $vserver under $NetApp_Client_IP"
+                                                Write-Host "Failed to execute export-policy check-access for $volume in $vserver under $NetApp_Client_IP"
+                                                #Updating failure reference variable
+                                                $failed += @($NetApp_Client_IP)
+
+                                                <#try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass -work_notes "Failed to execute export-policy check-access for $volume in $vserver under $NetApp_Client_IP"}
+                                                catch{Write-Host "Failed to Route Ticket"}
+                                                $log += "Script Execution Ends $(timestamp)"
+                                                $log += "-----------------"
+                                                $log | Add-Content $log_path\log.txt
+                                                exit#>
+                                            }
+                                        } # if command 6
+                                        else # else command 6
+                                        {
+                                            $log += "Failed to execute export-policy rule show for $volume in $vserver under $NetApp_Client_IP"
+                                            Write-Host "Failed to execute export-policy rule show for $volume in $vserver under $NetApp_Client_IP"
+                                            #Updating failure reference variable
+                                            $failed += @($NetApp_Client_IP)
+
+                                            <#try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass -work_notes "Failed to execute export-policy rule show for $volume in $vserver under $NetApp_Client_IP"}
+                                            catch{Write-Host "Failed to Route Ticket" }
+                                            $log += "Script Execution Ends $(timestamp)"
+                                            $log += "-----------------"
+                                            $log | Add-Content $log_path\log.txt
+                                            exit#>
+                                        }
+                                    } # if command 5
+                                    else # else command 5
+                                    {
+                                        $log += "Failed to execute export-policy rule create for $volume in $vserver under $NetApp_Client_IP"
+                                        Write-Host "Failed to execute export-policy rule create for $volume in $vserver under $NetApp_Client_IP"
+                                        #Updating failure reference variable
+                                        $failed += @($NetApp_Client_IP)
+
+                                        <#try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass -work_notes "Failed to execute export-policy rule create for $volume in $vserver under $NetApp_Client_IP"}
+                                        catch{Write-Host "Failed to Route Ticket" }
+                                        $log += "Script Execution Ends $(timestamp)"
+                                        $log += "-----------------"
+                                        $log | Add-Content $log_path\log.txt
+                                        exit#>
+                                    }
+                                } # if -ne read-write
+                                elseif($op4_Access -eq "read-write")
+                                {
+                                    $log += "Read-Write access already present for $volume in $vserver under $NetApp_Client_IP"
+                                    Write-Host "Read-Write access already present for $volume in $vserver under $NetApp_Client_IP"
+                                    #Updating failure reference variable
+                                    $failed += @($NetApp_Client_IP)
+
+                                    <#try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass -work_notes "Read-Write access already present for $volume in $vserver under $NetApp_Client_IP"}
+                                    catch{Write-Host "Failed to Route Ticket" }
+                                    $log += "Script Execution Ends $(timestamp)"
+                                    $log += "-----------------"
+                                    $log | Add-Content $log_path\log.txt
+                                    exit#>
+                                } # else if = reqd-write
+                                else # anything else
+                                {
+                                    $log += "No defined access present for $volume in $vserver under $NetApp_Client_IP"
+                                    Write-Host "No defined access present for $volume in $vserver under $NetApp_Client_IP"
+                                    #Updating failure reference variable
+                                    $failed += @($NetApp_Client_IP)
+                                    
+                                    <#try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass -work_notes "No defined access present for $volume in $vserver under $NetApp_Client_IP"}
+                                    catch{Write-Host "Failed to Route Ticket" }
+                                    $log += "Script Execution Ends $(timestamp)"
+                                    $log += "-----------------"
+                                    $log | Add-Content $log_path\log.txt
+                                    exit#>
+                                }
+                            } # if command 4
+                            else
+                            {
+                                $log += "Failed to execute export Policy check access command for $volume in $vserver under $NetApp_Client_IP"
+                                Write-Host "Failed to execute export Policy check access command for $volume in $vserver under $NetApp_Client_IP"
+                                #Updating failure reference variable
+                                $failed += @($NetApp_Client_IP)
+                            
+                                <#try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass -work_notes "Failed to execute export Policy check access command for $volume in $vserver under $NetApp_Client_IP"}
+                                catch{Write-Host "Failed to Route Ticket" }
+                                $log += "Script Execution Ends $(timestamp)"
+                                $log += "-----------------"
+                                $log | Add-Content $log_path\log.txt
+                                exit    #>
+                            }
+                        } #if  there are no matching entries
+                        else #else there are no matching entries
+                        {
+                             $log += "Failed to fetch $op2_policy information from $volume in $vserver under $NetApp_Client_IP"
+                             Write-Host "Failed to fetch $op2_policy information from $volume in $vserver under $NetApp_Client_IP"
+                             #Updating failure reference variable
+                             $failed += @($NetApp_Client_IP)
+
+                             <#try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass -work_notes "Failed to fetch $op2_policy information from $volume in $vserver under $NetApp_Client_IP"}
+                             catch{Write-Host "Failed to Route Ticket"}
+                             $log += "Script Execution Ends $(timestamp)"
+                             $log += "-----------------"
+                             $log | Add-Content $log_path\log.txt
+                             exit#>
+                        }
+                    } # if command 3 
+                    elseif($command3.ExitStatus -eq "0")
+                    {
+                        $log += "RO rule already present in $volume in $vserver under $NetApp_Client_IP"
+                        Write-Host "RO rule already present in $volume in $vserver under $NetApp_Client_IP"
+                        #Updating failure reference variable
+                        $failed += @($NetApp_Client_IP)
+
+                        <#"Failed to provide access, hence routing the ticket to Storage team"
+                        #try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass -work_notes "RO rule already present in $volume in $vserver under $NetApp_Client_IP"}
+                        try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass -work_notes "Failed to provide access, hence routing the ticket to Storage team"}
+                        catch{Write-Host "Failed to Route Ticket"}
+                        $log += "Script Execution Ends $(timestamp)"
+                        $log += "-----------------"
+                        $log | Add-Content $log_path\log.txt
+                        exit#>
+                    }
+                    else # else command 3
+                    {
+                        $log += "Failed to fetch the rule in $volume in $vserver under $NetApp_Client_IP"
+                        Write-Host "Failed to fetch the rule in $volume in $vserver under $NetApp_Client_IP"
+                        #Updating failure reference variable
+                        $failed += @($NetApp_Client_IP)
+
+                        <#try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass -work_notes "Failed to fetch the rule in $volume in $vserver under $NetApp_Client_IP"}
+                        catch{Write-Host "Failed to Route Ticket"}
+                        $log += "Script Execution Ends $(timestamp)"
+                        $log += "-----------------"
+                        $log | Add-Content $log_path\log.txt
+                        exit#>
+                    }
+                } #Foreach TIll here
+                $pre_html = "D:\Storage\NFS_Client_IP\$Number\Evidence\Pre_check.html"
+                $pre_pdf = "D:\Storage\NFS_Client_IP\$Number\Evidence\Pre_check.pdf"
+                                                    
+                $log += "Pre Check HTML Evidence saved in $pre_html"
+                                                    
+                $ab=$result | ConvertTo-Html
+                $Outputreport +="<BODY><HTML>"
+                $Outputreport +="<tr><td>"+$ab+"</td></tr>"
+                $Outputreport += "</table></BODY></HTML>"
+                                                    
+                $Outputreport | Out-File $pre_html -Force
+                                                    
+                $pre_body = Get-Content $pre_html -Raw
+
+                $post_html = "D:\Storage\NFS_Client_IP\$Number\Evidence\Post_check.html"
+                $post_pdf = "D:\Storage\NFS_Client_IP\$Number\Evidence\Post_check.pdf"
+
+                $log += "Pre Check HTML Evidence saved in $post_html"
+                                                    
+                $ab1=$result1 | ConvertTo-Html
+                $Outputreport1 +="<BODY><HTML>"
+                $Outputreport1 +="<tr><td>"+$ab1+"</td></tr>"
+                $Outputreport1 += "</table></BODY></HTML>"
+                                                    
+                $Outputreport1 | Out-File $post_html -Force
+                                                    
+                $post_body = Get-Content $post_html -Raw
+                                                    
+                #$wkhtmltopdf = "D:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe"
+                $wkhtmltopdf = "D:\wkhtmltopdf\bin\wkhtmltopdf.exe"
+                $var = "-q"
+                                                    
+                & $wkhtmltopdf $var $pre_html $pre_pdf
+                & $wkhtmltopdf $var $post_html $post_pdf
+                                                    
+                $pre_pdf = Get-ChildItem -Path "D:\Storage\NFS_Client_IP\$Number\Evidence\Pre*.pdf"
+                $post_pdf = Get-ChildItem -Path "D:\Storage\NFS_Client_IP\$Number\Evidence\Post*.pdf"
+                                                    
+                $pre_FullName  = $pre_pdf.FullName
+                $post_FullName = $post_pdf.FullName
+
+                $pre_Name      = $pre_pdf.Name
+                $post_Name     = $post_pdf.Name
+                try
+                {
+                    Upload-PreAttachment -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -snowpass $snowpass -pre_Name $pre_Name -pre_FullName $pre_FullName
+                    $log += "Pre Evidence attached Successfully"
+                }
+                catch
+                {
+                    write-Host "Failed to Upload Pre Attachment"
+                    $log += "Failed to Upload Pre Attachment"
+                    try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass -work_notes "Failed to Upload Pre Attachment"}
+                    catch{Write-Host "Failed to Route Ticket" }
+                    $log += "Script Execution Ends $(timestamp)"
+                    $log += "-----------------"
+                    $log | Add-Content $log_path\log.txt
+                    exit
+                }
+                if($NetApp_Client_IPs.Count -eq $success.count)
+                {
+                    try
+                    {
+
+                        Upload-PostAttach -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -snowkey $snowkey -snowpass $snowpass -post_Name $post_Name -post_FullName $post_FullName
+                        $log += "Post Evidence attached Successfully"
+                    }
+                    catch
+                    {
+                        write-Host "Failed to Upload Post Attachment"
+                        $log += "Failed to Upload Post Attachment"
+                        try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass -work_notes "Failed to Upload Post Attachment"}
+                        catch{Write-Host "Failed to Route Ticket" }
+                        $log += "Script Execution Ends $(timestamp)"
+                        $log += "-----------------"
+                        $log | Add-Content $log_path\log.txt
+                        exit
+                    }
+                    try
+                    {
+                        Update-End -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass
+                        $log += "Updated Actual End"
+                    }
+                    catch
+                    {
+                        write-Host "Failed to Update Actual End"
+                        $log += "Failed to Update Actual End"
+                        try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass -work_notes "Failed to Update Actual End"}
+                        catch{Write-Host "Failed to Route Ticket"}
+                        $log += "Script Execution Ends $(timestamp)"
+                        $log += "-----------------"
+                        $log | Add-Content $log_path\log.txt
+                        exit
+                    }
+                    try
+                    {
+                        write-host "Access provided successfully to the volume $volume for $success"
+                        Resolve-Ticket -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass -volume $volume -vserver $vserver -work_notes "Access provided successfully to the volume $volume for $success"
+                        $log += "Ticket Resolved Successfully"
+                    }
+                    catch
+                    {
+                        Write-Host "Failed to Resolve Ticket"
+                        $log += "Failed to Resolve Ticket"
+                        try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass -work_notes "Failed to Resolve Ticket"}
+                        catch{Write-Host "Failed to Route Ticket" }
+                        $log += "Script Execution Ends $(timestamp)"
+                        $log += "-----------------"
+                        $log | Add-Content $log_path\log.txt
+                        exit
+                    }
+                }#Else for successcount
+                elseif ($NetApp_Client_IPs.Count -eq $failed.count)
+                {
+
+                    $log += "Failed to provide Access to the volume $volume for $failed"
+                    Write-Host "Failed to provide Access to the volume $volume for $failed"
+                    try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass -work_notes "Failed to provide Access to the volume $volume for $failed"}
+                    catch{Write-Host "Failed to Route Ticket"}
+                    $log += "Script Execution Ends $(timestamp)"
+                    $log += "-----------------"
+                    $log | Add-Content $log_path\log.txt
+                    exit
+                }
+                else
+                {
+                    try
+                    {
+
+                        Upload-PostAttach -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -snowkey $snowkey -snowpass $snowpass -post_Name $post_Name -post_FullName $post_FullName
+                        $log += "Post Evidence attached Successfully"
+                    }
+                    catch
+                    {
+                        write-Host "Failed to Upload Post Attachment"
+                        $log += "Failed to Upload Post Attachment"
+                        try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass -work_notes "Failed to Upload Post Attachment"}
+                        catch{Write-Host "Failed to Route Ticket" }
+                        $log += "Script Execution Ends $(timestamp)"
+                        $log += "-----------------"
+                        $log | Add-Content $log_path\log.txt
+                        exit
+                    }
+                    $log += "Access provided successfully to the volume $volume for $success `nFailed to provide Access to the volume $volume for $failed"
+                    Write-Host "Access provided successfully to the volume $volume for $success `nFailed to provide Access to the volume $volume for $failed"
+                    try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass -work_notes "Access provided successfully to the volume $volume for $success `nFailed to provide Access to the volume $volume for $failed"}
+                    catch{Write-Host "Failed to Route Ticket"}
+                    $log += "Script Execution Ends $(timestamp)"
+                    $log += "-----------------"
+                    $log | Add-Content $log_path\log.txt
+                    exit
+                }
+                } # if policy 2
+                else # else policy 2
+                {
+                    $log += "Failed to fetch the policy in $volume in $vserver under $NetApp_Client_IP"
+                    Write-Host "Failed to fetch the policy in $volume in $vserver under $NetApp_Client_IP"
+                    try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass -work_notes "Failed to fetch the policy in $volume in $vserver under $NetApp_Client_IP"}
+                    catch{Write-Host "Failed to Route Ticket"}
+                    $log += "Script Execution Ends $(timestamp)"
+                    $log += "-----------------"
+                    $log | Add-Content $log_path\log.txt
+                    exit
+                }
+            } # if command 2 
+            else # else command 2
+            {
+                $log += "Unable to fetch $volume infor from $vserver under $NetApp_Client_IP"
+                Write-Host "Unable to fetch $volume infor from $vserver under $NetApp_Client_IP"
+                try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass -work_notes "Unable to fetch $volume infor from $vserver under $NetApp_Client_IP"}
+                catch{Write-Host "Failed to Route Ticket"}
+                $log += "Script Execution Ends $(timestamp)"
+                $log += "-----------------"
+                $log | Add-Content $log_path\log.txt
+                exit
+            }
+        } #if check vol and vserver info
+        else # else  check vol and vserver info
+        {
+             $log += "Unable to fetch $volume infor from $vserver under $NetApp_Client_IP"
+             Write-Host "Unable to fetch $volume infor from $vserver under $NetApp_Client_IP"
+             try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass -work_notes "Unable to fetch $volume infor from $vserver under $NetApp_Client_IP"}
+             catch{Write-Host "Failed to Route Ticket"}
+             $log += "Script Execution Ends $(timestamp)"
+             $log += "-----------------"
+             $log | Add-Content $log_path\log.txt
+             exit
+        }
+    } # if command 1 
+    else # else command 1 
+    {
+         $log += "Unable to fetch $volume infor from $vserver under $NetApp_Client_IP"
+         Write-Host "Unable to fetch $volume infor from $vserver under $NetApp_Client_IP"
+         try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass -work_notes "Unable to fetch $volume infor from $vserver under $NetApp_Client_IP"}
+         catch{Write-Host "Failed to Route Ticket"}
+         $log += "Script Execution Ends $(timestamp)"
+         $log += "-----------------"
+         $log | Add-Content $log_path\log.txt
+         exit
+    }
+}# if Execution Notes
+else # Else Execution Notes
+{
+    $log += "Incorrect Input"
+    Write-Host "Incorrect Input"
+    try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env "$SNOW_Env" -apikey $snowkey -password $snowpass -work_notes "Incorrect Input"}
+    catch{Write-Host "Failed to Route Ticket"}
+
+    $log += "Script Execution Ends $(timestamp)"
+    $log += "-----------------"
+    $log | Add-Content $log_path\log.txt
+    exit
+}
+
+Post Execution:
+
+if(Process[OpName].scriptOutput.indexOf('Ticket Resolved Successfully') >= 0)
+{
+  Process.ReturnCode = 1
+  Process.ReturnMessage = "Ticket Resolved Successfully"
+}
+else if(Process[OpName].scriptOutput.indexOf('Assignment Group updated successfully') >= 0)
+{
+  Process.ReturnCode = 1
+  Process.ReturnMessage = "Assignment Group updated successfully"
+}
+else 
+{
+	Process.ReturnCode = 2
+	Process.ReturnMessage = "Some error occurred."
+}
+
+
+
+Ansible Playbook
+
+
+
+
+

@@ -1,0 +1,681 @@
+1. Get Ticket
+
+Pre Execution:
+
+Process.url = "https://"+Process.SNOW_Env+".service-now.com/api/now/table/change_task?number="+Process.CTASK_Number
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket details fetched successfully"
+  Process.Output=Process[OpName].HTTPResponseContent
+  
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure fetching ticket details"
+}
+
+2.Second Operator (Read)
+
+Inline:
+
+var str =Process.Output
+var start=str.indexOf('[')+2;
+var end=str.indexOf(']')-1;
+var res = str.substring(start,end);
+var out1= res.split(',');
+for(var i=0;i < out1.length;i++)
+{
+  out1[i]=out1[i].replace(/\"/g,"");
+  if(out1[i].indexOf('active')>=0)
+  {Process.active=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('sys_id')>=0)
+  {Process.Sys_Id=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('description')>=0)
+  {Process.description=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('state')>=0)
+  {Process.state=(out1[i].split(':'))[1]}
+  out1[i]=(out1[i].split(':'))[1]
+}
+
+Post Execution:
+if(Process.active=='true')
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket is active.";
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Ticket is inactive.";
+}
+
+3.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.SNOW_Env+".service-now.com/api/now/table/change_task/"+Process.Sys_Id+""
+Process.payload = "<request><entry><assigned_to>d2f5f34bdb5efb8036c73c9b7c961900</assigned_to><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+"</work_notes><state>2</state></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  if(Process[OpName].HTTPResponseContent.indexOf("state\":\"")>=0)
+  {
+	Process.ReturnCode=0;
+	Process.ReturnMessage="Ticket updated successfully ";
+  }
+  else
+  {
+	Process.ReturnCode=2;
+	Process.ReturnMessage="Error occurred while  updating ticket";
+  }
+}
+else
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Failure occurred while updating ticket."
+}
+
+4.Script
+
+Inline:
+
+# Bulk CName record Modification
+
+param(
+$Number,
+$user,
+#$pass,
+$snowkey,
+#$snowp,
+#$snowpa,
+$SNOW_Env,
+$infoblox_server,
+$Bulk_existingaliasna,
+$Bulk_existingcanonicalna,
+$Bulk_newaliasna,
+$Bulk_newcanonicalna
+)
+
+$Number
+$user
+#$pass
+$snowkey
+#$snowp
+#$snowpa
+$SNOW_Env
+$infoblox_server
+$Bulk_existingaliasna
+$Bulk_existingcanonicalna
+$Bulk_newaliasna
+$Bulk_newcanonicalna
+
+
+$DNS_server = "10.106.17.10"
+$alias_hostName = $Bulk_existingaliasna.ToLower()
+$new_alias_hostname =$Bulk_newaliasna.ToLower()
+$canonical_hostName = $Bulk_existingcanonicalna.ToLower()
+$new_canonical_hostname= $Bulk_newcanonicalna.ToLower()
+
+Write-host "$alias_hostName"
+Write-host "$new_alias_hostname"
+write-host "$canonical_hostName"
+Write-host "$new_canonical_hostname"
+
+$table = "change_task"
+$script_name = "Bulk_CName_record_modification"
+#$Document_Results = "DNS"
+$log = @()
+$path = "D:\Network\$script_name\$Number"
+$log_path = "$path\Logs"
+$network = "238994d1db0caf00fa0f8e5c29961941"
+$snowpass = "V2!RfaRE#%4GQ*J_"
+
+$pwd = ConvertTo-SecureString "n398ttGt1MHXoXYvkv31UA63" -AsPlainText -Force
+$creds = new-Object Management.Automation.PSCredential ($user, $pwd) -ErrorAction stop
+
+#Variables
+$DNS_exist                     = @()
+$DNS_doesnt_exist              = @()
+$IP_hostname_mismatch          = @()
+$No_cname_record               = @()
+$cname_delete                  = @()
+$cname_failed                  = @()
+$DNS_intermediate_doesnt_exist = @()                 
+$DNS_intermediate_exist        = @()          
+$CNAME_created_1               = @() 
+$CNAME_failed_1                = @()
+$Post_DNS_exist_1              = @()
+$Post_DNS_doesnt_exist_1       = @()
+
+
+
+#Creating File path for logs
+$filePaths = "$path\Logs", "$path\Command_Output", "$path\Evidence"
+foreach($filePath in $filePaths)
+{
+    If(!(test-path $filePath))
+    {
+          New-Item -ItemType Directory -Force -Path $filePath 
+    }
+}
+
+If(!(test-path "$log_path\log.txt"))
+{
+    New-Item -ItemType File -Name "Log.txt" -Path $log_path
+}
+
+$aliashostName = $alias_hostName.split(",")
+$new_aliashostname =$new_alias_hostname.split(",")
+$canonicalhostName = $canonical_hostName.split(",")
+$new_canonicalhostname= $new_canonical_hostname.split(",")
+
+Add-Content -Path "$log_path\Log.txt" -Value "-----------------"
+Add-Content -Path "$log_path\Log.txt" -Value "Service Account used for execution is Svc-linux-snow"
+
+#Importing biogen module
+Try
+{
+    Import-Module "D:\Wave 1 Scripts\Biogen_Module\Biogen_Module.psm1"
+}
+catch
+{
+	Write-Host "Failed to import module"
+    Exit
+}
+
+function timestamp{
+    Get-Date -Format "dd_MMM_yyyy_HH:mm:ss tt"
+}
+
+#Fetching SYSID of the ticket
+try
+{
+    [Net.ServicePointManager]::SecurityProtocol = "tls12, tls11, tls"
+    $global:headers = @{"Authorization" = "Basic "+[System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($snowkey+":"+$snowpass))}
+    
+    [Net.ServicePointManager]::SecurityProtocol = "tls12, tls11, tls"
+    $get_inc = "https://$SNOW_Env.service-now.com/api/now/v2/table/change_task?number=$Number"
+    $inc_result = Invoke-WebRequest -Uri $get_inc -Headers $global:headers -Method Get -ContentType "application/json" -UseBasicParsing
+    $incout = $inc_result | ConvertFrom-JSON
+    $inc_sysid = $incout.result.sys_id
+	$description = $incout.result.u_document_results
+}
+catch
+{
+    Write-Host "Failed to fetch Ticket details"
+    Add-Content -Path "$log_path\Log.txt" -Value "Failed to fetch Ticket details"
+    Exit
+}
+
+Add-Content -Path "$log_path\Log.txt" -Value "Script Execution Started at $(timestamp)"
+
+Try
+{
+    Update-Start -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -table $table
+    Add-Content -Path "$log_path\Log.txt" -Value "Updated Start"
+}
+catch
+{
+	Write-Host "Failed to update start"
+    Add-Content -Path "$log_path\Log.txt" -Value "Failed to update start"
+    try{Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass  -work_notes "Failed to update start" -table $table -asign_grp $network}
+    catch{Write-Host "Failed to Route Ticket"; Exit}
+    Exit
+}
+
+$servers=$null
+$servers=@()
+if($aliashostName.Count -gt 0)
+{
+   
+   if($aliashostname.count -eq $canonicalhostname.Count){
+    $count=0
+    foreach($an in $aliashostName){
+    $servers += [PSCustomObject]@{
+        "Existing_aliasname"= $an
+        "Existing_canonicalname" = $canonicalhostname[$count]
+        "New_aliasname" = $new_aliashostname[$count]
+        "New_canonicalname" = $new_canonicalhostname[$count]
+}
+    $count+=1
+    }
+}
+    else{
+    Write-Host "Please provide correct inputs"
+    Add-Content -Path "$log_path\Log.txt" -Value "Invalid inputs"
+    try{Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass  -work_notes "Invalid inputs" -table $table -asign_grp $network}
+    catch{Write-Host "Failed to Route Ticket"; Exit}
+    exit
+    }
+}
+
+#Setting Certs Policy
+try
+{
+    Write-Host "Adding TrustAllCertsPolicy type." -ForegroundColor White
+Add-Type -TypeDefinition @"
+using System.Net;
+using System.Security.Cryptography.X509Certificates;
+public class TrustAllCertsPolicy : ICertificatePolicy
+{
+public bool CheckValidationResult(
+ServicePoint srvPoint, X509Certificate certificate,
+WebRequest request, int certificateProblem)
+{
+return true;
+}
+}
+"@
+    Write-Host "TrustAllCertsPolicy type added." -ForegroundColor White
+}
+catch
+{
+    Write-Host $_ -ForegroundColor "Yellow"
+}
+
+[System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+$pre_pdf = "$path\Evidence\pre_check_dns_resolve_logs.txt"
+#Generating Pre-evidence
+Start-Transcript -Path $pre_pdf
+
+foreach($alias in $servers)
+{
+    try
+    {
+        $Error.Clear()
+        $aliasname = $alias.Existing_aliasname
+        Resolve-DnsName -Server $DNS_server -Name $aliasname -Type ALL
+        #Checking if the DNS entry already exists
+        if($Error -like "*DNS name does not exist*")
+        {
+            write-host "DNS entry does not exist for $aliasname"
+            Add-Content -Path "$log_path\Log.txt" -Value "DNS entry does not exist for $aliasname"
+            $DNS_doesnt_exist += $alias
+        }
+        elseif($Error -like "*DNS operation refused*")
+        {
+            write-host "DNS entry check failed $server"
+            Add-Content -Path "$log_path\Log.txt" -Value "DNS entry check failed for $server"
+            $DNS_doesnt_exist += $server
+        }
+        else
+        {
+            write-host "DNS entry exists for $aliasname"
+            Add-Content -Path "$log_path\Log.txt" -Value "DNS entry exists for $aliasname, proceeding to modify"
+            $DNS_exist += $alias
+        }
+    }
+    Catch 
+    {
+        Write-host "Some error occurred.. while Resolve the CName record $aliasname"
+        Add-Content -Path "$log_path\Log.txt" -Value "Some error occurred.. while Resolve the CName record $aliasname"
+        $DNS_doesnt_exist += $server
+    }
+}
+
+Stop-Transcript
+
+if($DNS_doesnt_exist.Count -eq $servers.Count)
+{
+    #Route-ticket
+    $Dnsdoesnotexists=$DNS_doesnt_exist.Existing_aliasname -join "`n"
+    "Failed"
+    Add-Content -Path "$log_path\Log.txt" -Value "DNS entry doesn't exists for all servers"
+    try{Route-Ticket -number $Number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "CNAME Record doesn't Exist for $Dnsdoesnotexists,Routing change request to Network Assignment Group" -table $table -asign_grp $network}
+    catch{Write-Host "Failed to Route Ticket"; Exit}
+    Exit
+}
+elseif($DNS_doesnt_exist -ne $null)
+{
+    $Dnsexists = $DNS_exist.Existing_aliasname -join "`n"
+    $Dnsdoesnotexists = $DNS_doesnt_exist.Existing_aliasname -join "`n"
+    Add-Content -Path "$log_path\Log.txt" -Value "DNS entry exists for $DNSexists servers"
+    Add-Content -Path "$log_path\Log.txt" -Value "DNS entry doesn't exists $Dnsdoesnotexists for all servers"
+    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "CNAME Record exists for: $DNSexists Proceeding to modify " -table $table
+    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "CNAME Record does not exists for: $Dnsdoesnotexists" -table $table
+}
+else
+{
+    Add-Content -Path "$log_path\Log.txt" -Value "DNS entry exists for all servers"
+    $Dnsexists = $DNS_exist.Existing_aliasname -join "`n"
+    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "CNAME Record exists for: $Dnsexists proceeding to modify" -table $table
+} 
+
+
+#Attaching Pre-edivence
+$pre_pdf       = Get-ChildItem -Path $pre_pdf
+$pre_FullName  = $pre_pdf.FullName               
+$pre_Name      = $pre_pdf.Name
+try
+{
+    Upload-PreAttachment -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -pre_Name $pre_Name -pre_FullName $pre_FullName -table $table
+    $log += "Uploaded Pre Attachement"
+}
+catch
+{
+    write-Host "Failed to Upload Pre Attachment"
+    $Log += "Failed to Upload Pre Attachment"
+    try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Failed to Upload Pre Attachment" -table $table -asign_grp $storage_sysID}
+    catch{Write-Host "Failed to Route Ticket"}
+    Exit
+}
+
+#Getting CName record details
+foreach($record in $DNS_exist)
+{
+    try 
+    {
+        $cname_record_get_url = "https://$infoblox_server/wapi/v1.2/record:cname?name=$($record.Existing_aliasname)"
+        $output_get_cname = Invoke-RestMethod -Uri $cname_record_get_url -Method GET -Credential $creds -ErrorAction Stop
+        $cname_record = $output_get_cname._ref
+        if($cname_record)
+        {
+            #Deleting CName record
+            $cname_record_del_url = "https://$infoblox_server/wapi/v1.2/$cname_record"
+            $output_del_cname = Invoke-WebRequest -Uri $cname_record_del_url -Method DELETE -Credential $creds -ContentType 'application/json' -UseBasicParsing -Body $body -ErrorAction Stop
+            if($output_del_cname.StatusCode -eq 200)
+            {
+                Write-host "CName $($record.Existing_aliasname) record deleted successfully."
+                $cname_delete += $record
+                Add-Content -Path "$log_path\Log.txt" -Value "CName $($record.Existing_aliasname) record deleted successfully."
+            }
+            else 
+            {
+                Write-Host "Some error occurred during CName $($record.Existing_aliasname) record deletion"
+                $cname_failed += $record
+                Add-Content -Path "$log_path\Log.txt" -Value "Some error occurred $($record.Existing_aliasname)"
+            }
+        }
+        else
+        {
+            Write-Host "No CName record found $($record.Existing_aliasname)"
+            Add-Content -Path "$log_path\Log.txt" -Value "No CName record found $($record.Existing_aliasname)"
+            $cname_failed += $record
+        }
+    }
+    Catch 
+    {
+        Write-host $_.
+        Write-Host "Some error occurred during CName record fetching $($record.Existing_aliasname)"
+        $cname_failed += $record
+        Add-Content -Path "$log_path\Log.txt" -Value "Some error occurred during CName record fetching $($record.Existing_aliasname)"
+    }
+}
+
+$delete = @()
+#Checking if DNS removed
+foreach($delete in $cname_delete)
+{
+    try
+    {
+        $Error.Clear()
+        Resolve-DnsName -Server $DNS_server -Name $($delete.Existing_aliasname) -Type ALL
+        #Checking if the DNS entry already exists
+        if($Error -like "*DNS name does not exist*")
+        {
+            "DNS entry does not exist for $($delete.Existing_aliasname)"
+            Add-Content -Path "$log_path\Log.txt" -Value "DNS entry does not exist for $($delete.Existing_aliasname)"
+            $DNS_intermediate_doesnt_exist += $delete
+        }
+        elseif($Error -like "*DNS operation refused*")
+        {
+            write-host "DNS entry check failed $($delete.Existing_aliasname)"
+            Add-Content -Path "$log_path\Log.txt" -Value "DNS entry check failed for $($delete.Existing_aliasname)"
+            $DNS_intermediate_doesnt_exist += $delete
+        }
+        else
+        {
+            "DNS entry already exists for $($delete.Existing_aliasname)"
+            Add-Content -Path "$log_path\Log.txt" -Value "DNS entry already exists for $($delete.Existing_aliasname)"
+            $DNS_intermediate_exist += $delete
+        }
+    }
+    Catch 
+    {
+        Write-Host $_.
+        Add-Content -Path "$log_path\Log.txt" -Value "$_"
+        Write-host "Some error occurred.. while Resolve the Cname Record $($delete.Existing_aliasname)"
+        Add-Content -Path "$log_path\Log.txt" -Value "Some error occurred.. while Resolve the Cname Record $($delete.Existing_aliasname)"
+        $DNS_intermediate_doesnt_exist += $delete
+    }
+}
+
+if($DNS_intermediate_exist.Count -eq $cname_delete.Count)
+{
+    #Route-ticket
+    $Dns_intermediateexists=$DNS_intermediate_exist.Existing_aliasname -join "`n"
+    "Failed"
+    Add-Content -Path "$log_path\Log.txt" -Value "DNS entry doesn't exists for all servers"
+    try{Route-Ticket -number $Number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Error occured while modifying the CNAME Records $Dns_intermediateexists. Routing change request to Network Assignment Group" -table $table -asign_grp $network}
+    catch{Write-Host "Failed to Route Ticket"; Exit}
+    Exit
+}
+elseif($DNS_intermediate_exist -ne $null)
+{
+    $Dnsintermediateexists = $DNS_intermediate_exist.Existing_aliasname -join "`n"
+    $Dnsintermediatenotexists = $DNS_intermediate_doesnt_exist.Existing_aliasname -join "`n"
+    "DNS entry deletion failed for $Dnsintermediateexists  servers"
+    "DNS entry deletion successful for $Dnsintermediatenotexists for all servers"
+    Add-Content -Path "$log_path\Log.txt" -Value "DNS entry deletion failed for $Dnsintermediateexists  servers"
+    Add-Content -Path "$log_path\Log.txt" -Value "DNS entry deletion successful for $Dnsintermediatenotexists for all servers"
+    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Failed to modify: $Dnsintermediateexists" -table $table
+    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Proceeding to modify: $Dnsintermediatenotexists " -table $table
+}
+else
+{
+    $Dnsintermediatenotexists = $DNS_intermediate_doesnt_exist.Existing_aliasname -join "`n"
+    Add-Content -Path "$log_path\Log.txt" -Value "CNAME records $Dnsintermediatenotexists deleted successfully"
+    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Proceeding to modify: $Dnsintermediatenotexists " -table $table
+} 
+
+# Creating CNAME record
+foreach($server in $DNS_intermediate_doesnt_exist)
+{
+    $error.clear()
+    try 
+    {
+        $url_1 = "https://$infoblox_server/wapi/v1.2/record:cname?_return_as_object=1"
+        $data_1 = @{
+                    name = $($server.New_aliasname)
+                    canonical = $($server.New_canonicalname)
+                    }
+        $json_1 = $data_1 | ConvertTo-Json
+        $output_1 = Invoke-WebRequest -Uri $url_1 -Method POST -Credential $creds -ContentType 'application/json' -Body $json_1 -UseBasicParsing  -ErrorAction Stop
+        if($output_1.StatusCode -eq 201)
+        {
+            Write-host "CNAME record created successfully for $($server.new_aliasname)  points to $($server.New_canonicalname)"
+            $CNAME_created_1 += $server
+            Add-Content -Path "$log_path\Log.txt" -Value "CNAME record created successfully for $($server.new_aliasname)"
+        }
+        else
+        {
+            Write-Host "Some error occurred during CNAME creation $($server.new_aliasname)"
+            Add-Content -Path "$log_path\Log.txt" -Value "Some error occurred during CNAME record creation $($server.new_aliasname)"
+            $CNAME_failed_1 += $server
+        }
+    }
+    Catch 
+    {
+        Write-Host $_.
+        Write-host "Failed to update during CNAME creation $($server.new_aliasname)"
+        Add-Content -Path "$log_path\Log.txt" -Value "Failed to update during CNAME creation $($server.new_aliasname)"
+        $CNAME_failed_1 += $server
+    }
+}
+
+if($CNAME_failed_1.Count -eq $DNS_intermediate_doesnt_exist.Count)
+{
+    #Route-ticket
+    $cnamefail = $CNAME_failed_1.Existing_aliasname -join "`n"
+    "Failed"
+    Add-Content -Path "$log_path\Log.txt" -Value "CNAME creation failed for all"
+    try{Route-Ticket -number $Number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Error occured while modifying the CNAME Records $cnamefail. Routing change request to Network Assignment Group" -table $table -asign_grp $network}
+    catch{Write-Host "Failed to Route Ticket"; Exit}
+    Exit
+}
+elseif($CNAME_failed_1 -ne $null)
+{
+    $cnamefail = $CNAME_failed_1.Existing_aliasname -join "`n"
+    $cnamecreate = $CNAME_created_1.Existing_aliasname -join "`n"
+    Add-Content -Path "$log_path\Log.txt" -Value "DNS entry exists for $cnamecreate servers"
+    Add-Content -Path "$log_path\Log.txt" -Value "DNS entry doesn't exists $cnamefail for all servers"
+    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "CNAME modified failed for: $cnamefail" -table $table
+    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "CNAME Records modified successfully for: $cnamecreate" -table $table
+}
+else
+{
+    $cnamecreate = $CNAME_created_1.Existing_aliasname -join "`n"
+    Add-Content -Path "$log_path\Log.txt" -Value "CNAME records $cnamecreate created successfully"
+    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "CNAME Records $cnamecreate modified" -table $table
+} 
+
+Start-sleep -seconds 30
+#Generating Post-evidence
+$post_pdf = "$path\Evidence\post_check_dns_resolve_logs.txt"
+Start-Transcript -Path "$post_pdf"
+foreach($cname in $CNAME_created_1)
+{
+    try
+    {
+
+        $Error.Clear()
+        Resolve-DnsName -Server $DNS_server -Name $($cname.New_aliasname) -Type ALL
+
+        #Checking if the DNS entry already exists
+        if($Error -like "*DNS name does not exist*")
+        {
+            "DNS entry does not exist for $($cname.New_aliasname)"
+            $Post_DNS_doesnt_exist_1 += $cname
+            Add-Content -Path "$log_path\Log.txt" -Value "DNS entry does not exist for $($cname.New_aliasname)"
+        }
+        elseif($Error -like "*DNS operation refused*")
+        {
+            write-host "DNS entry check failed $($cname.New_aliasname)"
+            Add-Content -Path "$log_path\Log.txt" -Value "DNS entry check failed for $($cname.New_aliasname)"
+            $Post_DNS_doesnt_exist_1 += $cname
+        }
+        else
+        {
+            "DNS entry exists for $($cname.New_aliasname)"
+            $Post_DNS_exist_1 += $cname
+            Add-Content -Path "$log_path\Log.txt" -Value "DNS entry already exists for $($cname.New_aliasname)"
+        }
+    }
+    Catch 
+    {
+        Write-Host $_.
+        Write-host "Failed to update using InfoBlox API"
+        Add-Content -Path "$log_path\Log.txt" -Value "Failed to update using InfoBlox API"
+        Add-Content -Path "$log_path\Log.txt" -Value "$_"
+        ####Route
+        Add-Content -Path "$log_path\Log.txt" -Value "Some error occurred"
+        try{Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Some error occurred, unable to modify CNAME record, Hence routing it to network group" -asign_grp $network -table $table}
+        catch{Add-Content -Path "$log_path\Log.txt" -Value "Unable to update ticket `n"; Write-Host "Failed to Route Ticket"; Exit}
+
+    }
+}
+
+Stop-Transcript
+
+
+if($Post_DNS_exist_1.Count -eq ($servers.Count))
+{
+
+    Attaching Post-edivence
+    $post_pdf       = Get-ChildItem -Path $post_pdf
+    $post_FullName  = $post_pdf.FullName               
+    $post_Name      = $post_pdf.Name
+    try
+    {
+        Upload-PostAttachment -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass  -post_Name $post_Name -post_FullName $post_FullName -table $table
+        Add-Content -Path "$log_path\Log.txt" -Value "Uploaded Pre Attachement"
+    }
+    catch
+    {
+        write-Host "Failed to Upload Post Attachment"
+        Add-Content -Path "$log_path\Log.txt" -Value "Failed to Upload Post Attachment"
+        try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Failed to Upload Post Attachment" -table $table -asign_grp $storage_sysID}
+        catch{Write-Host "Failed to Route Ticket"}
+        Exit
+    }
+    "CNAME record created successfully for $Post_DNS_exist_1"
+    Add-Content -Path "$log_path\Log.txt" -Value "CNAME record created successfully for `n $($Post_DNS_exist_1)"
+    #Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "A record created successfully for `n $Post_DNS_exist" -table $table
+    #$Document_Results = $description+ "`n" + "`n" + "CNAME record has been Modified successfully"
+
+    try{Resolve-Ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -close_Notes "CR implemented successfully" -work_notes "CName Record(s) Modified Successfully. Hence Closing the ticket." -table $table -Document_Results "CNAME records Modified successfully" }
+    catch{Add-Content -Path "$log_path\Log.txt" -Value "Unable to update ticket `n"; Write-Host "Failed to Route Ticket"; Exit}
+    Exit
+}
+elseif($Post_DNS_exist_1 -eq $null)
+{
+
+   "Route"
+    Add-Content -Path "$log_path\Log.txt" -Value "Route" 
+    try{Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to modify the CName record(s). Hence routing the ticket." -asign_grp $network -table $table}
+    catch{Add-Content -Path "$log_path\Log.txt" -Value "Unable to update ticket `n"; Write-Host "Failed to Route Ticket"; Exit}
+    Exit
+}
+else
+{
+
+    #Attaching Post-edivence
+    $post_pdf       = Get-ChildItem -Path $post_pdf
+    $post_FullName  = $post_pdf.FullName               
+    $post_Name      = $post_pdf.Name
+    try
+    {
+        Upload-PostAttachment -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass  -post_Name $post_Name -post_FullName $post_FullName -table $table
+        Add-Content -Path "$log_path\Log.txt" -Value "Uploaded Post Attachement"
+    }
+    catch
+    {
+        write-Host "Failed to Upload Post Attachment"
+        Add-Content -Path "$log_path\Log.txt" -Value "Failed to Upload Post Attachment"
+        try{Route-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Failed to Upload Post Attachment" -table $table -asign_grp $storage_sysID}
+        catch{Write-Host "Failed to Route Ticket"}
+        Exit
+    }
+    "CNAME record Modified successfully for  $Post_DNS_exist_1"
+    Add-Content -Path "$log_path\Log.txt" -Value "CNAME record created successfully for `n $($Post_DNS_exist_1)"
+    Add-Content -Path "$log_path\Log.txt" -Value "CNAME record already exist for `n $($Post_DNS_doesnt_exist_1)"
+    try{Route-Ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to modify the CName record(s). Hence routing the ticket." -asign_grp $network -table $table -Document_Results $Document_Results }
+    catch{Add-Content -Path "$log_path\Log.txt" -Value "Unable to update ticket `n"; Write-Host "Failed to Route Ticket"; Exit}
+    Exit
+}
+
+Post Execution:
+
+if(Process.Ping_check.scriptOutput.indexOf("Ticket Resolved Successfully")>=0)
+{
+  Process.ReturnCode=1
+  Process.ReturnMessage="Ticket Resolved Successfully. "
+}
+else if(Process.Ping_check.scriptOutput.indexOf("Assignment Group updated successfully")>=0)
+{
+  Process.ReturnCode=1
+  Process.ReturnMessage="Assignment Group updated successfully"
+
+}
+else
+{
+Process.ReturnCode=-1
+Process.returnMessage = "Failed to perform the activity"
+}
+
+
+5.Fatal Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.SNOW_Env+".service-now.com/api/now/table/change_task/"+Process.Sys_Id+""
+Process.FatalErrorPayLoad ="<request><entry><u_automation_result>Unsuccessful</u_automation_result><state>1</state><work_notes>"+Process.returnMessage+"Hence Routing the ticket.</work_notes></entry></request>"

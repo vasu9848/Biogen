@@ -1,0 +1,2660 @@
+1.Get Ticket
+
+Pre Execution:
+
+Process.RunbookName = Process.InstanceName
+Process.RunbookID = Process.RuntimeROID
+var uri="https://"+Process.Instance+".service-now.com/api/now/table/task?sysparm_fields=number%2Cactive%2Csys_id%2Cincident_state%2Cdescription%2Cu_document_results%2Cassigned_to=SVC-itpam@biogen.com&sysparm_limit=1&number="+Process.CTASK_Number
+Process.url=uri
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket details fetched successfully"
+  Process.Output=Process[OpName].HTTPResponseContent
+  
+} else if(Process.Fetch_ticket.Reason.indexOf('non-success') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+//  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else if(Process.Fetch_ticket.Reason.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  //Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure fetching ticket details"
+//  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+2. Second Operator (Read)
+
+Inline:
+
+var str =Process.Output
+var start=str.indexOf('[')+2;
+var end=str.indexOf(']')-1;
+var res = str.substring(start,end);
+var out1= res.split(',');
+for(var i=0;i < out1.length;i++)
+{
+  out1[i]=out1[i].replace(/\"/g,"");
+  if(out1[i].indexOf('active')>=0)
+  {Process.active=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('sys_id')>=0)
+  {Process.Sys_Id=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('description')>=0)
+  {Process.description=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('incident_state')>=0)
+  {Process.Incidentstate=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('u_document_results')>=0)
+  {Process.document_results=(out1[i].split(':'))[1]}
+  out1[i]=(out1[i].split(':'))[1]
+}
+
+
+Post Execution:
+
+if(Process.active)
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket is active.";
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Ticket is inactive.";
+}
+
+3.Script
+
+Inline:
+
+Param(
+[String]$Sys_id,
+[String]$Instance
+)
+$sys_id = $Sys_id
+
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls, [Net.SecurityProtocolType]::Tls11, [Net.SecurityProtocolType]::Tls12, [Net.SecurityProtocolType]::Ssl3
+[Net.ServicePointManager]::SecurityProtocol = "Tls, Tls11, Tls12, Ssl3"
+$SNOWPassword="V2!RfaRE#%4GQ*J_"
+$password = ConvertTo-SecureString $SNOWPassword -AsPlainText -Force
+$Cred = New-Object System.Management.Automation.PSCredential ("svc_itpam", $password)
+
+$actual_start_date = Get-Date
+
+$update_ctask_work_start_uri = "https://$Instance.service-now.com/api/now/table/change_task/$sys_id"
+
+$Body1 = @{
+    "work_start"="$actual_start_date"
+}
+
+$BodyJson1 = $Body1 | ConvertTo-Json
+try {
+ Invoke-WebRequest -Uri $update_ctask_work_start_uri -Body $BodyJson1 -Credential $Cred -Method "PUT" -ContentType "application/json" -UseBasicParsing -ErrorAction stop
+ Write-host "Actual Start Date updated successfully"
+} catch {
+	Write-host $_.
+	Write-host "Update Actual Start Date Service NOW API failed"
+}
+
+Post Execution:
+
+if(Process.Start_date.scriptOutput.indexOf('failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "failed to update actual start date CTASK"
+  Process.Fail_Status_Update = "failed to update actual start date CTASK"
+  Process.post_check_dns_output = Process.Start_date.scriptOutput
+}else if(Process.Start_date.scriptOutput.indexOf('successfully') >= 0){
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "CTASK actual start date updated successfully."
+  Process.post_check_dns_output = Process.Start_date.scriptOutput
+}else {
+	Process.ReturnCode = 2
+	Process.ReturnMessage = "Some error occurred while updating CTASK work in progress state in Service Now"
+	Process.mail_message = "Some error occurred while updating CTASK work in progress state in Service Now"
+	Process.Fail_Status_Update = "Some error occurred while updating CTASK work in progress state in Service Now"
+	Process.post_check_dns_output = Process.Start_date.scriptOutput
+}
+
+4.Ticket Update
+
+Pre Execution:
+
+//Process.b=Process.date1.split('\n')
+//Process.date=Process.b[0]					
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/change_task/"+Process.Sys_Id
+Process.updateWorkNotes = "<request><entry><state>2</state><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+" </work_notes></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket worknotes updated successfully"
+  Process.Output=Process[OpName].HTTPResponseContent
+  
+}else if(Process.Update_CTASK.Reason.indexOf('non-success') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  //Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else if(Process.Update_CTASK.Reason.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  //Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure updating ticket details"
+  //Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+5.Script
+
+Inline:
+
+param($computer)
+Test-Connection -ComputerName $computer -Quiet
+
+
+Post Execution:
+
+if(Process.Ping_check.scriptOutput.indexOf("True")>=0)
+{
+  Process.ReturnCode=0
+  Process.ReturnMessage="Connection to Target Server " +Process.computer+" is reachable."
+  //Process.Ping_status="Server is Pingable. Connected to target server successfully"
+}
+else if(Process.Ping_check.scriptOutput.indexOf("False")>=0)
+{
+  Process.ReturnCode=2
+  Process.ReturnMessage="Connection to Target Server " +Process.computer+" is unreachable."
+   //Process.Ping_status="Server is not Pingable. Connection target server is unsuccessful"
+}
+else
+{
+Process.ReturnCode=2
+Process.returnMessage ="Connection to reach the server" +Process.computer+" is failed."
+// Process.Ping_status= "Fatal Error"
+}
+
+
+6.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/change_task/"+Process.Sys_Id
+Process.Ping_update_status = "<request><entry><state>2</state><work_notes>"+Process.ReturnMessage+"</work_notes></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket worknotes updated successfully"
+  Process.Output=Process[OpName].HTTPResponseContent
+  
+}else if(Process[OpName].HTTPResponseContent.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure updating ticket details."
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+7.Script
+
+Inline:
+
+
+Param(
+[String]$computer,
+[String]$SerUser,
+[String]$SerPass,
+[String]$CTASK_Number
+)
+$password = ConvertTo-SecureString $SerPass -AsPlainText -Force
+$Cred = New-Object System.Management.Automation.PSCredential ($SerUser, $password)
+$Op_path = "D:\EBS_WIN\Windows\$CTASK_Number"
+
+If(!(test-path $Op_path))
+{
+      New-Item -ItemType Directory -Force -Path $Op_path
+}
+try{
+Get-ChildItem $op_path | Remove-Item
+}
+catch{
+write-host "Failed to remove files"}
+$cur_date = get-date -format yyyy-MM-dd_HH_mm_ss;
+#$startdate = get-date -format yyyy-MM-dd_HH_mm_ss;
+$Result   = @()
+$htmltable= @()
+$body=@()
+$volumes =Get-WmiObject Win32_volume -ComputerName $computer -Credential $Cred |Select SystemName, Name, Label, @{Name="total";expression={[math]::round(($_.Capacity/ 1GB),2)}},@{Name="Free";expression={[math]::round(($_.FreeSpace / 1GB),2)}},@{Name="Used";expression={[math]::round((($_.Capacity/ 1GB)-($_.FreeSpace / 1GB)),2)}},@{Name="Freep";expression={[math]::round(((($_.FreeSpace /1GB)/($_.Capacity / 1GB)) * 100),2)}} -ErrorAction SilentlyContinue
+
+    ForEach($volume in $volumes)
+    {
+        $Result += [PSCustomObject] @{    
+        ServerName  =$volume.SystemName
+        Mountdrive  =$volume.Name
+        DriveLabel  =$volume.label
+        Capacity    =$volume.total
+        }
+    }
+
+	 $Domain= (gcim -ClassName Win32_ComputerSystem).Domain
+
+      $serverplatform=(gcim -ClassName Win32_OperatingSystem).Caption +" "+ (gcim -ClassName Win32_OperatingSystem).OSArchitecture
+     $username= $cred.UserName
+          $ReportDate =Get-Date -Format "ddMMMyyyy HHmm"
+          $localtimezone=[TimeZoneInfo]::Local
+        $reporttime=$ReportDate+ ' | '+ $localtimezone.Id 
+
+#<TD>$($Result.ServerName[0])</TD></TR>
+
+$body+="<HTML>
+<BODY>                     
+<font color=Green> 
+<H1 align=center><B> PRE EBS DISK MOUNT</B></H1></font>"
+
+ $htmltable += "<table width=100% border=1>
+        <TR> <br> </TR>
+        <TR><TD class=label colspan=2 align=center><B> Server Baseline Information </B></TD></TR>
+
+        <TR>
+            <TD><b> Host Name </b></TD>
+			<TD>$($computer)</TD></TR>     
+        <TR>
+            <TD><b>Server Platform </b></TD>
+            <TD>$serverplatform </TD></TR>
+            
+        <TR>
+            <TD><b> Domain </b></TD>
+            <TD>$Domain</TD></TR>
+
+             <TR>
+            <TD><b>Logon ID used for this test </b></TD>
+            <TD>$username </TD></TR>
+
+             <TR>
+            <TD><b> Report Date and Time </b></TD>
+            <TD>$reporttime </TD></TR>"
+
+    $htmltable += "<br><br></br></br>"
+
+   $htmltable += "<table width=100% border=1>
+    <TR><TH>Drive Label</TH>
+        <TH>Capacity</TH>
+        <TH>Mounted Drive</TH></TR>"
+        #$label=""
+		#$drive=""
+     Foreach($Entry in $Result)  
+{  
+   $label=$($entry.Mountdrive ).TrimEnd('\')
+
+   $htmltable +="
+        <tbody>
+        <TR><TD>Local Disk $($label)</TD>
+        <TD ALIGN=RIGHT>$($Entry.Capacity)</TD>
+        <TD>$($Entry.Mountdrive)</TD></TR>
+        </tbody>"
+		#$drive+=$label
+
+} 
+
+$htmltable +="</Table>"
+
+$body+= $htmltable
+$body+= "</BODY></HTML>"
+$html_file ="$Op_path\prechk.html"
+
+$body | out-file $html_file
+#$htop = 'D:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe'
+#$pdf_file = "$Op_path\$server"+"_Pre_Check.pdf"
+$var = '-q'; 
+try{
+& $html_file 
+Write-Host "HTML file saved successfully"
+}
+catch{
+Write-Host "NOT saved successfully"
+}
+
+
+Post Execution:
+
+if(Process[OpName].scriptOutput.indexOf("RPC server is unavailable")>=0)
+{
+  Process.ReturnCode=2
+  //Process.data=Process[OpName].scriptOutput
+  Process.ReturnMessage = "WINRM issue in target server. Unable to fetch the pre check server configuration."
+}
+
+else if(Process[OpName].scriptOutput.indexOf("saved successfully")>=0)
+{
+Process.ReturnCode=0
+//Process.pre_pdf=Process.pdf_file.scriptOutput
+Process.ReturnMessage = "Pre HTML generated successfully"
+}
+else if(Process[OpName].scriptOutput.indexOf("NOT saved")>=0)
+{
+  Process.ReturnCode=2
+  //Process.data=Process[OpName].scriptOutput
+  Process.ReturnMessage = "Failed to generate Pre HTML file."
+}
+
+
+else{
+ Process.ReturnCode=2
+Process.ReturnMessage = "Error occurred while generating HTML file."
+}
+
+
+8.Script
+
+Inline:
+
+Param(
+[String]$CTASK_Number,
+[String]$computer
+)
+$Op_path="D:\EBS_WIN\Windows\$CTASK_Number"
+
+$html_file =  "$Op_path\prechk.html"
+$htop = "D:\wkhtmltopdf\bin\wkhtmltopdf.exe"
+
+
+$pre_pdf = "$Op_path\$computer"+"_Pre_Check.pdf"
+$var = '-q'; 
+	try{
+& $htop $var $html_file $pre_pdf
+        sleep -seconds 5
+
+		#Remove-Item -Path $html_file -Force
+
+
+ $fname=(get-ChildItem $op_path).Name
+
+
+Write-Host "$CTASK_Number : PDF saved successfully to"
+    }
+    catch {
+      Write-Host "$CTASK_Number : PDF NOT saved  to"
+        
+    }
+
+
+Post Execution:
+
+if(Process[OpName].scriptOutput.indexOf("QEventDispatcher")>=0)
+{
+  Process.ReturnCode=2
+  //Process.data=Process[OpName].scriptOutput
+  Process.ReturnMessage = "WKHTML PDF tool is unable to create PDF."
+}
+
+else if(Process[OpName].scriptOutput.indexOf("saved successfully")>=0)
+{
+Process.ReturnCode=0
+//Process.pdf=Process.pdf_file.scriptOutput
+Process.ReturnMessage = "PDF generated successfully."
+}
+else if(Process[OpName].scriptOutput.indexOf("NOT saved")>=0)
+{
+  Process.ReturnCode=2
+  //Process.data=Process[OpName].scriptOutput
+  Process.ReturnMessage = "Failed to generate PDF file."
+}
+
+else{
+ Process.ReturnCode=2
+Process.ReturnMessage = "Error occurred while generating PDF file."
+}
+
+
+9.Script
+
+Inline:
+
+Param(
+[String]$CTASK_Number
+)
+$Op_path = "D:\EBS_WIN\Windows\$CTASK_Number"
+
+try
+{
+$file=Get-ChildItem -Force -Recurse -File -Path "$Op_path"|?{$_.FullName -like "*_Pre_Check.pdf*"} -ErrorAction stop
+
+
+if($file){
+$prefullPath = $($file.FullName)
+$prefileName = $($file.Name)
+$prefullPath
+$prefileName
+Write-host "Pre successfull"
+}else {
+write-host "Pre Check PDF Report not found"
+}
+
+}
+catch
+{
+Write-Host "Some Error Occured while uploading pre check pdf report"
+}
+
+Post Execution:
+
+if(Process.pre_split_1.scriptOutput.indexOf("successfull")>=0)
+{
+Process.ReturnCode=0
+//Process.pdf=Process.pdf_file.scriptOutput
+Process.ReturnMessage = "PDF generated successfully"
+}
+
+
+else if(Process.pre_split.scriptOutput.indexOf("Report not found")>=0)
+{
+  Process.ReturnCode=2
+  //Process.data=Process[OpName].scriptOutput
+  Process.ReturnMessage = "PDF report not available."
+}
+else if(Process.pre_split.scriptOutput.indexOf("uploading pre")>=0)
+{
+  Process.ReturnCode=2
+  //Process.data=Process[OpName].scriptOutput
+  Process.ReturnMessage = "Failed to generate PDF file."
+}
+
+else{
+ Process.ReturnCode=2
+Process.ReturnMessage = "Error occurred while generating PDF file."
+}
+
+10.Ticket Update
+
+Pre Execution:
+
+//Process.dat=Process.data.split('\n')
+
+Process.value=Process.pre_split_1.scriptOutput.split('\n')
+Process.pdffile=Process.value[0]
+Process.fname=Process.value[1]
+
+Process.putURL= "https://"+Process.Instance+".service-now.com/api/now/attachment/file?table_name=change_task&table_sys_id="+Process.Sys_Id+"&file_name="+Process.fname
+//Process.post_putURL= "https://"+Process.Instance+".service-now.com/api/now/attachment/file?table_name=change_task&table_sys_id="+Process.Sys_Id+"&file_name="+Process.post_fname
+//Process.payload = "<request><entry><assigned_to>d2f5f34bdb5efb8036c73c9b7c961900</assigned_to><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+"</work_notes><state>2</state></entry></request>"
+
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="Created" && Process[OpName].HTTPResponseStatusCode==201 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="PDF updated successfully"
+  Process.Output=Process[OpName].HTTPResponseContent
+
+}else if(Process[OpName].Reason.indexOf('non-success') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Error occurred while uploading PDF file to Service Now. "
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+11.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand = "ansible-playbook /home/svc-linux-snow/ebs_windows/main.yml -e 'target_host="+Process.computer+" disk_size="+Process.size+" az="+Process.available_zone+" ctask_number="+Process.CTASK_Number+" acc_name="+Process.Account_name+" env="+Process.env+" ins="+Process.ins+"'"
+
+Post Execution:
+
+if(Process[OpName].ebsout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh"
+}
+else if(Process[OpName].ebsout.indexOf('permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Permission denied by the server"
+}
+else if(Process[OpName].ebsout.indexOf('Stopping the process since EC2 is not in the running state') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Stopping the process since EC2 is not in the running state"
+}
+else if(Process[OpName].ebsout.indexOf('Disk size contains not a non zero integer') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Disk size contains not a non zero integer"
+}
+else if((Process[OpName].ebsout.indexOf('failed=0') >= 0)&&(Process[OpName].ebsout.indexOf('EBS volume created successfully') >= 0))
+{
+  if((Process[OpName].ebsout.indexOf('EBS Volume state changed as available') >= 0)&&(Process[OpName].ebsout.indexOf('EBS volume attached successfully to EC2') >= 0)
+&&(Process[OpName].ebsout.indexOf('EBS volume state changed as volume-in-use') >= 0)&&(Process[OpName].ebsout.indexOf('ctask number is successfully created in the share path') >= 0))
+{
+Process.voldetail=Process[OpName].ebsout.split('VolID: ')
+Process.voldata=Process.voldetail[1]
+Process.Volumeid=Process.voldata.replace(/\"\S*/g, "")
+Process.splitvar=Process.Volumeid.split('\n')
+Process.datavar=Process.splitvar[0]
+Process.Execution_results = "EBS volume created successfully"+ "\n" +"EBS Volume state changed as available"+ "\n" +"EBS volume attached successfully to EC2"+ "\n" +"EBS volume state changed as volume-in-use"+ "\n" +"VolumeID:"+Process.datavar 
+
+
+Process.ReturnCode = 0
+Process.ReturnMessage = "Disk created and attached successfully"
+
+//Process.ReturnCode = 2
+//Process.ReturnMessage = "error occurred while executing the Ansible Playbook"
+
+
+}
+}
+
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook"
+}
+
+12.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand = "ansible-playbook /home/svc-linux-snow/ebs_windows/main.yml -e 'target_host="+Process.computer+" disk_size="+Process.size+" az="+Process.available_zone+" ctask_number="+Process.CTASK_Number+"acc_name="+Process.Account_name+" env="+Process.env+" ins="+Process.ins+"'"
+
+
+Post Execution:
+
+if(Process[OpName].ebsout.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh"
+}
+else if(Process[OpName].ebsout.indexOf('permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Permission denied by the server"
+}
+else if(Process[OpName].ebsout.indexOf('Stopping the process since EC2 is not in the running state') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Stopping the process since EC2 is not in the running state"
+}
+else if(Process[OpName].ebsout.indexOf('Disk size contains not a non zero integer') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Disk size contains not a non zero integer"
+}
+else if(Process[OpName].ebsout.indexOf('Mount point is not starting with '/'. So, not proceeding with this mount point.') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Mount point is not starting with '/'. So, not proceeding with this mount point."
+}
+else if(Process[OpName].ebsout.indexOf('Disk seems to have a partition so existing rapidly') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Volume created but failed to  attach and mount"
+}
+else if(Process[OpName].ebsout.indexOf('Looks like you may need to fix AWS CLI permissions') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Unable to install AWS CLI. No permission"
+} 
+else if(Process[OpName].ebsout.indexOf('Found that mount point already listed in fstab so stopping') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Given mount point already listed in fstab"
+}
+else  if((Process[OpName].ebsout.indexOf('Volume created successfully') >= 0)&&(Process[OpName].ebsout.indexOf('Volume attached successfully') >= 0))
+{
+Process.voldetail=Process[OpName].ebsout.split('Volume ID:')
+Process.voldata=Process.voldetail[1]
+Process.Volumeid=Process.voldata.replace(/\"\S*/g, "")
+Process.Execution_results = "Volume created successfully"+ "\n" +"Volume attached successfully"+ "\n" +"VolumeID:"+Process.Volumeid
+Process.ReturnCode = 0
+Process.ReturnMessage = "Disk created and attached successfully"
+}
+
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook"
+}
+
+13.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand = "ansible-playbook /home/svc-linux-snow/ebs_windows/main.yml -e 'target_host="+Process.computer+" disk_size="+Process.size+" az="+Process.available_zone+" ctask_number="+Process.CTASK_Number+"acc_name="+Process.Account_name+" env="+Process.env+" ins="+Process.ins+"'"
+
+
+Post Execution:
+
+if(Process[OpName].ebsout2.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh"
+  Process.Playbook_Status_update = "Failed to connect to the host via ssh"
+}
+else if(Process[OpName].ebsout2.indexOf('permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Permission denied by the server"
+  Process.Playbook_Status_update = "Permission denied by the server "
+}
+else if(Process[OpName].ebsout2.indexOf('Script execution failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Mounting Script Failed to Execute"
+  Process.Playbook_Status_update = "Mounting Script Failed to Execute"
+}
+else if(Process[OpName].ebsout2.indexOf('New volume not created') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "New volume not created"
+  Process.Playbook_Status_update = "New volume not created"
+}
+else if(Process[OpName].ebsout2.indexOf('No new device file found') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "No new device file found for attaching"
+  Process.Playbook_Status_update = "No new device file found for attaching"
+}
+else if(Process[OpName].ebsout2.indexOf('Disk seems to have a partition so existing rapidly') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Volume created but failed to  attach and mount"
+   Process.Playbook_Status_update = "Volume created but failed to  attach and mount"
+}
+else if(Process[OpName].ebsout2.indexOf('Looks like you may need to fix AWS CLI permissions') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Unable to install AWS CLI. No permission"
+  Process.Playbook_Status_update ="Unable to install AWS CLI. No permission"
+} 
+else if(Process[OpName].ebsout2.indexOf('Found that mount point already listed in fstab so stopping') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Given mount point already listed in fstab"
+  Process.Playbook_Status_update ="Given Mount point already listed in fstab"
+}
+else if(Process[OpName].ebsout2.indexOf('[WARNING]: provided hosts list is empty, only localhost is available') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "skipping: no hosts matched while executing playbook"
+  Process.Playbook_Status_update = "skipping: no hosts matched while executing playbook"
+}
+
+else  if((Process[OpName].ebsout2.indexOf('Volume created successfully') >= 0)&&(Process[OpName].ebsout2.indexOf('Volume attached successfully') >= 0))
+{
+Process.voldetail=Process[OpName].ebsout2.split('VolID:')
+Process.voldata=Process.voldetail[1]
+Process.Volumeid=Process.voldata.replace(/\"\S*/g, "")
+Process.Execution_results = "Volume created successfully"+ "\n" +"Volume attached successfully"+ "\n" +"VolumeID:"+Process.Volumeid
+Process.ReturnCode = 0
+Process.ReturnMessage = "Disk created and attached successfully"
+}
+
+
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook"
+	Process.Playbook_Status_update = "Some error occurred while  executing the Ansible Playbook"
+}
+
+
+14.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand = "ansible-playbook /home/svc-linux-snow/ebs_windows/main.yml -e 'target_host="+Process.computer+" disk_size="+Process.size+" az="+Process.available_zone+" ctask_number="+Process.CTASK_Number+"acc_name="+Process.Account_name+" env="+Process.env+" ins="+Process.ins+"'"
+
+
+Post Execution:
+
+if(Process[OpName].ebsout3.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh"
+  Process.Playbook_Status_update = "Failed to connect to the host via ssh"
+}
+else if(Process[OpName].ebsout3.indexOf('permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Permission denied by the server"
+  Process.Playbook_Status_update = "Permission denied by the server "
+}
+else if(Process[OpName].ebsout3.indexOf('Script execution failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Mounting Script Failed to Execute"
+  Process.Playbook_Status_update = "Mounting Script Failed to Execute"
+}
+else if(Process[OpName].ebsout3.indexOf('New volume not created') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "New volume not created"
+  Process.Playbook_Status_update = "New volume not created"
+}
+else if(Process[OpName].ebsout3.indexOf('No new device file found') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "No new device file found for attaching"
+  Process.Playbook_Status_update = "No new device file found for attaching"
+}
+else if(Process[OpName].ebsout3.indexOf('Disk seems to have a partition so existing rapidly') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Volume created but failed to  attach and mount"
+   Process.Playbook_Status_update = "Volume created but failed to  attach and mount"
+}
+else if(Process[OpName].ebsout3.indexOf('Looks like you may need to fix AWS CLI permissions') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Unable to install AWS CLI. No permission"
+  Process.Playbook_Status_update ="Unable to install AWS CLI. No permission"
+} 
+else if(Process[OpName].ebsout3.indexOf('Found that mount point already listed in fstab so stopping') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Given mount point already listed in fstab"
+  Process.Playbook_Status_update ="Given Mount point already listed in fstab"
+}
+else if(Process[OpName].ebsout3.indexOf('[WARNING]: provided hosts list is empty, only localhost is available') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "skipping: no hosts matched while executing playbook"
+  Process.Playbook_Status_update = "skipping: no hosts matched while executing playbook"
+}
+
+else  if((Process[OpName].ebsout3.indexOf('Volume created successfully') >= 0)&&(Process[OpName].ebsout3.indexOf('Volume attached successfully') >= 0))
+{
+Process.voldetail=Process[OpName].ebsout3.split('VolID:')
+Process.voldata=Process.voldetail[1]
+Process.Volumeid=Process.voldata.replace(/\"\S*/g, "")
+Process.Execution_results = "Volume created successfully"+ "\n" +"Volume attached successfully"+ "\n" +"VolumeID:"+Process.Volumeid
+Process.ReturnCode = 0
+Process.ReturnMessage = "Disk created and attached successfully"
+}
+
+
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook"
+	Process.Playbook_Status_update = "Some error occurred while  executing the Ansible Playbook"
+}
+
+
+15.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand = "ansible-playbook /home/svc-linux-snow/ebs_windows/main.yml -e 'target_host="+Process.computer+" disk_size="+Process.size+" az="+Process.available_zone+" ctask_number="+Process.CTASK_Number+"acc_name="+Process.Account_name+" env="+Process.env+" ins="+Process.ins+"'"
+
+
+Post Execution:
+
+if(Process[OpName].ebsout4.indexOf('Failed to connect to the host via ssh') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host via ssh"
+  Process.Playbook_Status_update = "Failed to connect to the host via ssh"
+}
+else if(Process[OpName].ebsout4.indexOf('permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Permission denied by the server"
+  Process.Playbook_Status_update = "Permission denied by the server "
+}
+else if(Process[OpName].ebsout4.indexOf('Script execution failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Mounting Script Failed to Execute"
+  Process.Playbook_Status_update = "Mounting Script Failed to Execute"
+}
+else if(Process[OpName].ebsout4.indexOf('New volume not created') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "New volume not created"
+  Process.Playbook_Status_update = "New volume not created"
+}
+else if(Process[OpName].ebsout4.indexOf('No new device file found') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "No new device file found for attaching"
+  Process.Playbook_Status_update = "No new device file found for attaching"
+}
+else if(Process[OpName].ebsout4.indexOf('Disk seems to have a partition so existing rapidly') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Volume created but failed to  attach and mount"
+   Process.Playbook_Status_update = "Volume created but failed to  attach and mount"
+}
+else if(Process[OpName].ebsout4.indexOf('Looks like you may need to fix AWS CLI permissions') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Unable to install AWS CLI. No permission"
+  Process.Playbook_Status_update ="Unable to install AWS CLI. No permission"
+} 
+else if(Process[OpName].ebsout4.indexOf('Found that mount point already listed in fstab so stopping') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Given mount point already listed in fstab"
+  Process.Playbook_Status_update ="Given Mount point already listed in fstab"
+}
+else if(Process[OpName].ebsout4.indexOf('[WARNING]: provided hosts list is empty, only localhost is available') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "skipping: no hosts matched while executing playbook"
+  Process.Playbook_Status_update = "skipping: no hosts matched while executing playbook"
+}
+
+else  if((Process[OpName].ebsout4.indexOf('Volume created successfully') >= 0)&&(Process[OpName].ebsout4.indexOf('Volume attached successfully') >= 0))
+{
+Process.voldetail=Process[OpName].ebsout4.split('VolID:')
+Process.voldata=Process.voldetail[1]
+Process.Volumeid=Process.voldata.replace(/\"\S*/g, "")
+Process.Execution_results = "Volume created successfully"+ "\n" +"Volume attached successfully"+ "\n" +"VolumeID:"+Process.Volumeid
+Process.ReturnCode = 0
+Process.ReturnMessage = "Disk created and attached successfully"
+}
+
+
+else
+{
+	Process.ReturnCode = 2
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook"
+	Process.Playbook_Status_update = "Some error occurred while  executing the Ansible Playbook"
+}
+
+
+16.Script
+
+Pre Execution:
+
+Process.splitvar=Process.voldata.split('\n')
+Process.datavar=Process.splitvar[0]
+
+//Process.splitvar=Process.Volumeid.split('\n')
+//Process.datavar=Process.splitvar[0]
+
+Inline:
+
+param([string]$value)
+$values = $value.Split(']')[0]
+$values 
+
+Post Execution:
+
+if(Process.exe_results.scriptOutput.indexOf('vol-') >= 0){
+Process.Documentation_Results = Process.exe_results.scriptOutput
+Process.ReturnCode = 0
+}
+else
+{
+Process.ReturnCode=2
+Process.ReturnMessage= "Fetching Documentation Results failed"
+}
+
+
+17.Script
+
+Pre Execution:
+
+Process.split1=Process.Documentation_Results.split('\n')
+Process.dat=Process.split1[0]
+
+//Process.dat=Process.data.split('\n')
+
+Inline:
+
+Param(
+[String]$computer,
+[String]$SerUser,
+[String]$SerPass,
+[String]$volid
+)
+
+write-host "$computer"
+write-host "$SerUser"
+write-host "$SerPass"
+write-host "$volid"
+
+$password = ConvertTo-SecureString $SerPass -AsPlainText -Force
+$Cred = New-Object System.Management.Automation.PSCredential ($SerUser, $password)
+
+
+Invoke-Command -ComputerName $computer -credential $Cred -ScriptBlock {
+Param([String]$volid)
+if(get-disk | select PartitionStyle | Where-Object {$_.PartitionStyle -like 'RAW'})
+{
+    try{
+    $spl=$volid -replace '-',''
+
+    Get-Disk | Where SerialNumber -like "*$spl*"  |Initialize-Disk -PartitionStyle MBR -PassThru |New-Partition -AssignDriveLetter -UseMaximumSize |Format-Volume -FileSystem NTFS -NewFileSystemLabel “Local Disk” -Confirm:$false -ErrorAction stop;
+     write-host "Disk mounted successfully"
+    }catch
+    {
+     Write-host "Disk mount failed"
+    }
+}
+else
+{
+    Write-host "Disk creation and attaching to the server is successfull but not available to be mounted.Checking after 5 minutes.."
+} 
+} -ArgumentList $volid
+
+
+Post Execution:
+
+if(Process.disk_mount.scriptOutput.indexOf("FileSystemLabel")>=0)
+{
+  Process.ReturnCode=0
+ 
+}
+else if(Process.disk_mount.scriptOutput.indexOf("Disk mount failed")>=0)
+{
+  Process.ReturnCode=2
+  Process.ReturnMessage="Failed to mount the disk.Hence routing the ticket."
+
+
+}
+else if(Process.disk_mount.scriptOutput.indexOf("Disk creation and attaching to the server is successfull but not available to be mounted.Checking after 5 minutes..")>=0)
+{
+  Process.ReturnCode=1
+  Process.ReturnMessage="Disk creation and attaching to the server is successfull but not available to be mounted.Checking after 5 minutes.."
+}
+else{
+  Process.ReturnCode=2
+  Process.ReturnMessage="Failed to create and attach the EBS volume"
+
+}
+
+If Return code is 1, it will proceed with the next steps, if it is 0 it will proceed with step 20 
+
+18.Ticket Update
+
+Pre Execution:
+
+//Process.vol
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/change_task/"+Process.Sys_Id
+Process.create_update = "<request><entry><state>2</state><work_notes>"+Process.ReturnMessage+"</work_notes></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket worknotes updated successfully"
+  Process.Output=Process[OpName].HTTPResponseContent
+  
+}else if(Process[OpName].HTTPResponseContent.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure updating ticket details."
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+19.Script
+
+Pre Execution:
+
+Process.split1=Process.Documentation_Results.split('\n')
+Process.dat=Process.split1[0]
+
+//Process.dat=Process.data.split('\n')
+
+
+Inline:
+
+Param(
+[String]$computer,
+[String]$SerUser,
+[String]$SerPass,
+[String]$volid
+)
+
+#$computer="10.240.17.200"
+$password = ConvertTo-SecureString $SerPass -AsPlainText -Force
+$Cred = New-Object System.Management.Automation.PSCredential ($SerUser, $password)
+
+
+ Invoke-Command -ComputerName $computer -credential $Cred -ScriptBlock {
+Param([String]$volid)
+if(get-disk | select PartitionStyle | Where-Object {$_.PartitionStyle -like 'RAW'})
+{
+try{
+$spl=$volid -replace '-',''
+
+Get-Disk | Where SerialNumber -eq $spl  |Initialize-Disk -PartitionStyle MBR -PassThru |New-Partition -AssignDriveLetter -UseMaximumSize |Format-Volume -FileSystem NTFS -NewFileSystemLabel “Local Disk” -Confirm:$false -ErrorAction stop;
+ write-host "Disk mounted successfully"
+}catch
+{
+ Write-host "Disk mount failed"
+}}
+else
+{
+Write-host "There is no RAW data available"
+} 
+} -ArgumentList $volid
+
+
+Post Execution:
+
+if(Process[OpName].scriptOutput.indexOf("FileSystemLabel")>=0)
+{
+  Process.ReturnCode=0
+  Process.ReturnMessage="Disk mounted successfully"
+  Process.disk_success=Process.ReturnMessage
+//  Process.vol=Process.add_vol.scriptOutput
+
+}
+else if(Process[OpName].scriptOutput.indexOf("Disk mount failed")>=0)
+{
+  Process.ReturnCode=2
+  Process.ReturnMessage="Failed to mount disk."
+  Process.disk_success=Process.ReturnMessage
+  //Process.error=Process.add_vol.scriptOutput
+
+}
+else if(Process[OpName].scriptOutput.indexOf("There is no RAW data available")>=0)
+{
+  Process.ReturnCode=2
+  Process.ReturnMessage="There is no RAW data available."
+  Process.disk_success=Process.ReturnMessage
+//  Process.error=Process.add_vol.scriptOutput
+
+}
+else{
+  Process.ReturnCode=2
+  Process.ReturnMessage="Error occured while mounting disk."
+
+}
+
+Now it will go to Step 21
+
+20.Ticket Update
+
+Pre Execution:
+
+Process.ReturnMessage =  "Volume created successfully"+ "\n" +"Disk Mounted successfully"+ "\n" +"Volume attached successfully" 
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/change_task/"+Process.Sys_Id
+Process.create_update = "<request><entry><work_notes>"+ Process.ReturnMessage +"</work_notes></entry></request>"
+
+
+Post Execution:
+
+if(Process.DiskMount.HTTPResponseReasonPhrase=="OK" && Process.DiskMount.HTTPResponseStatusCode==200 )
+{
+Process.ReturnCode=0;
+Process.ReturnMessage="Ticket worknotes updated successfully"
+
+}else if(Process.DiskMount.HTTPResponseContent.indexOf('failure') >= 0){
+Process.ReturnCode =2;
+Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else
+{
+Process.ReturnCode=2;
+Process.ReturnMessage="Failure updating ticket details"
+Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+Now it will go to step 21
+
+21.Ticket Update
+
+Pre Execution:
+
+//Process.vol
+ Process.ReturnMessage="Disk mounted successfully"
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/change_task/"+Process.Sys_Id
+Process.create_update = "<request><entry><state>2</state><work_notes>"+Process.ReturnMessage+"</work_notes><u_document_results> Volume created successfully"+ "\n" +"Disk Mounted successfully"+ "\n" +"Volume attached successfully"+ "\n" +"Volume ID:"+Process.dat+"</u_document_results></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket worknotes updated successfully"
+  Process.Output=Process[OpName].HTTPResponseContent
+  
+}else if(Process[OpName].HTTPResponseContent.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure updating ticket details"
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+22.Script
+
+Inline:
+
+Param(
+[String]$computer,
+[String]$SerUser,
+[String]$SerPass,
+[String]$CTASK_Number
+)
+$password = ConvertTo-SecureString $SerPass -AsPlainText -Force
+$Cred = New-Object System.Management.Automation.PSCredential ($SerUser, $password)
+
+$Op_path = "D:\EBS_WIN\Windows\$CTASK_Number"
+
+If(!(test-path $Op_path))
+{
+      New-Item -ItemType Directory -Force -Path $Op_path
+}
+$cur_date =get-date -format yyyy-MM-dd_HH_mm_ss;
+#get-date -format yyyy-MM-dd_HH_mm_ss;
+$Result   = @()
+$htmltable= @()
+$body=@()
+$volumes =Get-WmiObject Win32_volume -ComputerName $computer -Credential $Cred |Select SystemName, Name, Label, @{Name="total";expression={[math]::round(($_.Capacity/ 1GB),2)}},@{Name="Free";expression={[math]::round(($_.FreeSpace / 1GB),2)}},@{Name="Used";expression={[math]::round((($_.Capacity/ 1GB)-($_.FreeSpace / 1GB)),2)}},@{Name="Freep";expression={[math]::round(((($_.FreeSpace /1GB)/($_.Capacity / 1GB)) * 100),2)}} -ErrorAction SilentlyContinue
+
+    ForEach($volume in $volumes)
+    {
+        $Result += [PSCustomObject] @{    
+        ServerName  =$volume.SystemName
+        Mountdrive  =$volume.Name
+        DriveLabel  =$volume.label
+        Capacity    =$volume.total
+        }
+    }
+	 $Domain= (gcim -ClassName Win32_ComputerSystem).Domain
+
+      $serverplatform=(gcim -ClassName Win32_OperatingSystem).Caption +" "+ (gcim -ClassName Win32_OperatingSystem).OSArchitecture
+     $username= $cred.UserName
+          $ReportDate = Get-Date -Format "ddMMMyyyy HHmm"
+          $localtimezone=[TimeZoneInfo]::Local
+        $reporttime=$ReportDate+ ' | '+ $localtimezone.Id 
+   
+$body+="<HTML>
+<BODY>                     
+
+<H1 align=center><B>POST EBS DISK MOUNT</B></H1>"
+ 
+ $htmltable += "<table width=100% border=1>
+        <TR> <br> </TR>
+        <TR><TD class=label colspan=2 align=center><B> Server Baseline Information </B></TD></TR>
+
+        <TR>
+            <TD><b> Host Name </b></TD>
+            <TD>$($Result.ServerName[0])</TD></TR>       
+        <TR>
+            <TD><b>Server Platform </b></TD>
+            <TD>$serverplatform </TD></TR>
+
+        <TR>
+            <TD><b> Domain </b></TD>
+            <TD>$Domain </TD></TR>
+
+             <TR>
+            <TD><b>Logon ID used for this test </b></TD>
+            <TD>$username</TD></TR>
+
+             <TR>
+            <TD><b> Report Date and Time </b></TD>
+            <TD>$reporttime </TD></TR>"
+
+    $htmltable += "<br><br></br></br>"
+
+   $htmltable += "<table width=100% border=1>
+    <TR><TH>Drive Label</TH>
+        <TH>Capacity</TH>
+        <TH>Mounted Drive</TH></TR>"
+        
+      # $label=""
+     Foreach($Entry in $Result)  
+{  
+   $label=$($entry.Mountdrive ).TrimEnd('\')
+   #(compare-object $label1 $label).Inputobject
+   $htmltable +="
+        <tbody>
+        <TR><TD>Local Disk $($label)</TD>
+        <TD ALIGN=RIGHT>$($Entry.Capacity)</TD>
+        <TD>$($Entry.Mountdrive)</TD></TR>
+        </tbody>"
+
+} 
+$htmltable +="</Table>"
+$htmltable +="<p><center><B>**Note: The Drive marked in Green is the newly mounted Drive.</B></center></p>"
+$body+= $htmltable
+$body+= "</BODY></HTML>"
+$html_file = "$Op_path\repostchk.html"
+
+$body | out-file $html_file
+#$htop = 'D:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe'
+#$pdf_file = "$Op_path\$server"+"_Pre_Check.pdf"
+$var = '-q'; 
+try{
+& $html_file 
+   Write-Host "HTML file saved successfully"
+}
+catch{
+Write-Host "NOT saved successfully"
+}
+
+
+Post Execution:
+
+if(Process[OpName].scriptOutput.indexOf("RPC server is unavailable")>=0)
+{
+  Process.ReturnCode=2
+  //Process.data=Process[OpName].scriptOutput
+  Process.ReturnMessage = "WINRM issue in target server. Unable to fetch the pre check server configuration."
+}
+
+else if(Process[OpName].scriptOutput.indexOf("saved successfully")>=0)
+{
+Process.ReturnCode=0
+//Process.pdf=Process.pdf_file.scriptOutput
+Process.ReturnMessage = "Post HTML generated successfully."
+}
+else if(Process[OpName].scriptOutput.indexOf("NOT saved")>=0)
+{
+  Process.ReturnCode=2
+  //Process.data=Process[OpName].scriptOutput
+  Process.ReturnMessage = "Failed to generate Post HTML file."
+}
+
+else{
+ Process.ReturnCode=2
+Process.ReturnMessage = "Error occurred while generating Post HTML file."
+}
+
+
+23.Script
+
+Inline:
+
+Param(
+[String]$computer,
+[String]$SerUser,
+[String]$SerPass,
+[String]$CTASK_Number
+)
+
+
+$Op_path = "D:\EBS_WIN\Windows\$CTASK_Number"
+
+If(!(test-path $Op_path))
+{
+      New-Item -ItemType Directory -Force -Path $Op_path
+}
+$pre_path="$Op_path\prechk.html"
+
+$post_path="$Op_path\repostchk.html"
+$pre_con=Get-Content -Path "$pre_path"
+$post_con=Get-Content -Path "$post_path"
+
+$com=Compare-Object $pre_con $post_con
+
+$obj=(($com | Where-Object {$_.SideIndicator -eq "=>"}).InputObject)| select -skip 8 
+$letterf=(($obj -split "Local Disk " ) -split ":")[1]
+$letter=$letterf+":"
+
+$password = ConvertTo-SecureString $SerPass -AsPlainText -Force
+$Cred = New-Object System.Management.Automation.PSCredential ($SerUser, $password)
+Write-Host "$drive"
+$cur_date =get-date -format yyyy-MM-dd_HH_mm_ss;
+#get-date -format yyyy-MM-dd_HH_mm_ss;
+$Result   = @()
+$htmltable= @()
+$body=@()
+$volumes =Get-WmiObject Win32_volume -ComputerName $computer -Credential $Cred |Select SystemName, Name, Label, @{Name="total";expression={[math]::round(($_.Capacity/ 1GB),2)}},@{Name="Free";expression={[math]::round(($_.FreeSpace / 1GB),2)}},@{Name="Used";expression={[math]::round((($_.Capacity/ 1GB)-($_.FreeSpace / 1GB)),2)}},@{Name="Freep";expression={[math]::round(((($_.FreeSpace /1GB)/($_.Capacity / 1GB)) * 100),2)}} -ErrorAction SilentlyContinue
+
+    ForEach($volume in $volumes)
+    {
+        $Result += [PSCustomObject] @{    
+        ServerName  =$volume.SystemName
+        Mountdrive  =$volume.Name
+        DriveLabel  =$volume.label
+        Capacity    =$volume.total
+        }
+    }
+    $Domain= (gcim -ClassName Win32_ComputerSystem).Domain
+
+      $serverplatform=(gcim -ClassName Win32_OperatingSystem).Caption +" "+ (gcim -ClassName Win32_OperatingSystem).OSArchitecture
+     $username= $cred.UserName
+          $ReportDate = Get-Date -Format "ddMMMyyyy HHmm"
+          $localtimezone=[TimeZoneInfo]::Local
+        $reporttime=$ReportDate+ ' | '+ $localtimezone.Id 
+$body+="<HTML>
+<BODY>                     
+<font color=Green> 
+<H1 align=center><B>EBS DISK MOUNT</B></H1></font>"
+ 
+ $htmltable += "<table width=100% border=1>
+        <TR> <br> </TR>
+        <TR><TD class=label colspan=2 align=center><B> Server Baseline Information </B></TD></TR>
+
+        <TR>
+            <TD><b> Host Name </b></TD>
+            <TD>$($Result.ServerName[0])</TD></TR>       
+        <TR>
+            <TD><b>Server Platform </b></TD>
+            <TD>$serverplatform </TD></TR>
+            
+        <TR>
+            <TD><b> Domain </b></TD>
+            <TD>$Domain</TD></TR>
+
+             <TR>
+            <TD><b>Logon ID used for this test </b></TD>
+            <TD>$username </TD></TR>
+
+             <TR>
+            <TD><b> Report Date and Time </b></TD>
+            <TD>$reporttime</TD></TR>"
+
+    $htmltable += "<br><br></br></br>"
+
+   $htmltable += "<table width=100% border=1>
+    <TR><TH>Drive Label</TH>
+        <TH>Capacity</TH>
+        <TH>Mounted Drive</TH></TR>"
+        
+      # $label=""
+    Foreach($Entry in $Result)  
+{  
+   $label=$($entry.Mountdrive ).TrimEnd('\')
+   if($letter -like $label){
+   $htmltable+="
+   <tbody>
+        <TR>
+        <TD>Local Disk $($label)</TD>
+        <TD ALIGN=RIGHT>$($Entry.Capacity)</TD>
+        <TD><font color=Green><B>$($Entry.Mountdrive)</B></font></TD></TR>
+        </tbody>"
+   }
+   else{
+   $htmltable+="
+    <tbody>
+        <TR>
+   <TD>Local Disk $($label)</TD>
+   <TD ALIGN=RIGHT>$($Entry.Capacity)</TD>
+        <TD>$($Entry.Mountdrive)</TD></TR>
+        </tbody>"
+   }
+  
+} 
+$htmltable +="</Table>"
+$htmltable +="<p><center><B>**Note: The Drive marked in Green is the newly mounted Drive.</B></center></p>"
+$body+= $htmltable
+$body+= "</BODY></HTML>"
+$html_file =  "$Op_path\postchk.html"
+
+$body | out-file $html_file
+#$htop = 'D:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe'
+
+#$pdf_file = "$Op_path\$computer"+"_Pre_Check.pdf"
+#$pdf_file1 = "$Op_path\$computer"+"_Post_Check.pdf"
+
+$var = '-q'; 
+try{
+& $html_file 
+  Write-Host "HTML file saved successfully"
+}
+catch{
+Write-Host "NOT saved successfully"
+}
+
+
+Post Execution:
+
+if(Process[OpName].scriptOutput.indexOf("RPC server is unavailable")>=0)
+{
+  Process.ReturnCode=2
+  //Process.data=Process[OpName].scriptOutput
+  Process.ReturnMessage = "WINRM issue in target server. Unable to fetch the pre check server configuration."
+}
+
+else if(Process[OpName].scriptOutput.indexOf("saved successfully")>=0)
+{
+Process.ReturnCode=0
+//Process.pdf=Process.pdf_file.scriptOutput
+Process.ReturnMessage = "Post HTML generated successfully."
+}
+else if(Process[OpName].scriptOutput.indexOf("NOT saved")>=0)
+{
+  Process.ReturnCode=2
+  //Process.data=Process[OpName].scriptOutput
+  Process.ReturnMessage = "Failed to generate Post HTML file."
+}
+
+else{
+ Process.ReturnCode=2
+Process.ReturnMessage = "Error occurred while generating Post HTML file."
+}
+
+24.Script
+
+Inline:
+
+Param(
+[String]$CTASK_Number,
+[String]$computer
+)
+$Op_path="D:\EBS_WIN\Windows\$CTASK_Number"
+
+$html_file =  "$Op_path\postchk.html"
+$html_file1 =  "$Op_path\prechk.html"
+$html_file2 =  "$Op_path\repostchk.html"
+$htop = "D:\wkhtmltopdf\bin\wkhtmltopdf.exe"
+
+$pre_pdf = "$Op_path\$computer"+"_Pre_Check.pdf"
+$post_pdf = "$Op_path\$computer"+"_Post_Check.pdf"
+$var = '-q'; 
+
+try{
+& $htop $var $html_file1 $pre_pdf
+        sleep -seconds 5
+
+ $fname=(get-ChildItem $op_path).Name
+
+Write-Host "$CTASK_Number : PDF saved successfully to"
+    }
+    catch {
+      Write-Host "$CTASK_Number : PDF NOT saved  to"
+        
+    }
+	try{
+& $htop $var $html_file $post_pdf
+        sleep -seconds 5
+
+		Remove-Item -Path $html_file1 -Force
+		Remove-Item -Path $html_file2 -Force
+		Remove-Item -Path $html_file -Force
+
+       
+ $fname=(get-ChildItem $op_path).Name
+
+
+Write-Host "$CTASK_Number : PDF saved successfully to"
+    }
+    catch {
+      Write-Host "$CTASK_Number : PDF NOT saved  to"
+        
+    }
+
+
+Post Execution:
+
+if(Process[OpName].scriptOutput.indexOf("QEventDispatcher")>=0)
+{
+  Process.ReturnCode=2
+  //Process.data=Process[OpName].scriptOutput
+  Process.ReturnMessage = "WKHTML PDF tool is unable to create PDF."
+}
+
+else if(Process[OpName].scriptOutput.indexOf("saved successfully")>=0)
+{
+Process.ReturnCode=0
+//Process.pdf=Process.pdf_file.scriptOutput
+Process.ReturnMessage = "PDF generated successfully."
+}
+else if(Process[OpName].scriptOutput.indexOf("NOT saved")>=0)
+{
+  Process.ReturnCode=2
+  //Process.data=Process[OpName].scriptOutput
+  Process.ReturnMessage = "Failed to generate PDF file."
+}
+
+else{
+ Process.ReturnCode=2
+Process.ReturnMessage = "Error occurred while generating PDF file."
+}
+
+25.Script
+
+Inline:
+
+Param([String]$CTASK_Number)
+
+$Op_path = "D:\EBS_WIN\Windows\$CTASK_Number"
+
+try
+{
+$file=Get-ChildItem -Force -Recurse -File -Path "$Op_path" -ErrorAction stop
+
+
+if($file -like "*Post*"){
+$postfullPath = $($file.FullName -like "*Post*")
+$postfileName = $($file.Name -like "*Post*")
+$postfullPath
+$postfileName
+Write-host "Pre successfull"
+
+}else {
+write-host "Post Check PDF Report not found"
+}
+
+}
+catch
+{
+Write-Host "Some Error Occured while uploading pre and post check pdf report"
+}
+
+
+Post Execution:
+
+if(Process.Post_split.scriptOutput.indexOf("successfull")>=0)
+{
+Process.ReturnCode=0
+//Process.pdf=Process.pdf_file.scriptOutput
+Process.ReturnMessage = "PDF generated successfully"
+}
+
+
+else if(Process.Post_split.scriptOutput.indexOf("Report not found")>=0)
+{
+  Process.ReturnCode=2
+  //Process.data=Process[OpName].scriptOutput
+  Process.ReturnMessage = "PDF report not available."
+}
+else if(Process.Post_split.scriptOutput.indexOf("uploading pre and post")>=0)
+{
+  Process.ReturnCode=2
+  //Process.data=Process[OpName].scriptOutput
+  Process.ReturnMessage = "Failed to generate PDF file."
+}
+
+else{
+ Process.ReturnCode=2
+Process.ReturnMessage = "Error occurred while generating PDF file."
+}
+
+26.Script
+
+Inline:
+
+Param([String]$CTASK_Number)
+
+$Op_path = "D:\EBS_WIN\Windows\$CTASK_Number"
+
+try
+{
+$file=Get-ChildItem -Force -Recurse -File -Path "$Op_path" -ErrorAction stop
+
+
+if($file -like "*Post*"){
+$postfullPath = $($file.FullName -like "*Post*")
+$postfileName = $($file.Name -like "*Post*")
+$postfullPath
+$postfileName
+Write-host "Pre successfull"
+
+}else {
+write-host "Post Check PDF Report not found"
+}
+
+}
+catch
+{
+Write-Host "Some Error Occured while uploading pre and post check pdf report"
+}
+
+Post Execution:
+
+if(Process.Post_split.scriptOutput.indexOf("successfull")>=0)
+{
+Process.ReturnCode=0
+//Process.pdf=Process.pdf_file.scriptOutput
+Process.ReturnMessage = "PDF generated successfully"
+}
+
+
+else if(Process.Post_split.scriptOutput.indexOf("Report not found")>=0)
+{
+  Process.ReturnCode=2
+  //Process.data=Process[OpName].scriptOutput
+  Process.ReturnMessage = "PDF report not available."
+}
+else if(Process.Post_split.scriptOutput.indexOf("uploading pre and post")>=0)
+{
+  Process.ReturnCode=2
+  //Process.data=Process[OpName].scriptOutput
+  Process.ReturnMessage = "Failed to generate PDF file."
+}
+
+else{
+ Process.ReturnCode=2
+Process.ReturnMessage = "Error occurred while generating PDF file."
+}
+
+27.Ticket Update
+
+Pre Execution:
+
+//Process.dat=Process.data.split('\n')
+
+Process.value=Process.Post_split.scriptOutput.split('\n')
+Process.pdffile=Process.value[0]
+Process.fname=Process.value[1]
+
+Process.putURL= "https://"+Process.Instance+".service-now.com/api/now/attachment/file?table_name=change_task&table_sys_id="+Process.Sys_Id+"&file_name="+Process.fname
+//Process.post_putURL= "https://"+Process.Instance+".service-now.com/api/now/attachment/file?table_name=change_task&table_sys_id="+Process.Sys_Id+"&file_name="+Process.post_fname
+//Process.payload = "<request><entry><assigned_to>d2f5f34bdb5efb8036c73c9b7c961900</assigned_to><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+"</work_notes><state>2</state></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="Created" && Process[OpName].HTTPResponseStatusCode==201 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="PDF updated successfully"
+  Process.Output=Process[OpName].HTTPResponseContent
+
+}else if(Process[OpName].Reason.indexOf('non-success') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Error occurred while uploading PDF file to Service Now."
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+28.Script
+
+Inline:
+
+Param(
+[String]$Sys_id,
+[String]$Instance
+)
+$sys_id = $Sys_id
+
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls, [Net.SecurityProtocolType]::Tls11, [Net.SecurityProtocolType]::Tls12, [Net.SecurityProtocolType]::Ssl3
+[Net.ServicePointManager]::SecurityProtocol = "Tls, Tls11, Tls12, Ssl3"
+$SNOWPassword="V2!RfaRE#%4GQ*J_"
+$password = ConvertTo-SecureString $SNOWPassword -AsPlainText -Force
+$Cred = New-Object System.Management.Automation.PSCredential ("svc_itpam", $password)
+
+$actual_start_date = Get-Date
+
+$update_ctask_work_start_uri = "https://$Instance.service-now.com/api/now/table/change_task/$sys_id"
+
+$Body1 = @{
+    "work_end"="$actual_start_date"
+}
+
+$BodyJson1 = $Body1 | ConvertTo-Json
+try {
+ Invoke-WebRequest -Uri $update_ctask_work_start_uri -Body $BodyJson1 -Credential $Cred -Method "PUT" -ContentType "application/json" -UseBasicParsing -ErrorAction stop
+ Write-host "Actual Start Date updated successfully"
+} catch {
+	Write-host $_.
+	Write-host "Update Actual Start Date Service NOW API failed"
+}
+
+
+Post Execution:
+
+if(Process.End_date.scriptOutput.indexOf('failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "failed to update actual start date CTASK"
+  Process.Fail_Status_Update = "failed to update actual start date CTASK"
+  Process.post_check_dns_output = Process.End_date.scriptOutput
+}else if(Process.End_date.scriptOutput.indexOf('successfully') >= 0){
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "CTASK actual start date updated successfully."
+  Process.post_check_dns_output = Process.End_date.scriptOutput
+}else {
+	Process.ReturnCode = 2
+	Process.ReturnMessage = "Some error occurred while updating CTASK work in progress state in Service Now"
+	Process.mail_message = "Some error occurred while updating CTASK work in progress state in Service Now"
+	Process.Fail_Status_Update = "Some error occurred while updating CTASK work in progress state in Service Now"
+	Process.post_check_dns_output = Process.End_date.scriptOutput
+}
+
+
+29.Ticket Update
+
+Pre Execution:
+
+//Process.vol
+
+
+//Process.b=Process.date1.split('\n')
+//Process.date=Process.b[0]	
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/change_task/"+Process.Sys_Id
+Process.create_update = "<request><entry><state>3</state><close_notes>EBS volume created and mounted successfully</close_notes><u_close_code>successful</u_close_code><work_notes>Pre and Post evidence attached to the ticket successfully</work_notes></entry></request>"
+
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=1;
+  Process.ReturnMessage="Ticket worknotes updated successfully"
+  Process.Output=Process[OpName].HTTPResponseContent
+  
+}else if(Process[OpName].Reason.indexOf('non-success') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure updating ticket details"
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+
+Ansible Playbook
+
+ebs_windows/1
+
+ebs_linux
+
+------------------------------------------------------------------------------------------------------------------------------------------------------
+
+ebs_windows/hosts
+
+localhost
+
+--------------------------------------------------------------------------------------------------------------------------------------------------
+
+ebs_windows/vault_key
+
+ebs_linux
+
+----------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+ebs_windows/copy_file.yml
+
+---
+- name: EBS Disk Mounting
+  hosts: all
+  strategy: free
+  become_method: sudo  
+  tasks:
+    - name: creating {{ ctask_number }} directory in tmp folder
+      file:
+        path: /Linux_Qualify/{{ ctask_number }}
+        state: directory
+      become: true
+      delegate_to: localhost
+    - name: generate pdf
+      shell: cp -r /tmp/{{ ctask_number }}/*.pdf /Linux_Qualify/{{ ctask_number }}/
+      become: true      
+      register: copy_file_to_share_path
+      delegate_to: localhost
+
+
+
+---------------------------------------------------------------------------------------------------------------------------------------------------
+
+ebs_windows/ansible.cfg
+
+[defaults]
+inventory = hosts
+host_key_checking = False
+
+
+--------------------------------------------------------------------------------------------------------------------------------------------------
+
+ebs_windows/ebs_mount_mount.sh
+
+#!/bin/bash
+
+SIZE=$1
+AWS_ACC_ID=$2
+INSTANCE=$3
+REGION=$4
+
+        /usr/local/bin/turbot-aws -a $AWS_ACC_ID --role-name=admin ec2 describe-instances --instance-ids $INSTANCE --region $REGION > /dev/null 2>&1
+        if [[ "$?" != "0" ]]
+        then
+        echo Looks like you may need to fix AWS CLI permissions
+        exit
+        fi
+
+        SIZE=$1
+        if [[ $SIZE == "" ]]
+        then
+        echo Need to give a size, in GB
+        exit
+        fi
+
+        if [ "$SIZE" -eq "$SIZE" ] && [[ "$SIZE" != "0" ]] 2> /dev/null
+        then
+        echo "Input contains integer"
+        else
+        echo "Input is not a non zero integer"
+        exit
+        fi
+
+        grep -v ^# /etc/fstab | grep -v ^$ | awk '{print $2}' | grep ^${MOUNT}$ && {
+        echo Found that mount point already listed in fstab so stopping
+        exit
+                }
+CURRENTDISKS=($(lsblk -a | grep -v ^NAME | grep -v ^'├' | grep -v ^'└' | awk '{print $1}'))
+
+echo ${CURRENTDISKS[@]}
+
+# Get a list of current AWS volumes I have
+volumes=($(/usr/local/bin/turbot-aws -a ${AWS_ACC_ID} --role-name=admin ec2 describe-volumes --region ${REGION%?} --filters "Name=attachment.instance-id,Values=$INSTANCE" | grep \"Device\"\:  | awk '{print $2}' | sed 's/[",]//g'))
+
+echo ${volumes[*]}
+for newdiskname in f g h i j k l m n o p q r s t u v w x y z
+do
+if [[ " ${volumes[*]} " =~ " /dev/sd${newdiskname} " ]];
+then
+echo /dev/sd${newdiskname} is already attached to this instance.
+else
+break
+fi
+done
+
+echo /dev/sd${newdiskname} is available for use.
+
+VOLUME=$(/usr/local/bin/turbot-aws -a ${AWS_ACC_ID} --role-name=admin ec2 create-volume --region ${REGION%?} --encrypted --availability-zone ${REGION} --size ${SIZE} --volume-type gp3 --tag-specifications "ResourceType=volume,Tags=[{Key=Name,Value=${newdiskname}}]" | grep \"VolumeId\"\:  | awk '{print $2}' | sed 's/[",]//g')
+
+echo $VOLUME
+# If after waiting we still dont see any new device, we need to exit
+if [[ "${VOLUME}" == "" ]]
+then
+echo New volume not created
+exit
+else
+echo Volume created successfully
+fi
+
+# Lets wait for that to finish before moving on
+/usr/local/bin/turbot-aws -a ${AWS_ACC_ID} --role-name=admin ec2 wait volume-available --volume-ids ${VOLUME} --region ${REGION%?}
+
+# Now attach the new volume to me
+/usr/local/bin/turbot-aws -a ${AWS_ACC_ID} --role-name=admin ec2 attach-volume --volume-id ${VOLUME} --device /dev/sd${newdiskname} --instance-id ${INSTANCE} --region ${REGION%?} > /dev/null 2>&1
+        if [[ "$?" != "0" ]]
+        then
+        echo Volume not attached
+        exit
+        else
+        echo Volume attached successfully
+        fi
+echo VolID:$VOLUME
+
+# # Lets wait for that to finish before moving on
+# /usr/local/bin/turbot-aws -a ${AWS_ACC_ID} ec2 wait volume-in-use --volume-ids ${VOLUME}
+# for count in {1..30}
+# do
+# NEWDISKS=($(lsblk -a | grep -v ^NAME | grep -v ^'├' | grep -v ^'└' | awk '{print $1}'))
+# echo ${NEWDSISKS[@]}
+# if [[ "${NEWDISKS[@]}" ==  "${CURRENTDISKS[@]}" ]]
+# then
+# echo sleeping for 1 second
+# sleep 1
+# else
+# break
+# fi
+# done
+
+----------------------------------------------------------------------------------------------------------------------------------------------------
+
+ebs_windows/maiin.yml
+
+---
+- name : EBS Disk Mounting
+  hosts: localhost
+  gather_facts: no
+  become_method : sudo
+  become_user : root
+  #transport: ansible_winrm
+  connection: local
+  vars:
+    new_disk_names: [f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z]
+    share_path: /Linux_Val/WIN_EBS/CTASKNUMBER
+    target_host: "{{ target_host }}"
+    remote_path: /tmp/{{ ctask_number }}
+    role: ia-role
+  tasks:
+    - debug:
+        msg: "{{ target_host }}"
+    - name: Get account id
+      set_fact:
+        aws_environment: "{{ env[0] }}"
+        aws_account_name: "{{ acc_name }}"
+      delegate_to: localhost
+      tags: aws_account_types
+      delegate_to: localhost
+      tags: aws_account_types
+    - debug:
+        msg: "Instance ID: {{ ins }}"
+      delegate_to: localhost
+      tags: get_vars_files
+    - debug:
+        msg: "Disk Size: {{ disk_size }}"
+      delegate_to: localhost
+      tags: get_vars_files
+
+
+    - name: Run Kion Stak command to get the access key and secret key
+      command: kion --profile nonprod stak --l {{ aws_account_name }} --car {{ role }} -p
+      register: non_prod_stak_output
+      when: env != "P"
+
+    - debug:
+        msg: "{{ non_prod_stak_output }}"  
+      when: env != "P"   
+    
+    - name: Run Kion Stak command to get the access key and secret key
+      command: kion --profile prod stak --l {{ aws_account_name }} --car {{ role }} -p
+      register: prod_stak_output
+      when: env == "P"
+
+    - debug:
+        msg: "{{ prod_stak_output }}" 
+      when: env == "P"  
+
+    - name: setting up the variables of non Prod access key and secret key
+      set_fact:
+        AWS_ACCESS_KEY_ID: "{{ non_prod_stak_output.stdout_lines[0].split('export AWS_ACCESS_KEY_ID=')[1] }}"
+        AWS_SECRET_ACCESS_KEY: "{{ non_prod_stak_output.stdout_lines[1].split('export AWS_SECRET_ACCESS_KEY=')[1] }}"
+        AWS_SESSION_TOKEN: "{{ non_prod_stak_output.stdout_lines[2].split('export AWS_SESSION_TOKEN=')[1] }}"
+      when: env != "P"
+
+    - name: setting up the variables of Prod access key and secret key
+      set_fact:
+        AWS_ACCESS_KEY_ID: "{{ prod_stak_output.stdout_lines[0].split('export AWS_ACCESS_KEY_ID=')[1] }}"
+        AWS_SECRET_ACCESS_KEY: "{{ prod_stak_output.stdout_lines[1].split('export AWS_SECRET_ACCESS_KEY=')[1] }}"
+        AWS_SESSION_TOKEN: "{{ prod_stak_output.stdout_lines[2].split('export AWS_SESSION_TOKEN=')[1] }}"
+      when: env == "P"  
+
+    - name: Configure AWS CLI with Access Key and Secret Key
+      shell: |
+        aws configure set aws_access_key_id {{ AWS_ACCESS_KEY_ID }}
+        aws configure set aws_secret_access_key {{ AWS_SECRET_ACCESS_KEY }}
+        aws configure set aws_session_token {{ AWS_SESSION_TOKEN }}
+        aws configure set region {{ az }}
+      register: set_aws_configure  
+
+
+    # Setting variable for region
+    - name: remove last letter from az variable
+      set_fact:
+        region: "{{ az[:-1] }}" 
+
+    - debug:
+        msg: "region: {{ region }}"    
+    
+    # Checking EC2 instance status
+    - name: Checking instance is running or not
+      command: aws ec2 describe-instances --instance-ids {{ ins }} --region {{ region }} --output text --query 'Reservations[*].Instances[*].State.Name'
+      register: check_ins_status
+      delegate_to: localhost
+
+    - debug:
+        msg: "{{ check_ins_status }}"    
+
+    - set_fact:
+        ins_state: "{{ check_ins_status.stdout }}"  
+      # when: ins_state == "running"   
+
+    - debug:
+        msg: "{{ check_ins_status.stdout }}" 
+      when: ins_state == "running"     
+
+    - fail:
+        msg: Stopping the process since EC2 is not in the running state
+      when: ins_state != "running"
+
+    # Checking disk size input is integer or non zero integer
+    - name: Checking disk size input contains integer or not
+      debug:
+        msg: "Disk size contains integer {{ disk_size }}"
+      when: disk_size != 0   
+
+    - fail:
+        msg: "Disk size contains not a non zero integer {{ disk_size }}"
+      when: disk_size == 0 
+
+
+    # Checking EBS volume on the target server 
+    - name: Displaying an existing EBS volume in the target server
+      shell: "aws ec2 describe-volumes --region {{ region }} --filters Name=attachment.instance-id,Values={{ ins }} --query 'Volumes[].Attachments[].Device'"
+      delegate_to: localhost
+      register: ebs_volume_info
+
+    - name: Existing EBS volumes of target server
+      set_fact:
+        volumes: "{{ ebs_volume_info.stdout_lines | join('') }}"    
+      
+    - name: Listing existing volumes of target server
+      debug:
+        msg: "{{ volumes }}"    
+
+    - name: Check attached volumes in target server
+      debug:
+        msg: "Volume /dev/sd{{ item }} is already attached"
+      loop: "{{ new_disk_names }}"
+      when: "'/dev/sd{{ item }}' in volumes"
+      register: attached_disk
+
+    - name: Check for available volumes to create EBS 
+      debug:
+        msg: "Volume /dev/sd{{ item }} is available for creation"
+      loop: "{{ new_disk_names }}"
+      when: "'/dev/sd{{ item }}' not in volumes"
+      register: available_disk
+
+    - name: storing attached volumes
+      set_fact:
+        attached_disk: "Volume /dev/sd{{ item }} is already attached"
+      loop: "{{ new_disk_names }}"
+      when: "'/dev/sd{{ item }}' in volumes"
+      # register: attached_disks
+
+    - name: Storing available volumes
+      set_fact:
+        available_disk: "Volume /dev/sd{{ item }} is available for creation"
+      loop: "{{ new_disk_names }}"
+      when: "'/dev/sd{{ item }}' not in volumes"
+      # register: available_disks
+   
+    - name: Check for first available disks to create EBS volume
+      set_fact:
+        first_available_disk: "/dev/sd{{ item }}"
+      loop: "{{ new_disk_names }}"
+      when: "'/dev/sd{{ item }}' not in volumes and first_available_disk is not defined"
+
+    - name: Displaying attahced volume
+      debug:
+        msg: "{{ attached_disk }}"   
+
+    - name: Displaying first available volume to create EBS
+      debug:
+        msg: "{{ first_available_disk }}"  
+
+    # Create a new EBS volume
+    - name: Creating a new EBS volume with the name of {{ first_available_disk }}
+      command: aws ec2 create-volume --region {{ region }} --encrypted --availability-zone {{ az }} --size {{ disk_size }} --volume-type gp3 --tag-specifications "ResourceType=volume,Tags=[{Key=Name,Value={{ first_available_disk }}}]" --query VolumeId --output text  
+      register: create_ebs_volume
+      delegate_to: localhost
+
+    - debug:
+        msg: "{{ create_ebs_volume }}" 
+      when: create_ebs_volume.stderr == ""    
+
+    - name: Storing volume ID after creating EBS volume
+      set_fact:
+        volume_id: "{{ create_ebs_volume.stdout }}" 
+      when: create_ebs_volume.stderr == "" 
+
+    - vars:
+        msg: |
+             Volume created successfully 
+             EBS volume {{ first_available_disk }} created successfully. 
+             Volume ID: {{ volume_id }}
+      debug:
+        msg: "{{ msg.split('\n') }}"       
+      when: create_ebs_volume.stderr == ""
+  
+    # Wait until EBS volume status changed as available
+    - name: Wait until EBS status changed as available
+      command: aws ec2 wait volume-available --volume-ids {{ volume_id }} --region {{ region }}
+      register: wait_volume_create
+      delegate_to: localhost  
+
+    - debug:
+        msg: "EBS Volume {{ first_available_disk }} state changed as available"
+      when: wait_volume_create.stderr == ""  
+    
+    # Attach volume to EC2  
+    - name: Attaching an EBS volume to the EC2 instance
+      command: aws ec2 attach-volume --volume-id {{ volume_id }} --device {{ first_available_disk}} --instance-id {{ ins }} --region {{ region }}
+      register: attach_volume_to_ec2
+      delegate_to: localhost
+
+    - debug:
+        msg: "{{ attach_volume_to_ec2 }}" 
+      when: attach_volume_to_ec2.stderr == "" 
+
+    - debug:
+        msg: "Volume attached successfully"
+      when: attach_volume_to_ec2.stderr == ""
+
+    # Wait until volume state changes as in use
+    - name: Wait until volume state changes as volume-in-use
+      command: aws ec2 wait volume-in-use --volume-ids {{ volume_id }} --region {{ region }}
+      register: wait_volume_in_use
+      delegate_to: localhost    
+
+    - debug: 
+        msg: EBS volume {{ first_available_disk }} state changed as volume-in-use  
+      when: wait_volume_in_use.stderr == "" 
+
+    # creating destination folder with ctask number
+    - name: creating {{ ctask_number }} directory in Shared path
+      file:
+        path: "{{ share_path }}/EBS/{{ ctask_number }}"
+        state: directory
+        mode: 0777
+      become: true
+      delegate_to: localhost
+      tags: pre_check   
+      
+    - name: creating {{ ctask_number }} directory in tmp folder
+      file:
+        path: "{{ remote_path }}"
+        state: directory
+        mode: 0777
+      become: true
+      delegate_to: "{{ target_host }}"    
+
+    # Copying the pre and post SHELL SCRIPT in target server
+    - name: Copying pre and post Shell Script to the target server
+      become: true
+      copy:
+        src: "/home/svc-linux-snow/ebs_windows/{{ item }}"
+        dest: "{{ remote_path }}/{{item}}"
+        mode: 0777
+        owner: svc-linux-snow
+        
+      with_items:
+        - pre_check_report.sh
+        - post_check_report.sh
+      register: copy_status
+      delegate_to: "{{ target_host }}" 
+    - debug:
+        msg: "{{ copy_status }}"
+      # when: copy_status.changed == true
+
+    - debug:
+        msg: "Pre and Post shell script successfully copied on the target server"
+      when: copy_status.changed == true
+    # - fail:
+    #     msg: "Failed to copy Pre and Post shell script in target server"
+    #   when: copy_status.changed != true
+
+    - name: check pre and post shell script exists in target server
+      stat:
+        path: "{{ remote_path }}/{{item}}"
+      with_items:
+        - pre_check_report.sh
+        - post_check_report.sh
+      register: check_copy_status
+      delegate_to: "{{ target_host }}"
+      tags: file_copy
+    - debug:
+        msg: "Pre and Post File copied successfully"
+      when: item.stat.exists == true
+      with_items: "{{ check_copy_status.results}}"
+      tags: file_copy
+    - debug:
+        msg: "Pre and Post File copy failed"
+      when: item.stat.exists == false
+      with_items: "{{ check_copy_status.results}}"
+      tags: file_copy  
+ 
+    # Generating pre check html report
+    - name: Generate the pre check html report
+      shell: sh {{ remote_path }}/pre_check_report.sh {{ remote_path }}
+      register: pre_check_report
+      become: true
+      delegate_to: "{{ target_host }}"
+      tags: pre_check
+    - debug:
+        msg: "Pre Check Report executed successfully"
+      when: "pre_check_report.rc == 0"
+      delegate_to: localhost
+      tags: pre_check
+    - debug:
+        msg: "Pre Check Report execution failed"
+      when: "pre_check_report.rc != 0"
+      tags: pre_check
+ 
+
+    # fetch pre check html report
+    - name: fetching pre check report from remote server
+      fetch:
+        src: "{{ remote_path }}/pre_check_report.html"
+        dest:  "{{ share_path }}/pre_check_report.html"
+        flat: yes
+      register: fetch_pre_check_report
+      ignore_errors: yes
+      become: true
+      delegate_to: "{{ target_host }}"
+      tags: pre_check
+    - fail:
+        msg: "Pre check report fetch failed"
+      when: "fetch_pre_check_report.failed == true"
+      tags: pre_check 
+
+
+    - debug:
+        msg: "Successfully Fetched Pre Check HTML Report"
+      when: "fetch_pre_check_report.failed == false"  
+    - fail:
+        msg: "Pre check report fetch failed"
+      when: "fetch_pre_check_report.failed == true"
+      tags: pre_check  
+
+  # fetch post check html report
+    - name: fetching post check report from remote server
+      fetch:
+        src: "{{ remote_path }}/post_check_report.html"
+        dest:  "{{ share_path }}/post_check_report.html"
+        flat: yes
+      ignore_errors: yes
+      become: true
+      register: fetch_post_check_report
+      delegate_to: "{{ target_host }}"
+      tags: post_check  
+    - debug:
+        msg: "Successfully Fetched Post Check HTML Report"
+      when: "fetch_post_check_report.failed == false"
+    - fail:
+        msg: "Fetch Post Check HTML Report Failed"
+      when: "fetch_post_check_report.failed == true"
+      tags: post_check  
+
+  
+    # Generating pre check report pdf
+    - name: Generate report to post check pdf format
+      shell: /usr/local/bin/wkhtmltopdf {{ share_path }}/pre_check_report.html {{ share_path }}/pre_check_ebs_disk_mount.pdf
+      become: true
+      register: pre_check_pdf_report
+      delegate_to: localhost
+      no_log: true
+      tags: pdf_report
+    - debug:
+        msg: "Pre check PDF report successfully generated"
+      when: "pre_check_pdf_report.rc == 0" 
+    - fail:
+        msg: "Generating Pre Check PDF Report Failed"
+      when: "pre_check_pdf_report.rc != 0"
+
+    # Generating post check report pdf
+    - name: Generate report to pre check pdf format
+      shell: /usr/local/bin/wkhtmltopdf  {{ share_path }}/post_check_report.html {{ share_path }}/post_check_ebs_disk_mount.pdf
+      become: true
+      register: post_check_pdf_report
+      delegate_to: localhost
+      no_log: true
+      tags: pdf_report
+    - debug:
+        msg: "Post check PDF report successfully generated"
+      when: "post_check_pdf_report.rc == 0"   
+    - fail:
+        msg: "Generating Post Check PDF Report Failed"
+      when: "post_check_pdf_report.rc != 0"
+
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+
+ebs_windows/main.yml
+
+---
+- name: EBS Disk Mounting
+  hosts: localhost
+  gather_facts: no
+  become_method: sudo
+  become_user: root
+  # transport: ansible_winrm
+  connection: local
+  vars:
+    new_disk_names: [f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z]
+    share_path: /Linux_Prod/EBS_Windows/{{ ctask_number }}
+    role: ia-role
+  tasks:
+    - debug:
+        msg: "{{ target_host }}"
+    - name: Get account id
+      set_fact:
+        aws_environment: "{{ env[0] }}"
+        aws_account_name: "{{ acc_name }}"
+      delegate_to: localhost
+      tags: aws_account_types
+      delegate_to: localhost
+      tags: aws_account_types
+    - debug:
+        msg: "Instance ID: {{ ins }}"
+      delegate_to: localhost
+      tags: get_vars_files
+    - debug:
+        msg: "Disk Size: {{ disk_size }}"
+      delegate_to: localhost
+      tags: get_vars_files
+
+
+    - name: Run Kion Stak command to get the access key and secret key
+      command: kion --profile nonprod stak --l {{ aws_account_name }} --car {{ role }} -p
+      register: non_prod_stak_output
+      when: aws_environment != "P"
+
+    - debug:
+        msg: "{{ non_prod_stak_output }}"  
+      when: aws_environment != "P"   
+    
+    - name: Run Kion Stak command to get the access key and secret key
+      command: kion --profile prod stak --l {{ aws_account_name }} --car {{ role }} -p
+      register: prod_stak_output
+      when: aws_environment == "P"
+
+    - debug:
+        msg: "{{ prod_stak_output }}" 
+      when: aws_environment == "P"  
+
+    - name: setting up the variables of non Prod access key and secret key
+      set_fact:
+        AWS_ACCESS_KEY_ID: "{{ non_prod_stak_output.stdout_lines[0].split('export AWS_ACCESS_KEY_ID=')[1] }}"
+        AWS_SECRET_ACCESS_KEY: "{{ non_prod_stak_output.stdout_lines[1].split('export AWS_SECRET_ACCESS_KEY=')[1] }}"
+        AWS_SESSION_TOKEN: "{{ non_prod_stak_output.stdout_lines[2].split('export AWS_SESSION_TOKEN=')[1] }}"
+      when: aws_environment != "P"
+
+    - name: setting up the variables of Prod access key and secret key
+      set_fact:
+        AWS_ACCESS_KEY_ID: "{{ prod_stak_output.stdout_lines[0].split('export AWS_ACCESS_KEY_ID=')[1] }}"
+        AWS_SECRET_ACCESS_KEY: "{{ prod_stak_output.stdout_lines[1].split('export AWS_SECRET_ACCESS_KEY=')[1] }}"
+        AWS_SESSION_TOKEN: "{{ prod_stak_output.stdout_lines[2].split('export AWS_SESSION_TOKEN=')[1] }}"
+      when: aws_environment == "P"  
+
+    - name: Configure AWS CLI with Access Key and Secret Key
+      shell: |
+        aws configure set aws_access_key_id {{ AWS_ACCESS_KEY_ID }}
+        aws configure set aws_secret_access_key {{ AWS_SECRET_ACCESS_KEY }}
+        aws configure set aws_session_token {{ AWS_SESSION_TOKEN }}
+        aws configure set region {{ az }}
+      register: set_aws_configure  
+
+
+    # Setting variable for region
+    - name: remove last letter from az variable
+      set_fact:
+        region: "{{ az[:-1] }}" 
+
+    - debug:
+        msg: "region: {{ region }}"    
+    
+    # Checking EC2 instance status
+    - name: Checking instance is running or not
+      command: aws ec2 describe-instances --instance-ids {{ ins }} --region {{ region }} --output text --query 'Reservations[*].Instances[*].State.Name'
+      register: check_ins_status
+      delegate_to: localhost
+
+    - debug:
+        msg: "{{ check_ins_status }}"    
+
+    - set_fact:
+        ins_state: "{{ check_ins_status.stdout }}"  
+      # when: ins_state == "running"   
+
+    - debug:
+        msg: "{{ check_ins_status.stdout }}" 
+      when: ins_state == "running"     
+
+    - fail:
+        msg: Stopping the process since EC2 is not in the running state
+      when: ins_state != "running"
+
+    # Checking disk size input is integer or non zero integer
+    - name: Checking disk size input contains integer or not
+      debug:
+        msg: "Disk size contains integer {{ disk_size }}"
+      when: disk_size != 0   
+
+    - fail:
+        msg: "Disk size contains not a non zero integer {{ disk_size }}"
+      when: disk_size == 0 
+
+
+    # Checking EBS volume on the target server 
+    - name: Displaying an existing EBS volume in the target server
+      shell: "aws ec2 describe-volumes --region {{ region }} --filters Name=attachment.instance-id,Values={{ ins }} --query 'Volumes[].Attachments[].Device'"
+      delegate_to: localhost
+      register: ebs_volume_info
+
+    - name: Existing EBS volumes of target server
+      set_fact:
+        volumes: "{{ ebs_volume_info.stdout_lines | join('') }}"    
+      
+    - name: Listing existing volumes of target server
+      debug:
+        msg: "{{ volumes }}"    
+
+    - name: Check attached volumes in target server
+      debug:
+        msg: "Volume /dev/sd{{ item }} is already attached"
+      loop: "{{ new_disk_names }}"
+      when: "'/dev/sd{{ item }}' in volumes"
+      register: attached_disk
+
+    - name: Check for available volumes to create EBS 
+      debug:
+        msg: "Volume /dev/sd{{ item }} is available for creation"
+      loop: "{{ new_disk_names }}"
+      when: "'/dev/sd{{ item }}' not in volumes"
+      register: available_disk
+
+    - name: storing attached volumes
+      set_fact:
+        attached_disk: "Volume /dev/sd{{ item }} is already attached"
+      loop: "{{ new_disk_names }}"
+      when: "'/dev/sd{{ item }}' in volumes"
+      # register: attached_disks
+
+    - name: Storing available volumes
+      set_fact:
+        available_disk: "Volume /dev/sd{{ item }} is available for creation"
+      loop: "{{ new_disk_names }}"
+      when: "'/dev/sd{{ item }}' not in volumes"
+      # register: available_disks
+   
+    - name: Check for first available disks to create EBS volume
+      set_fact:
+        first_available_disk: "/dev/sd{{ item }}"
+      loop: "{{ new_disk_names }}"
+      when: "'/dev/sd{{ item }}' not in volumes and first_available_disk is not defined"
+
+    - name: Displaying attahced volume
+      debug:
+        msg: "{{ attached_disk }}"   
+
+    - name: Displaying first available volume to create EBS
+      debug:
+        msg: "{{ first_available_disk }}"  
+
+
+    # Create a new EBS volume
+    - name: Creating a new EBS volume with the name of {{ first_available_disk }}
+      command: aws ec2 create-volume --region {{ region }} --encrypted --availability-zone {{ az }} --size {{ disk_size }} --volume-type gp3 --tag-specifications "ResourceType=volume,Tags=[{Key=Name,Value={{ first_available_disk }}}]" --query VolumeId --output text  
+      register: create_ebs_volume
+      delegate_to: localhost
+
+    - debug:
+        msg: "{{ create_ebs_volume }}" 
+      when: create_ebs_volume.stderr == ""    
+
+    - name: Storing volume ID after creating EBS volume
+      set_fact:
+        volume_id: "{{ create_ebs_volume.stdout }}" 
+      when: create_ebs_volume.stderr == "" 
+
+
+    - name: Storing volume ID after creating EBS volume
+      set_fact:
+        VolID: "{{ create_ebs_volume.stdout }}" 
+      when: create_ebs_volume.stderr == ""   
+
+    - name: Displaying volume ID after creating EBS volume
+      debug:
+        msg: "VolID: {{ create_ebs_volume.stdout }}" 
+      when: create_ebs_volume.stderr == ""    
+
+    - vars:
+        msg: |
+             Volume created successfully 
+             EBS volume created successfully - {{ first_available_disk }}. 
+             Volume ID: {{ volume_id }}
+      debug:
+        msg: "{{ msg.split('\n') }}"       
+      when: create_ebs_volume.stderr == ""
+  
+    # Wait until EBS volume status changed as available
+    - name: Wait until EBS status changed as available
+      command: aws ec2 wait volume-available --volume-ids {{ volume_id }} --region {{ region }}
+      register: wait_volume_create
+      delegate_to: localhost  
+
+    - debug:
+        msg: "EBS Volume {{ first_available_disk }} state changed as available"
+      when: wait_volume_create.stderr == ""  
+
+    - debug:
+        msg: "EBS Volume state changed as available - {{ first_available_disk }}"
+      when: wait_volume_create.stderr == ""    
+    
+    # Attach volume to EC2  
+    - name: Attaching an EBS volume to the EC2 instance
+      command: aws ec2 attach-volume --volume-id {{ volume_id }} --device {{ first_available_disk}} --instance-id {{ ins }} --region {{ region }}
+      register: attach_volume_to_ec2
+      delegate_to: localhost
+
+    - debug:
+        msg: "{{ attach_volume_to_ec2 }}" 
+      when: attach_volume_to_ec2.stderr == "" 
+
+    - debug:
+        msg: "Volume attached successfully"
+      when: attach_volume_to_ec2.stderr == ""
+
+    - debug:
+        msg: "EBS volume attached successfully to EC2"
+      when: attach_volume_to_ec2.stderr == ""    
+
+    # Wait until volume state changes as in use
+    - name: Wait until volume state changes as volume-in-use
+      command: aws ec2 wait volume-in-use --volume-ids {{ volume_id }} --region {{ region }}
+      register: wait_volume_in_use
+      delegate_to: localhost    
+
+    - debug: 
+        msg: EBS volume {{ first_available_disk }} state changed as volume-in-use  
+      when: wait_volume_in_use.stderr == "" 
+
+    - debug: 
+        msg: EBS volume state changed as volume-in-use  
+      when: wait_volume_in_use.stderr == ""     
+
+    # creating destination folder with ctask number
+    - name: creating {{ ctask_number }} directory in Shared path
+      file:
+        path: "{{ share_path }}"
+        state: directory
+      become: true
+      register: create_dir_ctask
+      delegate_to: localhost
+      tags: pre_check   
+
+    - debug:
+        msg: "ctask number is successfully created in the share path"
+      when: create_dir_ctask.changed == true
+
+    - name: Displaying volume ID which is attached 
+      debug:
+        msg: "Volume-ID: {{ VolID }}"
+ 
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+
+ebs_windows/non_prod.yml
+
+---
+turbot_access_key_id: "7dfb81d6-381e-4707-8e13-a40cc67bca7b"
+turbot_secret_access_key: "0c579b84-3172-45bf-a19e-1dc36e85a9be"
+...
+
+----------------------------------------------------------------------------------------------------------------------------------------------------
+
+ebs_windows/pre_check_report.yml
+
+#!/bin/sh
+remote_path=$1
+MNT_POINT=$2
+MOUNT_POINT=`df -Ph | grep -i "${MNT_POINT}" | awk -F' ' '{print $6}'`
+
+echo $MOUNT_POINT
+#---create report
+(
+echo '<HTML><HEAD><TITLE>EBS DISK MOUNT</TITLE></HEAD><BODY>'
+
+echo ' <h1><b>
+            <center>EBS DISK MOUNT</center>
+        </b></h1>
+    <table width=100% border=1>'
+echo ' <tr> <br> </tr>
+        <tr>
+            <th class="label" colspan=2> Server Baseline Information </th>
+        </tr>
+        <tr>
+            <td><b> Host Name </b></td>
+            <td>'$(uname -n)'</td>
+        </tr>       
+        <tr>
+            <td><b> Server Platform </b></td>
+            <td>'$(hostnamectl | grep Kernel | awk -F ':' '{print $2}')'</td>
+        </tr>           
+        <tr>
+            <td><b> Report Date and Time </b></td>
+            <td>'$(date '+%d%b%Y %H%M | %Z')' </td>
+        </tr>
+    </table><BR /><BR />'
+echo '<table width=100% border=1><TR><TH>Filesystem</TH><TH>1048576-blocks</TH>'
+echo '<TH>Mounted On</TH></TR><tbody>'
+
+df -Ph |awk 'NR>1 && NF==6'|sort|while read FS SIZE USED FREE PERC MOUNT
+do
+PERCENT=${PERC%%%}
+echo '<TR><TD>'$FS'</TD><TD ALIGN=RIGHT>'$SIZE'</TD>'
+#echo '<TD>'
+# echo '<TD WIDTH='$((2 * $PERCENT))'"></TD>'
+# echo '<TD WIDTH='$((2 * (100 - $PERCENT)))'></TD>'
+#echo '<TD>'$PERC'</FONT></TD>'
+if [ -z "$MOUNT_POINT" ];
+then
+    echo '<TD>'$MOUNT'</TD></TR>'
+else 
+    if [ "$MOUNT_POINT" = "$MOUNT" ];
+    then
+        echo '<TD style="font-weight: bold;color: #20A608;">'$MOUNT'</TD></TR>'
+    else 
+        echo '<TD>'$MOUNT'</TD></TR>'
+fi
+fi
+
+done
+echo '</tbody></TABLE><center><b>**Note: The Drive marked in Green is the newly mounted Drive.</b></center></BODY></HTML>'
+) > $remote_path/post_check_report.html
+
+#/Linux_Qualify/EBS_Linux/$CTASK_NUMBER/post_check_report.html
+
+---------------------------------------------------------------------------------------------------------------------------------------------------
+
+ebs_windows/prod.yml
+
+---
+turbot_access_key_id: "5a7e15f1-5022-4d2e-b8f7-5643794aa4dd"
+turbot_secret_access_key: "a5ce9318-9fac-4850-9d99-dc988ef7dca0"
+...

@@ -1,0 +1,631 @@
+1. Get Ticket
+
+Pre Execution:
+
+Process.RunbookName = Process.InstanceName
+Process.RunbookID = Process.RuntimeROID
+var uri="https://"+Process.Instance+".service-now.com/api/now/table/task?sysparm_fields=number%2Cactive%2Csys_id%2Cincident_state%2Cdescription%2Cu_document_results%2Cassigned_to=SVC-itpam@biogen.com&sysparm_limit=1&number="+Process.CTASK_Number
+Process.url=uri
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  	Process.ReturnCode=0;
+	Process.ReturnMessage="Ticket details fetched successfully."
+   Process.Output=Process[OpName].HTTPResponseContent
+} 
+else if(Process[OpName].Reason.indexOf('non-success') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent  
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent
+
+}
+else
+{
+  	Process.ReturnCode=2;
+  	Process.ReturnMessage="Failure fetching ticket details."
+
+}
+
+
+2. Second Operator (Read)
+
+Inline:
+
+var str =Process.Output
+var start=str.indexOf('[')+2;
+var end=str.indexOf(']')-1;
+var res = str.substring(start,end);
+var out1= res.split(',');
+for(var i=0;i < out1.length;i++)
+{
+  out1[i]=out1[i].replace(/\"/g,"");
+  if(out1[i].indexOf('active')>=0)
+  {Process.active=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('sys_id')>=0)
+  {Process.Sys_Id=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('description')>=0)
+  {Process.description=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('incident_state')>=0)
+  {Process.Incidentstate=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('u_document_results')>=0)
+  {Process.document_results=(out1[i].split(':'))[1]}
+  out1[i]=(out1[i].split(':'))[1]
+}
+
+Post Execution:
+
+if(Process.active)
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket is active.";
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Ticket is inactive.";
+}
+
+3.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/change_task/"+Process.Sys_Id
+Process.updateWorkNotes = "<request><entry><state>2</state><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+" </work_notes></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket worknotes updated successfully."
+
+}
+else if(Process[OpName].Reason.indexOf('non-success') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else
+{
+    Process.ReturnCode=2;
+    Process.ReturnMessage="Failure updating ticket details."
+
+}
+
+4.Script
+
+Inline:
+
+Param(
+$Number,
+$snowkey,
+$SNOWPassword,
+$username1,
+$password,
+$snowp,
+$snowpa,
+$SNOW_Env,
+$RuntimeROID,
+$NetappCluster,
+$servers,
+$vserver,
+$volume,
+$size,
+$inc_sysid
+)
+$Number,
+$snowkey,
+#$SNOWPassword,
+$username1,
+#$password,
+#$snowp,
+#$snowpa,
+$SNOW_Env,
+$RuntimeROID,
+$NetappCluster,
+$servers,
+$vserver,
+$volume,
+$size
+$inc_sysid
+
+$table = "change_task"
+$script_name = "LUN_Expansion"
+$post_evidence = @()
+$log = @()
+
+$path = "D:\Storage\$script_name\$Number"
+$log_path = "$path\Logs"
+$wkhtmltopdf = "D:\wkhtmltopdf\bin\wkhtmltopdf.exe"
+#"D:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe"
+$var = "-q"
+$pre_html = "$path\Evidence\Pre_check.html"
+$pre_pdf = "$path\Evidence\Pre_check.pdf"
+$post_html = "$path\Evidence\Post_check.html"
+$post_pdf = "$path\Evidence\Post_check.pdf"
+$storage_sysID = "6e7f87abdb07d3809d6b58eadc9619ad"
+
+$pwd = $password | ConvertTo-SecureString -AsPlainText -Force
+$cred = New-Object pscredential -ArgumentList ($username1 , $pwd)
+$keyfile  = "D:\ssh.key"
+$snowpass = "$snowpa"+"#%4"+$snowp+"_"
+$routed=$null
+
+$snowpass
+
+$log += "-----------------"
+$log += "Service Account used for execution is Svc-linux-snow"
+
+
+Try
+{
+    Import-Module "D:\Wave 1 Scripts\Biogen_Module\Biogen_Module.psm1"
+}
+catch
+{
+	Write-Host "Failed to import module"
+    End-log -logcontent $log -logpath $log_path
+    Exit
+}
+
+
+function timestamp{
+    Get-Date -Format "dd_MMM_yyyy_HH:mm:ss tt"
+}
+
+$filePaths = "$path\Logs", "$path\Command_Output", "$path\Evidence"
+foreach($filePath in $filePaths)
+{
+    If(!(test-path $filePath))
+    {
+          New-Item -ItemType Directory -Force -Path $filePath 
+    }
+}
+
+$log += "Script Execution Started at $(timestamp)"
+
+try
+{
+    [Net.ServicePointManager]::SecurityProtocol = "tls12, tls11, tls"
+    $global:headers = @{"Authorization" = "Basic "+[System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($snowkey+":"+$snowpass))}
+    [Net.ServicePointManager]::SecurityProtocol = "tls12, tls11, tls"
+    $get_inc = "https://$SNOW_Env.service-now.com/api/now/v2/table/change_task?number=$Number"
+    $inc_result = Invoke-WebRequest -Uri $get_inc -Headers $global:headers -Method Get -ContentType "application/json" -UseBasicParsing
+    $incout = $inc_result | ConvertFrom-JSON
+    $inc_sysid = $incout.result.sys_id
+    $execution_notes = $incout.result.u_execution_notes
+    $inc_sysid = $incout.result.sys_id
+    #$execution_notes    
+    $inc_sysid
+    $log += "Sys ID of the Ticket is $inc_sysid"
+
+}
+catch
+{
+    Write-Host "Failed to fetch Ticket details"
+    $log += "Failed to fetch Ticket details"
+    End-log -logcontent $log -logpath $log_path
+    Exit
+}
+
+Try
+{
+    Update-Start -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -table $table
+}
+catch
+{
+	Write-Host "Failed to update start"
+    $log += "Failed to update start"
+    try{Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass  -work_notes "Failed to update start" -table $table -asign_grp $storage_sysID}
+    catch{Write-Host "Failed to Route Ticket"; End-log -logcontent $log -logpath $log_path; Exit}
+    End-log -logcontent $log -logpath $log_path
+    Exit
+}
+
+#Main
+try
+{
+    if($error)
+    {
+        $error.Clear()
+    }
+    
+    New-SSHSession -Computer $servers -Credential $cred -AcceptKey #-Keyfile $keyfile
+    
+    if($error)
+    {
+        Write-Host "Failed to establish connection with $servers"
+        $log += "Failed to establish connection with $servers"
+        try{Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Failed to establish connection with $server" -table $table -asign_grp $storage_sysID}
+        catch{Write-Host "Failed to Route Ticket"; End-log -logcontent $log -logpath $log_path; Exit}
+        End-log -logcontent $log -logpath $log_path
+        Exit
+    }
+    
+    $session = (Get-SSHSession).SessionId
+    Write-Host "Session Established Successfully with $servers" -ForegroundColor Green        
+    $log += "Session Established Successfully with $servers"
+    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Session Established Successfully with $servers" -table $table
+}
+catch
+{
+    Write-Host "Failed to establish connection with $servers"
+    $log += "Failed to establish connection with $servers"
+    try{Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Failed to establish connection with $server" -table $table -asign_grp $storage_sysID}
+    catch{Write-Host "Failed to Route Ticket"; End-log -logcontent $log -logpath $log_path; Exit}
+    End-log -logcontent $log -logpath $log_path
+    Exit
+}
+
+#Run below command to check the available space on aggregate.
+$log += "Running command to check available space on aggregate"
+#$command = Invoke-SSHCommand -SessionId $session -Command "aggr show -aggregate $aggregate -fields size,used,availsize,node"
+$command = Invoke-SSHCommand -SessionId $session -Command "volume show -vserver $vserver -volume $volume -fields size,available,aggregate"
+
+$command.Output | Out-File -FilePath "$path\Command_Output\command.txt"
+if($command.ExitStatus -eq 0)
+{
+    $command_result = ($command.Output[4]).Split(" ")|?{$_ -ne ""}
+    Write-Host  "Size : $($command_result[3]) `nAvailable Size : $($command_result[4]) `nAggregate : $($command_result[2])" -ForegroundColor Green
+    $log += "Size : $($command_result[3]) `nAvailable Size : $($command_result[4]) `nAggregate : $($command_result[2])"
+    $aggregate = $command_result[2]
+    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Aggregate Name: $aggregate" -table $table
+    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Current Size: $($command_result[3])" -table $table
+    if($command_result[3] -match "TB")
+    {
+        $log += "Converting size from TB to GB to check for availability"
+        [double] $current_size = $command_result[3].Trim("T","t","B","b")
+        $current_size = $current_size*1024
+    }
+    elseif($command_result[3] -match "MB")
+    {
+        $log += "Converting size from MB to GB to check for availability"
+        [double] $current_size = $command_result[3].Trim("M","m","B","b")
+        $current_size = $current_size/1024
+    }
+    elseif($command_result[3] -match "GB")
+    {
+        [double] $current_size = $command_result[3].Trim("G","g","B","b")
+    }
+
+    $new_size = $current_size + $size
+
+    #Generating pre evidence
+    $execDate=get-date -Format "MM_dd_yyyy_HH_mm"   
+    try
+    {
+        $body = @()
+        $body +="<HTML>
+        <HEAD><TITLE>Volume Status</TITLE></HEAD>
+        <BODY>
+        <h1><b>
+        <center>Storage Volume Expansion</center>
+        </b></h1>
+        <table width=100% border=1>
+        <tr> <br> </tr>
+        <tr>
+        <th class='label' colspan=2> Server Baseline Information </th>
+        </tr>
+        <tr>
+        <td><b> Storage Name </b></td>
+        <td>$NetappCluster</td>
+        </tr>
+        <tr>
+        <td><b> vServer </b></td>
+        <td>$Vserver</td>
+        <tr>
+        <td><b> Volume </b></td>
+        <td>$volume</td>
+        </tr>
+        <tr>
+        <td><b> Aggregate </b></td>
+        <td>$aggregate</td>
+        </tr>
+        <tr>
+        <td><b>Total Size </b></td>
+        <td>$($command_result[3])</td>
+        </tr>
+        <tr>
+        <td><b> Available Size </b></td>
+        <td>$($command_result[4])</td>
+        </tr>
+        <tr>
+        <td><b> Executed at </b></td>
+        <td>$execDate</td>
+        </tr>           
+        <tr>
+        <td><b> Executed By </b></td>
+        <td>$username1</td>
+        </tr>
+        </body></html>"
+        $body | Out-File "$path\Evidence\Pre_check.html"
+        & $wkhtmltopdf $var $pre_html $pre_pdf
+    }
+    catch
+    {
+        Write-Host "Unable to generate Precheck evidence"
+        $log += "Unable to generate Precheck evidence"
+        End-Log -logcontent $log -logpath $log_path
+        try{Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Unable to generate Precheck evidence" -table $table -asign_grp $storage_sysID}
+        catch{Write-Host "Failed to Route Ticket"; End-log -logcontent $log -logpath $log_path; Exit}
+        End-log -logcontent $log -logpath $log_path
+        Exit
+    }
+    #Uploading pre evidence
+    $pre_pdf       = Get-ChildItem -Path $pre_pdf
+    $pre_FullName  = $pre_pdf.FullName               
+    $pre_Name      = $pre_pdf.Name
+    try
+    {
+        #Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Uploading pre evidence" -table $table
+        Upload-PreAttachment -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -pre_Name $pre_Name -pre_FullName $pre_FullName -table $table
+        $log += "Uploaded Pre Attachement"
+    }
+    catch
+    {
+        write-Host "Failed to Upload Pre Attachment"
+        $Log += "Failed to Upload Pre Attachment"
+        try{Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Failed to Upload Pre Attachment" -table $table -asign_grp $storage_sysID}
+        catch{Write-Host "Failed to Route Ticket"; End-log -logcontent $log -logpath $log_path; Exit}
+        End-log -logcontent $log -logpath $log_path
+        Exit
+    }
+
+    #Run below command to there is enough space in aggregate
+    $log += "Run below command to there is enough space in aggregate for volume expansion"
+    $command1 = Invoke-SSHCommand -SessionId $session -Command "storage aggregate show -aggregate $aggregate -fields availsize"
+    $command1.Output | Out-File -FilePath "$path\Command_Output\command1.txt"
+    If($command1.ExitStatus -eq 0)# -and ($command1.Output -match "There are no entries matching your query."))
+    {
+        $command1_result = ($command1.Output[4]).Split(" ")|?{$_ -ne ""}
+        Write-Host  "Available Size in Aggregate: $($command_result[1])" -ForegroundColor Green
+        $log += "Available Size in Aggregate : $($command_result[1])"
+        #Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Size : $($command_result[3]) `nAvailable Size : $($command_result[4]) `nAggregate : $($command_result[2])" -table $table
+        if($command1_result[1] -match "TB")
+        {
+            $log += "Converting size from TB to GB to check for availability"
+            [double] $available_size_aggr = $command1_result[1].Trim("T","t","B","b")
+            $available_size_aggr = $available_size_aggr*1024
+        }
+        else
+        {
+            [double] $available_size_aggr = $command1_result[1].Trim("G","g","B","b")
+        }
+        if($available_size_aggr -gt $new_size)
+        {
+            Write-Host "Free Space is Available" -ForegroundColor Green
+            $log += "Free Space is Available"
+            Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Free Space is Available" -table $table
+        }
+        else
+        {
+            Write-Host  "Not Enough space for volume expansion" -ForegroundColor Red
+            $log += "Not Enough space for volume expansion"
+            End-Log -logcontent $log -logpath $log_path
+            try{Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Not Enough space for volume expansion" -table $table -asign_grp $storage_sysID}
+            catch{Write-Host "Failed to Route Ticket"; End-log -logcontent $log -logpath $log_path; Exit}
+            End-log -logcontent $log -logpath $log_path
+            Exit
+        }
+
+        #Volume epansion
+        $line = "volume modify -vserver $vserver -volume $volume -size $new_size" + "G"
+        $command2 = Invoke-SSHCommand -SessionId $session -Command $line
+        $command2.Output | Out-File -FilePath "$path\Command_Output\command2.txt"
+        If(($command2.ExitStatus -eq 0) -and ($command2.Output -match "Volume modify successful"))
+        {
+            $log += "Volume modified successfully on $volume of vserver $Vserver"
+            Write-Host "Volume modified successfully on $volume of vserver $Vserver"
+            #Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "$volume creation job is in queue -- JobID $JobID" -table $table
+            $command3 = Invoke-SSHCommand -SessionId $session -Command "volume show -vserver $vserver -volume $volume -fields size,available"
+            $command3.Output | Out-File -FilePath "$path\Command_Output\command3.txt"
+            if($command3.ExitStatus -eq 0)
+            {
+                $command3_result = ($command3.Output[4]).Split(" ")|?{$_ -ne ""}
+                Write-Host "Updated Size : $($command3_result[2]) `nAvailable Size : $($command3_result[3]))" -ForegroundColor Green
+                $log += "Updated Size : $($command3_result[2]) `nAvailable Size : $($command3_result[3]))"
+                Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Updated Size : $($command3_result[2])" -table $table
+                if($command3_result[2] -match "TB")
+                {
+                    $log += "Converting size from TB to GB to check for availability"
+                    [double] $updated_size = $command3_result[2].Trim("T","t","B","b")
+                    $updated_size = $updated_size*1024
+                }
+                else
+                {
+                    [double] $updated_size = $command3_result[2].Trim("G","g","B","b")
+                }
+
+
+                if($command3_result[2] -match "GB")
+                {
+                    $log += "Converting size from GB to TB to"
+                    [double] $updated_size = $command3_result[2].Trim("G","g","B","b")
+                    #$updated_size = $updated_size*1024
+                    #$new_size_TB = $new_size
+                    $new_size_TB = [math]::Round($new_size, 2)
+                    $new_size_TB_1 = $new_size_TB + 0.01
+                    $new_size_TB_2 = $new_size_TB - 0.01
+                }
+                else
+                {
+                    [double] $updated_size = $command3_result[2].Trim("T","T","B","b")
+                    [double] $new_size_TB = $new_size/1024
+                    $new_size_TB = [math]::Round($new_size_TB, 2)
+                    $new_size_TB_1 = $new_size_TB + 0.01
+                    $new_size_TB_2 = $new_size_TB - 0.01
+                }
+ 
+                if(($updated_size -eq $new_size_TB) -or ($updated_size -eq $new_size_TB_1) -or ($updated_size -eq $new_size_TB_2))
+                {
+                    $log += "Volume modified successfully on $volume of vserver $Vserver"
+                    Write-Host "Volume modified successfully on $volume of vserver $Vserver"
+                    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Volume modified successfully on $volume of vserver $Vserver" -table $table
+                    #Generating post evidence
+                    try
+                    {
+                        $body = @()
+                        $body +="<HTML>
+                        <HEAD><TITLE>Volume Status</TITLE></HEAD>
+                        <BODY>
+                        <h1><b>
+                        <center>Storage Volume Expansion</center>
+                        </b></h1>
+                        <table width=100% border=1>
+                        <tr> <br> </tr>
+                        <tr>
+                        <th class='label' colspan=2> Server Baseline Information </th>
+                        </tr>
+                        <tr>
+                        <td><b> Storage Name </b></td>
+                        <td>$NetappCluster</td>
+                        </tr>
+                        <tr>
+                        <td><b> vServer </b></td>
+                        <td>$Vserver</td>
+                        <tr>
+                        <td><b> Volume </b></td>
+                        <td>$volume</td>
+                        </tr>
+                        <tr>
+                        <td><b> Aggregate </b></td>
+                        <td>$aggregate</td>
+                        </tr>
+                        <tr>
+                        <td><b>Total Size </b></td>
+                        <td>$($command3_result[2])</td>
+                        </tr>
+                        <tr>
+                        <td><b> Available Size </b></td>
+                        <td>$($command3_result[3])</td>
+                        </tr>
+                        <tr>
+                        <td><b> Executed at </b></td>
+                        <td>$execDate</td>
+                        </tr>           
+                        <tr>
+                        <td><b> Executed By </b></td>
+                        <td>$username1</td>
+                        </tr></body></html>"
+                        $body | Out-File "$path\Evidence\Post_check.html"
+                        & $wkhtmltopdf $var $post_html $post_pdf
+                    }
+                    catch
+                    {
+                        Write-Host "Unable to generate Postcheck evidence"
+                        $log += "Unable to generate Postcheck evidence"
+                        End-log -logcontent $log -logpath $log_path
+                        try{Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Unable to generate Postcheck evidence" -table $table -asign_grp $storage_sysID}
+                        catch{Write-Host "Failed to Route Ticket";End-log -logcontent $log -logpath $log_path ;Exit}
+                        End-log -logcontent $log -logpath $log_path 
+                        Exit
+                    }
+
+                    #Uploading post evidence
+                    $post_pdf      = Get-ChildItem -Path $post_pdf
+                    $post_FullName = $post_pdf.FullName
+                    $post_Name     = $post_pdf.Name
+                    try
+                    {
+                        Upload-PostAttachment -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -post_Name $post_Name -post_FullName $post_FullName -table $table
+                        $log += "Uploaded Post Attachement"
+                    }
+                    catch
+                    {
+                        write-Host "Failed to Upload Post Attachment"
+                        $Log += "Failed to Upload Post Attachment"
+                        try{Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Failed to Upload Post Attachment" -table $table -asign_grp $storage_sysID}
+                        catch{Write-Host "Failed to Route Ticket"; End-log -logcontent $log -logpath $log_path; Exit}
+                        End-log -logcontent $log -logpath $log_path
+                        Exit
+                    }
+                    try{
+                    Update-End -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -table $table
+                    Resolve-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Pre and Post evidence attached to the ticket successfully." -table $table -Document_Results "Volume size modified successfully" -close_Notes "Volume size modified successfully"
+                    }
+                    catch{Write-Host "Failed to Close Ticket"; End-log -logcontent $log -logpath $log_path; Exit}
+                    End-log -logcontent $log -logpath $log_path
+                    Exit
+                }
+                else
+                {
+                    Write-Host "Expanded volume size does not match"
+                    $log += "Expanded volume size does not match"
+                    try{Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Expanded volume size does not match" -table $table -asign_grp $storage_sysID}
+                    catch{Write-Host "Failed to Route Ticket";End-log -logcontent $log -logpath $log_path ;Exit}
+                    End-log -logcontent $log -logpath $log_path
+                    Exit
+                }
+
+            }
+            else
+            {
+                #Enabling compression command failed
+                Write-Host "Uable to fetch the udpated size with return code $($command3.ExitStatus) with error $($command3.Error)"
+                $log += "Uable to fetch the udpated size with return code $($command3.ExitStatus)"
+                try{Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Uable to fetch the udpated size with return code $($command3.ExitStatus)" -table $table -asign_grp $storage_sysID}
+                catch{Write-Host "Failed to Route Ticket";End-log -logcontent $log -logpath $log_path ;Exit}
+                End-log -logcontent $log -logpath $log_path
+                Exit
+            }
+        }
+        else
+        {
+            $command2.Error 
+            Write-Host "Volume expansion failed with return code $($command2.ExitStatus)"
+            $log += "Volume expansion failed with return code $($command2.ExitStatus)"
+            try{Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Volume expansion failed with return code $($command2.ExitStatus)" -table $table -asign_grp $storage_sysID}
+            catch{Write-Host "Failed to Route Ticket";End-log -logcontent $log -logpath $log_path ;Exit}
+            End-log -logcontent $log -logpath $log_path
+            Exit
+        }
+    }
+    else
+    {
+        Write-Host "Failed to fetch the aggregate details with return code $($command1.ExitStatus)"
+        $log += "Failed to fetch the aggregate details with return code $($command1.ExitStatus)"
+        try{Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Failed to fetch the aggregate details with return code $($command1.ExitStatus)" -table $table -asign_grp $storage_sysID}
+        catch{Write-Host "Failed to Route Ticket";End-log -logcontent $log -logpath $log_path ;Exit}
+        End-log -logcontent $log -logpath $log_path
+        Exit
+    }
+}
+else
+{
+    Write-Host "Failed to fetch the aggregate details with return code ($command.ExitStatus)"
+    $log += "Failed to fetch the aggregate details with return code ($command.ExitStatus)"
+    try{Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Incorrect Volume or Vserver detail, routing for manual action.Hence routing the ticket." -table $table -asign_grp $storage_sysID}
+    catch{Write-Host "Failed to Route Ticket";End-log -logcontent $log -logpath $log_path ;Exit}
+    End-log -logcontent $log -logpath $log_path
+    Exit
+}
+
+Post Execution:
+
+if(Process[OpName].scriptOutput.indexOf('Ticket Resolved Successfully') >= 0)
+{
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "Ticket Resolved Successfully"
+}
+else if(Process[OpName].scriptOutput.indexOf('Assignment Group updated successfully') >= 0)
+{
+  Process.ReturnCode = 0
+Process.ReturnMessage = "Assignment Group updated successfully"
+}
+else 
+{
+	Process.ReturnCode = 2
+	Process.ReturnMessage = "Some error occurred."
+}

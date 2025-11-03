@@ -1,0 +1,1665 @@
+1. Get Ticket
+
+Pre Execution:
+
+Process.RunbookName = Process.InstanceName
+Process.RunbookID = Process.RuntimeROID
+var uri="https://"+Process.Instance+".service-now.com/api/now/table/task?sysparm_fields=number%2Cactive%2Csys_id%2Cincident_state%2Cdescription%2Cu_document_results%2Cassigned_to=SVC-itpam@biogen.com&sysparm_limit=1&number="+Process.CTASK_Number
+Process.url=uri
+
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket details fetched successfully"
+  Process.Output=Process[OpName].HTTPResponseContent
+  
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure fetching ticket details"
+}
+
+2. Second Operator (Read)
+
+Inline:
+
+var str =Process.Output
+var start=str.indexOf('[')+2;
+var end=str.indexOf(']')-1;
+var res = str.substring(start,end);
+var out1= res.split(',');
+for(var i=0;i < out1.length;i++)
+{
+  out1[i]=out1[i].replace(/\"/g,"");
+  if(out1[i].indexOf('active')>=0)
+  {Process.active=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('sys_id')>=0)
+  {Process.Sys_Id=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('description')>=0)
+  {Process.description=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('incident_state')>=0)
+  {Process.Incidentstate=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('u_document_results')>=0)
+  {Process.document_results=(out1[i].split(':'))[1]}
+  out1[i]=(out1[i].split(':'))[1]
+}
+
+
+Post Execution:
+
+if(Process.active)
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket is active.";
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Ticket is inactive.";
+}
+
+
+3. Script
+
+Inline:
+
+Param(
+[string]$Sys_id,
+[string]$instance
+)
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls, [Net.SecurityProtocolType]::Tls11, [Net.SecurityProtocolType]::Tls12, [Net.SecurityProtocolType]::Ssl3
+[Net.ServicePointManager]::SecurityProtocol = "Tls, Tls11, Tls12, Ssl3"
+
+$password = ConvertTo-SecureString "V2!RfaRE#%4GQ*J_" -AsPlainText -Force
+$Cred = New-Object System.Management.Automation.PSCredential ("svc_itpam", $password)
+$actual_start_date = Get-Date
+$update_ctask_work_start_uri = "https://$instance.service-now.com/api/now/table/change_task/$Sys_id"
+
+$Body1 = @{
+    "work_start"="$actual_start_date"
+}
+
+$BodyJson1 = $Body1 | ConvertTo-Json
+
+try{
+$result = Invoke-WebRequest -Uri $update_ctask_work_start_uri -Body $BodyJson1 -Credential $Cred -Method "PUT" -ContentType "application/json" -UseBasicParsing
+Write-host "successfully update work start date to Service NOW"
+} catch {
+	Write-host "failed to update work start date to Service NOW"
+}
+
+
+Post Execution:
+
+if(Process.CTASK_update.scriptOutput.indexOf('failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "failed to update actual start date CTASK"
+}else if(Process.CTASK_update.scriptOutput.indexOf('successfully') >= 0){
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "CTASK actual start date updated successfully."
+  }else {
+	Process.ReturnCode = 2
+	Process.ReturnMessage = "Some error occurred while updating CTASK work in progress state in Service Now"
+}
+
+4.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/change_task/"+Process.Sys_Id
+Process.updateWorkNotes = "<request><entry><incident_state>2</incident_state><state>2</state><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+" </work_notes></entry></request>"
+
+Post Execution:
+
+if(Process.CTASK_startupdate.HTTPResponseReasonPhrase=="OK" && Process.CTASK_startupdate.HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket worknotes updated successfully"
+
+
+}else if(Process.CTASK_startupdate.Reason.indexOf('non-success') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+
+}
+else if(Process.CTASK_startupdate.Reason.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure updating ticket details"
+}
+
+
+Success
+
+5.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand = "ansible-playbook ~/security_group_prod/final.yml -e 'ctask_number="+Process.CTASK_Number+"'"
+
+Post Execution:
+
+ if(Process.Play_Execution.resultOut.indexOf('Pre Check Report execution failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Pre Check Execution script Failed to Execute"
+}
+else if(Process.Play_Execution.resultOut.indexOf('ITPAM Stopped') >= 0)
+{
+  Process.ReturnCode = 4
+  Process.ReturnMessage = "Instance is already Stopped"
+}
+else if(Process.Play_Execution.resultOut.indexOf('No such file or directory') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "No such file or directory"
+}
+else if(Process.Play_Execution.resultOut.indexOf('Turbot: ERROR: Failed to retrieve AWS credentials') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Turbot: ERROR: Failed to retrieve AWS credentials"
+}
+
+else if(Process.Play_Execution.resultOut.indexOf('Error Line:') >= 0)
+{
+  Process.ReturnCode = 2
+ Process.error=Process.Play_Execution.resultOut.split('Error Line:')
+ Process.err=Process.error[1]
+ Process.err2=Process.err.replace(/\"\S*/g, "")
+ Process.err1=Process.err2.split('\n')
+
+ Process.err3=Process.err1[0]
+
+  Process.ReturnMessage =Process.err3
+}
+
+
+
+
+
+
+
+else if(Process.Play_Execution.resultOut.indexOf('SG Creation Failed ITPAM') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "SG Creation Failed ITPAM"
+}
+else if(Process.Play_Execution.resultOut.indexOf('Ountbound ITPAM') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Inbound Rule set succesfuly, failed to set the Outbound Rule"
+}
+else if(Process.Play_Execution.resultOut.indexOf('Inbound ITPAM') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "SG created, failed to set the inbound rules"
+}
+else if(Process.Play_Execution.resultOut.indexOf('SG ITPAM') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to create SG"
+}
+else if(Process.Play_Execution.resultOut.indexOf('Permission denied') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Permission denied"
+}
+
+
+
+//else if((Process.Play_Execution.resultOut.indexOf('Security Group Creation successful') >= 0)&&(Process.Play_Execution.resultOut.indexOf('Ountbound Rules set successfully') >= 0)&&(Process.Play_Execution.resultOut.indexOf('Inbound Rules set successfully') >= 0))
+else if(Process.Play_Execution.resultOut.indexOf('Final Check Successful') >= 0)
+{
+  Process.ReturnCode = 0
+  Process.SGdetail=Process.Play_Execution.resultOut.split('SG ID: sg-')
+  Process.val=Process.SGdetail[1]
+  Process.SGdata=Process.val.replace(/\"\S*/g, "")
+  Process.splitvar=Process.SGdata.split('\n')
+  Process.datavar=Process.splitvar[0]
+  Process.ReturnMessage = "Security Group Creation successful." +" SG ID: sg-"+Process.datavar + "\n" +"Outbound Rules set successfully"+ "\n" +"Inbound Rules set successfully"+ "\n" 
+}
+else if(Process.Play_Execution.resultOut.indexOf('Failed to Stop the server') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "failed to stop the instance"
+}
+
+else if(Process.Play_Execution.resultOut.indexOf('undefined variable') >= 0)
+{
+ Process.ReturnCode = 2
+  Process.ReturnMessage = "Input format is incorrect."
+}
+
+else if(Process.Play_Execution.resultOut.indexOf('InvalidParameterValue') >= 0)
+{
+
+ Process.ReturnCode = 2
+  Process.ReturnMessage = "Input format is incorrect."
+}
+
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook"
+}
+
+
+6.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand = "ansible-playbook ~/security_group_prod/updated.yml -e 'ctask_number="+Process.CTASK_Number+"'"
+
+Post Execution:
+
+ if(Process.Play_Execution_1.resultOut.indexOf('Pre Check Report execution failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Pre Check Execution script Failed to Execute"
+}
+else if(Process.Play_Execution_1.resultOut.indexOf('ITPAM Stopped') >= 0)
+{
+  Process.ReturnCode = 4
+  Process.ReturnMessage = "Instance is already Stopped"
+}
+else if(Process.Play_Execution_1.resultOut.indexOf('No such file or directory') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "No such file or directory"
+}
+else if(Process.Play_Execution_1.resultOut.indexOf('Turbot: ERROR: Failed to retrieve AWS credentials') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Turbot: ERROR: Failed to retrieve AWS credentials"
+}
+else if(Process.Play_Execution_1.resultOut.indexOf('Error Line:') >= 0)
+{
+  Process.ReturnCode = 2
+ Process.error=Process.Play_Execution_1.resultOut.split('Error Line:')
+ Process.err=Process.error[1]
+ Process.err2=Process.err.replace(/\"\S*/g, "")
+ Process.err1=Process.err2.split('\n')
+
+ Process.err3=Process.err1[0]
+
+  Process.ReturnMessage =Process.err3
+}
+else if(Process.Play_Execution_1.resultOut.indexOf('SG Creation Failed ITPAM') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "SG Creation Failed ITPAM"
+}
+else if(Process.Play_Execution_1.resultOut.indexOf('Ountbound ITPAM') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Inbound Rule set succesfuly, failed to set the Outbound Rule"
+}
+else if(Process.Play_Execution_1.resultOut.indexOf('Inbound ITPAM') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "SG created, failed to set the inbound rules"
+}
+else if(Process.Play_Execution_1.resultOut.indexOf('SG ITPAM') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to create SG"
+}
+else if(Process.Play_Execution_1.resultOut.indexOf('Permission denied') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Permission denied"
+}
+//else if((Process.Play_Execution_1.resultOut.indexOf('Security Group Creation successful') >= 0)&&(Process.Play_Execution_1.resultOut.indexOf('Ountbound Rules set successfully') >= 0)&&(Process.Play_Execution_1.resultOut.indexOf('Inbound Rules set successfully') >= 0))
+else if(Process.Play_Execution_1.resultOut.indexOf('Final Check Successful') >= 0)
+{
+  Process.ReturnCode = 0
+  Process.SGdetail=Process.Play_Execution_1.resultOut.split('SG ID: sg-')
+  Process.val=Process.SGdetail[1]
+  Process.SGdata=Process.val.replace(/\"\S*/g, "")
+  Process.splitvar=Process.SGdata.split('\n')
+  Process.datavar=Process.splitvar[0]
+  Process.ReturnMessage = "Security Group Creation successful." +" SG ID: sg-"+Process.datavar + "\n" +"Outbound Rules set successfully"+ "\n" +"Inbound Rules set successfully"+ "\n" 
+}
+else if(Process.Play_Execution_1.resultOut.indexOf('Failed to Stop the server') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "failed to stop the instance"
+}
+
+else if(Process.Play_Execution_1.resultOut.indexOf('undefined variable') >= 0)
+{
+ Process.ReturnCode = 2
+  Process.ReturnMessage = "Input format is incorrect."
+}
+
+else if(Process.Play_Execution_1.resultOut.indexOf('InvalidParameterValue') >= 0)
+{
+
+ Process.ReturnCode = 2
+  Process.ReturnMessage = "Input format is incorrect."
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook"
+}
+
+
+7.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand = "ansible-playbook ~/security_group_prod/updated.yml -e 'ctask_number="+Process.CTASK_Number+"'"
+
+Post Execution:
+
+ if(Process.Play_Execution_2.resultOut.indexOf('Pre Check Report execution failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Pre Check Execution script Failed to Execute"
+}
+else if(Process.Play_Execution_2.resultOut.indexOf('ITPAM Stopped') >= 0)
+{
+  Process.ReturnCode = 4
+  Process.ReturnMessage = "Instance is already Stopped"
+}
+else if(Process.Play_Execution_2.resultOut.indexOf('No such file or directory') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "No such file or directory"
+}
+else if(Process.Play_Execution_2.resultOut.indexOf('Turbot: ERROR: Failed to retrieve AWS credentials') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Turbot: ERROR: Failed to retrieve AWS credentials"
+}
+else if(Process.Play_Execution_2.resultOut.indexOf('Error Line:') >= 0)
+{
+  Process.ReturnCode = 2
+ Process.error=Process.Play_Execution_2.resultOut.split('Error Line:')
+ Process.err=Process.error[1]
+ Process.err2=Process.err.replace(/\"\S*/g, "")
+ Process.err1=Process.err2.split('\n')
+
+ Process.err3=Process.err1[0]
+
+  Process.ReturnMessage =Process.err3
+}
+else if(Process.Play_Execution_2.resultOut.indexOf('SG Creation Failed ITPAM') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "SG Creation Failed ITPAM"
+}
+else if(Process.Play_Execution_2.resultOut.indexOf('Ountbound ITPAM') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Inbound Rule set succesfuly, failed to set the Outbound Rule"
+}
+else if(Process.Play_Execution_2.resultOut.indexOf('Inbound ITPAM') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "SG created, failed to set the inbound rules"
+}
+else if(Process.Play_Execution_2.resultOut.indexOf('SG ITPAM') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to create SG"
+}
+else if(Process.Play_Execution_2.resultOut.indexOf('Permission denied') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Permission denied"
+}
+//else if((Process.Play_Execution_2.resultOut.indexOf('Security Group Creation successful') >= 0)&&(Process.Play_Execution_2.resultOut.indexOf('Ountbound Rules set successfully') >= 0)&&(Process.Play_Execution_2.resultOut.indexOf('Inbound Rules set successfully') >= 0))
+else if(Process.Play_Execution_2.resultOut.indexOf('Final Check Successful') >= 0)
+{
+  Process.ReturnCode = 0
+  Process.SGdetail=Process.Play_Execution_2.resultOut.split('SG ID: sg-')
+  Process.val=Process.SGdetail[1]
+  Process.SGdata=Process.val.replace(/\"\S*/g, "")
+  Process.splitvar=Process.SGdata.split('\n')
+  Process.datavar=Process.splitvar[0]
+  Process.ReturnMessage = "Security Group Creation successful." +" SG ID: sg-"+Process.datavar + "\n" +"Outbound Rules set successfully"+ "\n" +"Inbound Rules set successfully"+ "\n" 
+}
+else if(Process.Play_Execution_2.resultOut.indexOf('Failed to Stop the server') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "failed to stop the instance"
+}
+
+else if(Process.Play_Execution_2.resultOut.indexOf('undefined variable') >= 0)
+{
+ Process.ReturnCode = 2
+  Process.ReturnMessage = "Input format is incorrect."
+}
+
+else if(Process.Play_Execution_2.resultOut.indexOf('InvalidParameterValue') >= 0)
+{
+
+ Process.ReturnCode = 2
+  Process.ReturnMessage = "Input format is incorrect."
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook"
+}
+
+
+8.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand = "ansible-playbook ~/security_group_prod/updated.yml -e 'ctask_number="+Process.CTASK_Number+"'"
+
+Post Execution:
+
+ if(Process.Play_Execution_3.resultOut.indexOf('Pre Check Report execution failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Pre Check Execution script Failed to Execute"
+}
+else if(Process.Play_Execution_3.resultOut.indexOf('ITPAM Stopped') >= 0)
+{
+  Process.ReturnCode = 4
+  Process.ReturnMessage = "Instance is already Stopped"
+}
+else if(Process.Play_Execution_3.resultOut.indexOf('No such file or directory') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "No such file or directory"
+}
+else if(Process.Play_Execution_3.resultOut.indexOf('Turbot: ERROR: Failed to retrieve AWS credentials') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Turbot: ERROR: Failed to retrieve AWS credentials"
+}
+else if(Process.Play_Execution_3.resultOut.indexOf('Error Line:') >= 0)
+{
+  Process.ReturnCode = 2
+ Process.error=Process.Play_Execution_3.resultOut.split('Error Line:')
+ Process.err=Process.error[1]
+ Process.err2=Process.err.replace(/\"\S*/g, "")
+ Process.err1=Process.err2.split('\n')
+
+ Process.err3=Process.err1[0]
+
+  Process.ReturnMessage =Process.err3
+}
+else if(Process.Play_Execution_3.resultOut.indexOf('SG Creation Failed ITPAM') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "SG Creation Failed ITPAM"
+}
+else if(Process.Play_Execution_3.resultOut.indexOf('Ountbound ITPAM') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Inbound Rule set succesfuly, failed to set the Outbound Rule"
+}
+else if(Process.Play_Execution_3.resultOut.indexOf('Inbound ITPAM') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "SG created, failed to set the inbound rules"
+}
+else if(Process.Play_Execution_3.resultOut.indexOf('SG ITPAM') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to create SG"
+}
+else if(Process.Play_Execution_3.resultOut.indexOf('Permission denied') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Permission denied"
+}
+//else if((Process.Play_Execution_3.resultOut.indexOf('Security Group Creation successful') >= 0)&&(Process.Play_Execution_3.resultOut.indexOf('Ountbound Rules set successfully') >= 0)&&(Process.Play_Execution_3.resultOut.indexOf('Inbound Rules set successfully') >= 0))
+else if(Process.Play_Execution_3.resultOut.indexOf('Final Check Successful') >= 0)
+{
+  Process.ReturnCode = 0
+  Process.SGdetail=Process.Play_Execution_3.resultOut.split('SG ID: sg-')
+  Process.val=Process.SGdetail[1]
+  Process.SGdata=Process.val.replace(/\"\S*/g, "")
+  Process.splitvar=Process.SGdata.split('\n')
+  Process.datavar=Process.splitvar[0]
+  Process.ReturnMessage = "Security Group Creation successful." +" SG ID: sg-"+Process.datavar + "\n" +"Outbound Rules set successfully"+ "\n" +"Inbound Rules set successfully"+ "\n" 
+}
+else if(Process.Play_Execution_3.resultOut.indexOf('Failed to Stop the server') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "failed to stop the instance"
+}
+
+
+else if(Process.Play_Execution_3.resultOut.indexOf('undefined variable') >= 0)
+{
+ Process.ReturnCode = 2
+  Process.ReturnMessage = "Input format is incorrect."
+}
+
+else if(Process.Play_Execution_3.resultOut.indexOf('InvalidParameterValue') >= 0)
+{
+
+ Process.ReturnCode = 2
+  Process.ReturnMessage = "Input format is incorrect."
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook"
+}
+
+
+9.Ticket Update
+
+Pre Execution:
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/change_task/"+Process.Sys_Id
+Process.Sg_update = "<request><entry><incident_state>2</incident_state><work_notes>"+Process.ReturnMessage+"</work_notes></entry></request>"
+
+Post Execution:
+
+if(Process.SG_status_update.HTTPResponseReasonPhrase=="OK" && Process.SG_status_update.HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket worknotes updated successfully"
+
+}else if(Process.SG_status_update.HTTPResponseContent.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure updating ticket details"
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+10.Script
+
+Inline:
+
+param($number)
+$Linux_path = "\\usawsgabb0082\Linux_Prod\Security_Group\$($number)\*.pdf"
+#"\\usawsgabb0082\Linux_Prod\EC2_Stop\$($number)\*.pdf"
+$dest = "D:\Security_Group\$($number)"
+
+
+if(!(Test-Path -path $dest)){
+New-Item -Path $dest -ItemType directory | out-null
+}
+try {
+Copy-Item $Linux_path $dest -ErrorAction stop
+} Catch {
+Write-host "File copy failed"
+}try
+{
+$file=Get-ChildItem -Force -Recurse -File -Path "$dest" -ErrorAction stop
+$name=$file.Name
+if($name -like "*Security*"){
+write-host "PDF exist"
+if($($file.FullName -like "*Security*"))
+{
+$prefullPath = $file.FullName
+$prefileName = $file.Name
+$prefullPath
+$prefileName
+}
+
+
+
+}else {
+write-host "Pre Check PDF Report not found"
+}
+}
+catch
+{
+Write-Host "Some Error Occured while uploading pre and post check pdf report"
+}
+
+Post Execution:
+
+if(Process.Pre_Attachment.scriptOutput.indexOf("PDF exist")>=0)
+{
+Process.ReturnCode = 0
+Process.ReturnMessage = "PDF Generated successfully"
+Process.Data = Process.Pre_Attachment.scriptOutput
+}
+else
+{
+Process.ReturnCode=2
+Process.ReturnMessage = "Error occurred while executing the verification script."
+}
+
+
+11.Ticket Update (Post)
+
+Pre Execution:
+
+Process.dat=Process.Pre_Attachment.scriptOutput.split('\n')
+Process.fname=Process.dat[2]
+Process.pdffile=Process.dat[1]
+Process.putURL= "https://"+Process.Instance+".service-now.com/api/now/attachment/file?table_name=change_task&table_sys_id="+Process.Sys_Id+"&file_name="+Process.fname
+//Process.payload = "<request><entry><assigned_to>d2f5f34bdb5efb8036c73c9b7c961900</assigned_to><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+"</work_notes><state>2</state></entry></request>"
+
+
+Post Execution:
+
+if(Process.Pre_Attachment_pdf.HTTPResponseReasonPhrase=="Created" && Process.Pre_Attachment_pdf.HTTPResponseStatusCode==201 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="PDF updated successfully"
+  Process.Output=Process.Pre_Attachment_pdf.HTTPResponseContent
+
+}else if(Process.Pre_Attachment_pdf.Reason.indexOf('non-success') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = "Unable to upload Pre Evidence PDF File"
+
+}
+else if(Process.Pre_Attachment_pdf.Reason.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = "Unable to upload Pre Evidence PDF File"
+  
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Error occurred while uploading PDF file to Service Now. "
+}
+
+12.Script
+
+Inline:
+
+Param(
+[String]$Sys_id,
+[String]$Instance
+)
+$sys_id = $Sys_id
+
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls, [Net.SecurityProtocolType]::Tls11, [Net.SecurityProtocolType]::Tls12, [Net.SecurityProtocolType]::Ssl3
+[Net.ServicePointManager]::SecurityProtocol = "Tls, Tls11, Tls12, Ssl3"
+$SNOWPassword="V2!RfaRE#%4GQ*J_"
+$password = ConvertTo-SecureString $SNOWPassword -AsPlainText -Force
+$Cred = New-Object System.Management.Automation.PSCredential ("svc_itpam", $password)
+
+$actual_start_date = Get-Date
+
+$update_ctask_work_start_uri = "https://$Instance.service-now.com/api/now/table/change_task/$sys_id"
+
+$Body1 = @{
+    "work_end"="$actual_start_date"
+}
+
+$BodyJson1 = $Body1 | ConvertTo-Json
+try {
+ Invoke-WebRequest -Uri $update_ctask_work_start_uri -Body $BodyJson1 -Credential $Cred -Method "PUT" -ContentType "application/json" -UseBasicParsing -ErrorAction stop
+ Write-host "Actual Start Date updated successfully"
+} catch {
+	Write-host $_.
+	Write-host "Update Actual Start Date Service NOW API failed"
+}
+
+Post Execution:
+
+if(Process.End_Update.scriptOutput.indexOf('failed') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "failed to update actual start date CTASK"
+}else if(Process.End_Update.scriptOutput.indexOf('successfully') >= 0){
+  Process.ReturnCode = 0
+  Process.ReturnMessage = "CTASK actual start date updated successfully."
+}else {
+	Process.ReturnCode = 2
+	Process.ReturnMessage = "Some error occurred while updating CTASK work in progress state in Service Now"
+}
+
+13.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/change_task/"+Process.Sys_Id
+//Process.create_update = "<request><entry><state>3</state><close_notes>Change executed successfully</close_notes><u_close_code>successful</u_close_code><work_notes>PDF uploaded successfully</work_notes></entry></request>"
+Process.create_update = "<request><entry><u_document_results>Security Group Created successfully." +" SG ID: sg-"+Process.datavar+"</u_document_results><u_close_code>successful</u_close_code><close_notes>Security group created successfully.</close_notes><work_notes>Evidence attached to the ticket successfully.</work_notes><state>3</state></entry></request>"
+
+Post Execution:
+
+if(Process.Close_Update.HTTPResponseReasonPhrase=="OK" && Process.Close_Update.HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=1;
+  Process.ReturnMessage="Ticket worknotes updated successfully"
+
+}else if(Process.Close_Update.HTTPResponseContent.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process.Close_Update.HTTPResponseContent
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure updating ticket details"
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+Failure (Fatal)
+
+14.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/table/change_task/"+Process.Sys_Id+""
+Process.FatalErrorPayLoad ="<request><entry><work_start></work_start><assigned_to></assigned_to><assignment_group>d32d41c5dbe73e00d41dd3cb5e96194f</assignment_group><work_notes>"+Process.ReturnMessage+". Hence routing the ticket</work_notes><state>1</state></entry></request>"
+
+
+Post Execution:
+
+if(Process.Route_ticket.HTTPResponseReasonPhrase=="OK" && Process.Route_ticket.HTTPResponseStatusCode==200 )
+{
+Process.ReturnCode=0;
+Process.ReturnMessage="Ticket worknotes updated successfully"
+
+}else if(Process.Route_ticket.HTTPResponseContent.indexOf('failure') >= 0){
+Process.ReturnCode =2;
+Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+
+else
+{
+Process.ReturnCode=2;
+Process.ReturnMessage="Failure updating ticket details"
+Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+
+15.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/table/change_task/"+Process.Sys_Id+""
+Process.FatalErrorPayLoad ="<request><entry><work_start></work_start><assigned_to></assigned_to><assignment_group>d32d41c5dbe73e00d41dd3cb5e96194f</assignment_group><work_notes>Failed to create the security group.Hence routing the ticket</work_notes><state>1</state></entry></request>"
+
+
+Ansible Playbook
+
+security_group_prod/ansible.cfg
+
+[default]
+inventory = hosts
+jinja2_extensions=jinja2.ext.do
+warnings = false
+deprecation_warnings=False
+
+----------------------------------------------------------------------------------------------------------------------------------------------------
+
+security_group_prod/final.yml
+
+---
+- hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: SNOW Keys
+      include_vars: /home/svc-linux-snow/security_group_prod/snow.yml
+    
+    # Crete directory
+    - name: creating {{ ctask_number }} directory in tmp folder
+      file:
+        path: /Linux_Prod/Security_Group/{{ ctask_number }}
+        state: directory
+      become: true
+      delegate_to: localhost
+    
+    - snow_record:
+        state: present
+        table: change_task
+        username: "{{ snow_id }}"
+        password: "{{ snow_key }}"
+        instance: biogen
+        number: "{{ ctask_number }}"
+      register: incident
+    - set_fact:  
+        execution_notes: "{{ incident.record.u_execution_notes }}"
+    - debug: 
+        msg: "{{ execution_notes }}"
+    - copy:
+        content: "{{ execution_notes }}"
+        dest: "/Linux_Prod/Security_Group/{{ ctask_number }}/security_groups_vars_new.yml"
+
+    - name: including all the variables
+      include_vars: /Linux_Prod/Security_Group/{{ ctask_number }}/security_groups_vars_new.yml
+    
+    - set_fact:
+        aws_environment: "{{ Environment[0] }}"
+
+    - set_fact:
+        aws_accountname: "{{ Cloud_Account }}"
+          #  - set_fact:
+          # aws_account_type: "{{ aws_accountname[0] }}"
+          # tags: variables
+
+    - name: AWS Prod keys information
+      include_vars: prod.yml
+      when: aws_environment == "P"
+      delegate_to: localhost
+      tags: aws_configure_keys
+    - name: AWS Non-Prod keys information
+      include_vars: non_prod.yml
+      when: aws_environment != "P"
+      delegate_to: localhost
+      tags: aws_configure_keys
+
+    - name: Setting up turbot aws cli for Prod servers
+      command:  "{{ item }}"
+      with_items:
+        - aws configure set default.turbot_host console.prod.amazon.biogen.com
+        - aws configure set default.turbot_access_key_id {{ turbot_access_key_id }}
+        - aws configure set default.turbot_secret_access_key {{ turbot_secret_access_key }}
+        - aws configure set default.turbot_account_id {{ aws_accountname }}
+      register: set_aws_cli
+      delegate_to: localhost
+      when: aws_environment == "P"
+      no_log: true 
+      tags: aws_configure   
+    
+    - name: Setting up turbot aws cli for Non Prod servers
+      command:  "{{ item }}"
+      with_items:
+        - aws configure set default.turbot_host console.nonprod.amazon.biogen.com
+        - aws configure set default.turbot_access_key_id {{ turbot_access_key_id }}
+        - aws configure set default.turbot_secret_access_key {{ turbot_secret_access_key }}
+        - aws configure set default.turbot_account_id {{ aws_accountname }}
+          #      no_log: true
+      when: aws_environment != "P"
+      register: set_aws_cli
+      tags: aws_configure   
+
+    - debug: msg="{{ Security_Group_Name }}"
+    - debug: msg="{{ aws_accountname }}"
+
+    - debug:
+        msg: "{{ Ingres_IP_Protocol }}"
+
+    - debug: 
+        msg: "No comma present"
+      when: (Ingres_IP_Protocol|regex_findall(',')|length) == 0
+    
+    - debug: 
+        msg: "All"
+      when:  Outbound_Port_Required  == "All"
+
+    # (Egress_Ip_Protocol|regex_findall(',')|length) == 0
+
+    - debug: 
+        msg: "Specific Number"
+      when:  Outbound_Port_Required  == "Specific Number"
+
+    # Ingress ip protocol
+    - set_fact:
+        in_protoidx: "{{ Ingres_IP_Protocol.split(',')|count }}"
+      when: (Ingres_IP_Protocol|regex_findall(',')|length) != 0
+      # ignore_errors: true
+
+    # Egress ip protocol
+    - set_fact:
+        eg_protoidx: "{{ Egress_Ip_Protocol.split(',')|count }}"
+      when: (Egress_Ip_Protocol|regex_findall(',')|length) != 0 and Outbound_Port_Required  == "Specific Number"
+      # ignore_errors: true
+    
+    - set_fact:
+        ingres_rules: "{{ lookup('template', 'templates/sg_vars_ingress.yml.j2') | from_yaml }}"
+      when: (Ingres_IP_Protocol|regex_findall(',')|length) != 0
+      # ignore_errors: true
+
+    - set_fact:
+        egress_rules: "{{ lookup('template', 'templates/sg_vars_egress.yml.j2') | from_yaml }}"
+      when: (Egress_Ip_Protocol|regex_findall(',')|length) != 0 and Outbound_Port_Required  == "Specific Number"
+      # ignore_errors: true
+
+    - set_fact:
+        ingres_rules: IpProtocol={{ Ingres_IP_Protocol }},FromPort={{ Ingress_From_Port }},ToPort={{ Ingress_To_Port }},IpRanges=[{CidrIp={{ Ingress_CIDR_IP }}}]
+      when: (Ingres_IP_Protocol|regex_findall(',')|length) == 0
+      # ignore_errors: true
+
+    - set_fact:
+        egress_rules: IpProtocol={{ Egress_Ip_Protocol }},FromPort={{ Egress_From_Port }},ToPort={{ Egress_To_Port }},IpRanges=[{CidrIp={{ Egress_CIDR_IP }}}]
+      when: (Egress_Ip_Protocol|regex_findall(',')|length) == 0 and Outbound_Port_Required  == "Specific Number"
+      # ignore_errors: true
+
+    # ignore_errors: true
+    - debug: 
+        msg: "{{ ingres_rules }}"
+
+    - debug: 
+        msg: "{{ egress_rules }}"
+      when: (Egress_Ip_Protocol|regex_findall(',')|length) == 0 and Outbound_Port_Required  == "Specific Number"
+      # ignore_errors: true
+
+    # Create security Group
+    - command: turbot-aws -a "{{ aws_accountname }}" --role-name=admin ec2 create-security-group --region {{ Data_Center_Location }} --group-name {{ Security_Group_Name }} --description "Testing" --vpc-id {{ VPC_ID }} --query 'GroupId' --output text
+      register: create_group
+      
+    - debug: 
+        msg: "{{ create_group }}"
+
+    - set_fact:
+        sg_id: "{{ create_group.stdout }}"
+
+    # Security group creation Success
+    - debug: 
+        msg: "Security Group Creation successful"
+      when: create_group.stdout !=""
+    
+    - debug: 
+        msg: "SG ID: {{ sg_id }}"
+      when: create_group.stdout !=""
+
+    - debug:
+        msg: "Error Line: {{ create_group.stderr_lines }}"
+      when: create_group.stderr != ""
+
+    # Security Group Failed
+    - fail: 
+        msg: "SG Creation Failed ITPAM"
+      when: create_group.stderr != ""
+
+    # Set Inbound Rules
+    - command: turbot-aws -a "{{ aws_accountname }}" --role-name=admin ec2 authorize-security-group-ingress --region {{ Data_Center_Location }} --group-id "{{ sg_id }}" --ip-permissions "{{ ingres_rules }}"
+      register: inbound_rules
+      # ignore_errors: true
+
+    - debug:
+        msg: "{{ inbound_rules }}"
+
+    # Check Inbound Condition Success
+    - debug: 
+        msg: "Inbound Rules set successfully"
+      when: inbound_rules.stdout != ""
+      # ignore_errors: true
+
+    - debug:
+        msg: "Error Line: {{ inbound_rules.stderr }}"
+      when: inbound_rules.stderr != ""
+
+    # Inbound Rules Failed
+    - fail: 
+        msg: "Inbound ITPAM"
+      when: inbound_rules.stderr != ""
+      # ignore_errors: true
+
+    # Set Ountbound Rules
+    - command: turbot-aws -a "{{ aws_accountname }}" --role-name=admin ec2 authorize-security-group-egress --region {{ Data_Center_Location }} --group-id "{{ sg_id }}" --ip-permissions "{{ egress_rules }}"
+      when: Outbound_Port_Required  == "Specific Number"
+      register: outbound_rules
+      # ignore_errors: true
+    
+    - debug:
+        msg: "{{ outbound_rules }}"
+
+    - set_fact:
+        outbound_op: failure
+      when: Outbound_Port_Required  == "Specific Number" and outbound_rules.stderr != ""
+    
+    - set_fact:
+        outbound_op: Success
+      when: Outbound_Port_Required  == "Specific Number" and outbound_rules.stderr == ""
+
+      # ignore_errors: true
+
+    - debug:
+        msg: "{{ outbound_op }}"
+      when: Outbound_Port_Required  == "Specific Number"
+
+    # Check Inbound Condition Success
+    - debug: 
+        msg: "Ountbound Rules set successfully"
+      when: Outbound_Port_Required == "Specific Number" and outbound_op == "Success" 
+      # ignore_errors: true
+
+    # Outbound Failed
+    - fail: 
+        msg: "Ountbound ITPAM"
+      when: Outbound_Port_Required  == "Specific Number" and outbound_op == "failure"
+    
+    # Gather SG Infor
+    - name: Fetching the Security Group Information
+      command: turbot-aws -a "{{ aws_accountname }}" ec2 describe-security-groups --group-ids "{{ sg_id }}"
+      register: sg_info
+      # ignore_errors: true
+    
+    - set_fact: 
+        Egress_Ip_Protocol: "All"
+        Egress_From_Port: "All"
+        Egress_To_Port: "All"
+        Egress_CIDR_IP: "All"
+      when: Outbound_Port_Required =="All"
+
+    # Fetching the evidence
+    - name: Fetching Evidence
+      command: sh /home/svc-linux-snow/security_group_prod/sg_new.sh {{ Security_Group_Name }} {{ sg_id }} {{ VPC_ID }} {{ ctask_number }} {{ Ingres_IP_Protocol }} {{ Ingress_From_Port }} {{ Ingress_To_Port }} {{ Ingress_CIDR_IP }} {{ Egress_Ip_Protocol }} {{ Egress_From_Port }} {{ Egress_To_Port }} {{ Egress_CIDR_IP }} {{ VPC_Name }}
+      register: sg_evidence
+      become: true    
+      when: inbound_rules.stdout != "" 
+      delegate_to: localhost  
+    
+    # Evidence Check
+    - debug: 
+        msg: "Evidence HTML generated successfully"
+      when: sg_evidence.rc == 0
+    
+    - debug: 
+        msg: "Failed to generate HTML Evicence"
+      when: sg_evidence.rc != 0
+
+    # Convert HTML to PDF
+    - name: Generate PDF File
+      shell: /usr/local/bin/wkhtmltopdf /Linux_Prod/Security_Group/{{ ctask_number }}/Security_Group_Evidence.html /Linux_Prod/Security_Group/{{ ctask_number }}/Security_Group_Evidence.pdf
+      become: true
+      when: inbound_rules.stdout != "" 
+      register: generate_pdf
+      delegate_to: localhost   
+
+    # Evidence Check
+    - debug:
+        msg: "PDF generated successfully"
+      when: generate_pdf.rc == 0   
+    
+    - debug: 
+        msg: "Failed to generate PDF"
+      when: generate_pdf.rc != 0
+
+    # Final Check Success
+    - debug: 
+        msg: "Final Check Successful"
+      when: create_group.stdout !=""  and inbound_rules.stdout != "" and sg_evidence.rc == 0 and generate_pdf.rc == 0   
+    
+    # - debug:
+    #     msg: "Final Check Successful"
+    #   when: create_group.stdout !="" and outbound_rules.stdout == "" and Outbound_Port_Required == "Specific Number" and inbound_rules.stdout != "" and sg_evidence.rc == 0 and generate_pdf.rc == 0   
+
+    # Final Check Success
+    # - debug:
+    #     msg: "Final Check Failed for all"
+    #   when: create_group.stdout =="" or outbound_rules.stdout != "" or inbound_rules.stdout == "" or sg_evidence.rc != 0 or generate_pdf.rc != 0
+    
+    # # - command: turbot-aws -a aau ec2 authorize-security-group-ingress --group-id sg-0f033f79311bcdbff --ip-permissions IpProtocol="{{ item.proto }}",FromPort="{{ item.from_port }}",ToPort="{{ item.to_port }}",IpRanges='[{CidrIp={{ item.cidr_ip }}}]'
+    # #- command: turbot-aws -a aau ec2 authorize-security-group-ingress --group-id sg-06c8e78e6e837a71e --ip-permissions {{ concat_var }}
+    
+    # # turbot-aws -a aau ec2 describe-security-groups --group-ids sg-05d1cc15cce287814
+    # # turbot-aws -a aau ec2 delete-security-group --group-id sg-0b5444721c0a101a2
+
+
+#turbot-aws -a aau ec2 describe-security-group-rules --filter Name="Service_Catalog_Testing"
+
+# turbot-aws -a aau ec2 delete-security-group --group-id sg-07316d527a5377818
+
+# SG Creation Failed ITPAM
+# Ountbound Rules set successfully
+# Inbound Rules set successfully
+
+
+
+# - name: "Run this task when its condition in true"
+#       debug: msg=', in Ingres_IP_Protocol'
+#       when:  (Ingres_IP_Protocol|regex_findall(',')|length) == 0
+
+
+----------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+security_group_prod/non_prod.yml
+
+---
+turbot_access_key_id: ""
+turbot_secret_access_key: ""
+...
+----------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+security_group_prod/prod.yml
+
+---
+turbot_access_key_id: ""
+turbot_secret_access_key: ""
+...
+
+
+----------------------------------------------------------------------------------------------------------------------------------------------------
+
+security_group_prod/security_groups_vars.yml
+
+Security Group Details:
+Server_IP_hostname: Biogen Cloud I&O Sandbox
+Cloud_Account: aau
+Data_Center_Location: us-east-1
+VPC_ID: vpc-67252701
+Security_Group_Name: aau-biogen-dev-SG-0002236
+Ingres_IP_Protocol: ICMP,TCP
+Ingres_Port_Range: Yes,No
+Ingress_From_Port: 70,80
+Ingress_To_Port: 80,80
+Ingress_CIDR_IP: 10.0.0.0/8,10.0.0.0/8
+Outbound_Port_Required: Specific Number
+Egress_Ip_Protocol: TCP,ICMP
+Egress_Port_Range: No,No
+Egress_From_Port: 90,80
+Egress_To_Port: 90,80
+Egress_CIDR_IP: 10.0.0.0/2,10.1.10.1/0
+
+----------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+security_group_prod/security_groups_vars_new.yml
+
+Security Group Details:
+Server_IP_hostname: Biogen Cloud I&O Sandbox
+Cloud_Account: aau
+Data_Center_Location: us-east-1
+VPC_ID: vpc-67252701
+Security_Group_Name: aau-biogen-dev-SG-0002234
+Ingres_IP_Protocol: TCP
+Ingres_Port_Range: No
+Ingress_From_Port: 80
+Ingress_To_Port: 80
+Ingress_CIDR_IP: 192.168.0.0/16
+Outbound_Port_Required: Specific Number
+Egress_Ip_Protocol: TCP
+Egress_Port_Range: 
+Egress_From_Port: 90
+Egress_To_Port: 100
+Egress_CIDR_IP: 0.0.0.0/8
+
+----------------------------------------------------------------------------------------------------------------------------------------------------
+
+security_group_prod/sg.sh
+
+#!/bin/sh
+SG_NAME=$1
+SG_ID=$2
+VPC_ID=$3
+CTASK_NUMBER=$4
+
+#---create report
+(
+echo '<HTML><HEAD><TITLE>SECURITY GROUP</TITLE></HEAD><BODY>'
+#echo $LTIME
+echo ' <h1><b>
+            <center>SECURITY GROUP</center>
+        </b></h1>
+    <table width=100% border=1>'
+echo ' <tr> <br> </tr>
+        <tr>
+            <th class="label" colspan=2> Security Group Information </th>
+        </tr>
+        <tr>
+            <td><b> Security Group Name </b></td>
+            <td>'$SG_NAME'</td>
+        </tr>       
+        <tr>
+            <td><b> Logon ID used to create this Security Group </b></td>
+            <td>svc-linux-snow</td>
+        </tr>   
+        <tr>
+            <td><b> Report Date and Time </b></td>
+            <td>'$(date '+%d%b%Y %H%M |%Z')'</td>
+        </tr>
+    </table><BR/><BR/>'    
+
+echo '<table width=100% border=1>
+<TR><TH>Security Group Name</TH>
+<TH>Security Group ID</TH>
+<TH>VPC ID</TH>
+</TR><tbody>'
+echo '<TR>
+<TD ALIGN=CENTER>'$SG_NAME'</TD>
+<TD ALIGN=CENTER>'$SG_ID'</TD>
+<TD ALIGN=CENTER>'$VPC_ID'</TD></TR>'
+echo '</tbody></table></body></html>'
+) > /Linux_Qualify/Security_Group/$CTASK_NUMBER/Security_Group_Evidence.html
+#/tmp/$CTASK_NUMBER/pre_check_report.html
+
+
+----------------------------------------------------------------------------------------------------------------------------------------------------
+
+security_group_prod/sg_new.sh
+
+#!/bin/sh
+SG_NAME=$1
+SG_ID=$2
+VPC_ID=$3
+CTASK_NUMBER=$4
+IG_PROTOCOL=$5
+IG_FROM=$6
+IG_TO=$7
+IG_CIDR=$8
+EG_PROTOCOL=$9
+EG_FROM=${10}
+EG_TO=${11}
+EG_CIDR=${12}
+VPC_Name=${13}
+#---create report
+(
+echo '<HTML><HEAD><TITLE>SECURITY GROUP</TITLE></HEAD><BODY>'
+#echo $LTIME
+echo ' <h1><b>
+            <center>SECURITY GROUP</center>
+        </b></h1>
+    <table width=100% border=1>'
+echo ' <tr> <br> </tr>
+        <tr>
+            <th class="label" colspan=2> Security Group Information </th>
+        </tr>
+        <tr>
+            <td><b> Security Group Name </b></td>
+            <td>'$SG_NAME'</td>
+        </tr>       
+        <tr>
+            <td><b> Logon ID used to create this Security Group </b></td>
+            <td>svc-linux-snow</td>
+        </tr>   
+        <tr>
+            <td><b> Report Date and Time </b></td>
+            <td>'$(date '+%d%b%Y %H%M |%Z')'</td>
+        </tr>
+    </table><BR/><BR/>'    
+
+echo '<table width=100% border=1>
+<TH>security group for VPC</TH>
+</TR>'
+echo '<TR>
+<TD ALIGN=CENTER>'$VPC_Name'</TD>
+</TR>'
+echo '</tbody></table>'
+
+echo '
+&nbsp
+<table width=100% border=1>
+<TH>Ingress IP Protocol</TH>
+<TH>Ingress From Port</TH>
+<TH>Ingress To Port</TH>
+<TH>Ingress CIDR</TH>
+</TR>'
+echo '<TR>
+<TD ALIGN=CENTER>'$IG_PROTOCOL'</TD>
+<TD ALIGN=CENTER>'$IG_FROM'</TD>
+<TD ALIGN=CENTER>'$IG_TO'</TD>
+<TD ALIGN=CENTER>'$IG_CIDR'</TD>
+</TR>'
+echo '</tbody></table>'
+echo '
+&nbsp
+<table width=100% border=1>
+<TH>Egress IP Protocol</TH>
+<TH>Egress From Port</TH>
+<TH>Egress To Port</TH>
+<TH>Egress CIDR</TH>
+</TR>'
+echo '<TR>
+<TD ALIGN=CENTER>'$EG_PROTOCOL'</TD>
+<TD ALIGN=CENTER>'$EG_FROM'</TD>
+<TD ALIGN=CENTER>'$EG_TO'</TD>
+<TD ALIGN=CENTER>'$EG_CIDR'</TD>
+</TR>'
+echo '</tbody></table></body></html>'
+) > /Linux_Prod/Security_Group/$CTASK_NUMBER/Security_Group_Evidence.html
+#/tmp/$CTASK_NUMBER/pre_check_report.html
+
+
+
+----------------------------------------------------------------------------------------------------------------------------------------------------
+
+security_group_prod/snow.yml
+
+---
+snow_id: "svc_itpam"
+snow_key: ""
+...
+
+
+
+----------------------------------------------------------------------------------------------------------------------------------------------------
+
+security_group_prod/updated.yml
+
+---
+- hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: SNOW Keys
+      include_vars: /home/svc-linux-snow/security_group/snow.yml
+    
+    # Crete directory
+    - name: creating {{ ctask_number }} directory in tmp folder
+      file:
+        path: /Linux_Qualify/Security_Group/{{ ctask_number }}
+        state: directory
+      become: true
+      delegate_to: localhost
+    
+    - snow_record:
+        state: present
+        table: change_task
+        username: "{{ snow_id }}"
+        password: "{{ snow_key }}"
+        instance: biogentest
+        number: "{{ ctask_number }}"
+      register: incident
+    - set_fact:  
+        execution_notes: "{{ incident.record.u_execution_notes }}"
+    - debug: 
+        msg: "{{ execution_notes }}"
+    - copy:
+        content: "{{ execution_notes }}"
+        dest: "/Linux_Qualify/Security_Group/{{ ctask_number }}/security_groups_vars_new.yml"
+
+    - name: including all the variables
+      include_vars: /Linux_Qualify/Security_Group/{{ ctask_number }}/security_groups_vars_new.yml
+    
+    - set_fact:
+        aws_environment: "{{ Environment[0] }}"
+
+    - set_fact:
+        aws_account_type: "{{ aws_accountname[0] }}"
+      tags: variables
+
+    - name: AWS Prod keys information
+      include_vars: prod.yml
+      when: aws_environment == "P"
+      delegate_to: localhost
+      tags: aws_configure_keys
+    - name: AWS Non-Prod keys information
+      include_vars: non_prod.yml
+      when: aws_environment != "P"
+      delegate_to: localhost
+      tags: aws_configure_keys
+
+    - name: Setting up turbot aws cli for Prod servers
+      command:  "{{ item }}"
+      with_items:
+        - aws configure set default.turbot_host console.prod.amazon.biogen.com
+        - aws configure set default.turbot_access_key_id {{ turbot_access_key_id }}
+        - aws configure set default.turbot_secret_access_key {{ turbot_secret_access_key }}
+        - aws configure set default.turbot_account_id {{ aws_accountname }}
+      register: set_aws_cli
+      delegate_to: localhost
+      when: aws_environment == "P"
+      no_log: true 
+      tags: aws_configure   
+    
+    - name: Setting up turbot aws cli for Non Prod servers
+      command:  "{{ item }}"
+      with_items:
+        - aws configure set default.turbot_host console.nonprod.amazon.biogen.com
+        - aws configure set default.turbot_access_key_id {{ turbot_access_key_id }}
+        - aws configure set default.turbot_secret_access_key {{ turbot_secret_access_key }}
+        - aws configure set default.turbot_account_id {{ aws_accountname }}
+      no_log: true
+      when: aws_environment != "P"
+      register: set_aws_cli
+      tags: aws_configure   
+
+    - debug: msg="{{ Security_Group_Name }}"
+    - debug: msg="{{ aws_accountname }}"
+
+    - debug:
+        msg: "{{ Ingres_IP_Protocol }}"
+
+    - debug: 
+        msg: "No comma present"
+      when: (Ingres_IP_Protocol|regex_findall(',')|length) == 0
+    
+    - debug: 
+        msg: "All"
+      when:  Outbound_Port_Required  == "All"
+
+    # (Egress_Ip_Protocol|regex_findall(',')|length) == 0
+
+    - debug: 
+        msg: "Specific Number"
+      when:  Outbound_Port_Required  == "Specific Number"
+
+    # Ingress ip protocol
+    - set_fact:
+        in_protoidx: "{{ Ingres_IP_Protocol.split(',')|count }}"
+      when: (Ingres_IP_Protocol|regex_findall(',')|length) != 0
+      # ignore_errors: true
+
+    # Egress ip protocol
+    - set_fact:
+        eg_protoidx: "{{ Egress_Ip_Protocol.split(',')|count }}"
+      when: (Egress_Ip_Protocol|regex_findall(',')|length) != 0 and Outbound_Port_Required  == "Specific Number"
+      # ignore_errors: true
+    
+    - set_fact:
+        ingres_rules: "{{ lookup('template', 'templates/sg_vars_ingress.yml.j2') | from_yaml }}"
+      when: (Ingres_IP_Protocol|regex_findall(',')|length) != 0
+      # ignore_errors: true
+
+    - set_fact:
+        egress_rules: "{{ lookup('template', 'templates/sg_vars_egress.yml.j2') | from_yaml }}"
+      when: (Egress_Ip_Protocol|regex_findall(',')|length) != 0 and Outbound_Port_Required  == "Specific Number"
+      # ignore_errors: true
+
+    - set_fact:
+        ingres_rules: IpProtocol={{ Ingres_IP_Protocol }},FromPort={{ Ingress_From_Port }},ToPort={{ Ingress_To_Port }},IpRanges=[{CidrIp={{ Ingress_CIDR_IP }}}]
+      when: (Ingres_IP_Protocol|regex_findall(',')|length) == 0
+      # ignore_errors: true
+
+    - set_fact:
+        egress_rules: IpProtocol={{ Egress_Ip_Protocol }},FromPort={{ Egress_From_Port }},ToPort={{ Egress_To_Port }},IpRanges=[{CidrIp={{ Egress_CIDR_IP }}}]
+      when: (Egress_Ip_Protocol|regex_findall(',')|length) == 0 and Outbound_Port_Required  == "Specific Number"
+      # ignore_errors: true
+
+    # ignore_errors: true
+    - debug: 
+        msg: "{{ ingres_rules }}"
+
+    - debug: 
+        msg: "{{ egress_rules }}"
+      when: (Egress_Ip_Protocol|regex_findall(',')|length) == 0 and Outbound_Port_Required  == "Specific Number"
+      # ignore_errors: true
+
+    # Create security Group
+    - command: turbot-aws -a "{{ aws_accountname }}" --role-name=admin ec2 create-security-group --region {{ Data_Center_Location }} --group-name {{ Security_Group_Name }} --description "Testing" --vpc-id {{ VPC_ID }} --query 'GroupId' --output text
+      register: create_group
+      
+    - debug: 
+        msg: "{{ create_group }}"
+
+    - set_fact:
+        sg_id: "{{ create_group.stdout }}"
+
+    # Security group creation Success
+    - debug: 
+        msg: "Security Group Creation successful"
+      when: create_group.stdout !=""
+    
+    - debug: 
+        msg: "SG ID: {{ sg_id }}"
+      when: create_group.stdout !=""
+
+    # Security Group Failed
+    - fail: 
+        msg: "SG Creation Failed ITPAM"
+      when: create_group.stderr != ""
+
+    # Set Inbound Rules
+    - command: turbot-aws -a "{{ aws_accountname }}" --role-name=admin ec2 authorize-security-group-ingress --region {{ Data_Center_Location }} --group-id "{{ sg_id }}" --ip-permissions "{{ ingres_rules }}"
+      register: inbound_rules
+      # ignore_errors: true
+
+    - debug:
+        msg: "{{ inbound_rules }}"
+
+    # Check Inbound Condition Success
+    - debug: 
+        msg: "Inbound Rules set successfully"
+      when: inbound_rules.stdout != ""
+      # ignore_errors: true
+
+    # Inbound Rules Failed
+    - fail: 
+        msg: "Inbound ITPAM"
+      when: inbound_rules.stderr != ""
+      # ignore_errors: true
+
+    # Set Ountbound Rules
+    - command: turbot-aws -a "{{ aws_accountname }}" --role-name=admin ec2 authorize-security-group-egress --region {{ Data_Center_Location }} --group-id "{{ sg_id }}" --ip-permissions "{{ egress_rules }}"
+      when: Outbound_Port_Required  == "Specific Number"
+      register: outbound_rules
+      # ignore_errors: true
+    
+    - debug:
+        msg: "{{ outbound_rules }}"
+
+    - set_fact:
+        outbound_op: failure
+      when: Outbound_Port_Required  == "Specific Number" and outbound_rules.stderr != ""
+    
+    - set_fact:
+        outbound_op: Success
+      when: Outbound_Port_Required  == "Specific Number" and outbound_rules.stderr == ""
+
+      # ignore_errors: true
+
+    - debug:
+        msg: "{{ outbound_op }}"
+      when: Outbound_Port_Required  == "Specific Number"
+
+    # Check Inbound Condition Success
+    - debug: 
+        msg: "Ountbound Rules set successfully"
+      when: Outbound_Port_Required == "Specific Number" and outbound_op == "Success" 
+      # ignore_errors: true
+
+    # Outbound Failed
+    - fail: 
+        msg: "Ountbound ITPAM"
+      when: Outbound_Port_Required  == "Specific Number" and outbound_op == "failure"
+    
+    # Gather SG Infor
+    - name: Fetching the Security Group Information
+      command: turbot-aws -a "{{ aws_accountname }}" ec2 describe-security-groups --group-ids "{{ sg_id }}"
+      register: sg_info
+      # ignore_errors: true
+    
+    - set_fact: 
+        Egress_Ip_Protocol: "All"
+        Egress_From_Port: "All"
+        Egress_To_Port: "All"
+        Egress_CIDR_IP: "All"
+      when: Outbound_Port_Required =="All"
+
+    # Fetching the evidence
+    - name: Fetching Evidence
+      command: sh /home/svc-linux-snow/security_group/sg_new.sh {{ Security_Group_Name }} {{ sg_id }} {{ VPC_ID }} {{ ctask_number }} {{ Ingres_IP_Protocol }} {{ Ingress_From_Port }} {{ Ingress_To_Port }} {{ Ingress_CIDR_IP }} {{ Egress_Ip_Protocol }} {{ Egress_From_Port }} {{ Egress_To_Port }} {{ Egress_CIDR_IP }} {{ VPC_Name }}
+      register: sg_evidence
+      become: true    
+      when: inbound_rules.stdout != "" 
+      delegate_to: localhost  
+    
+    # Evidence Check
+    - debug: 
+        msg: "Evidence HTML generated successfully"
+      when: sg_evidence.rc == 0
+    
+    - debug: 
+        msg: "Failed to generate HTML Evicence"
+      when: sg_evidence.rc != 0
+
+    # Convert HTML to PDF
+    - name: Generate PDF File
+      shell: /usr/local/bin/wkhtmltopdf /Linux_Qualify/Security_Group/{{ ctask_number }}/Security_Group_Evidence.html /Linux_Qualify/Security_Group/{{ ctask_number }}/Security_Group_Evidence.pdf
+      become: true
+      when: inbound_rules.stdout != "" 
+      register: generate_pdf
+      delegate_to: localhost   
+
+    # Evidence Check
+    - debug:
+        msg: "PDF generated successfully"
+      when: generate_pdf.rc == 0   
+    
+    - debug: 
+        msg: "Failed to generate PDF"
+      when: generate_pdf.rc != 0
+
+    # Final Check Success
+    - debug: 
+        msg: "Final Check Successful"
+      when: create_group.stdout !=""  and inbound_rules.stdout != "" and sg_evidence.rc == 0 and generate_pdf.rc == 0   
+    
+    # - debug:
+    #     msg: "Final Check Successful"
+    #   when: create_group.stdout !="" and outbound_rules.stdout == "" and Outbound_Port_Required == "Specific Number" and inbound_rules.stdout != "" and sg_evidence.rc == 0 and generate_pdf.rc == 0   
+
+    # Final Check Success
+    # - debug:
+    #     msg: "Final Check Failed for all"
+    #   when: create_group.stdout =="" or outbound_rules.stdout != "" or inbound_rules.stdout == "" or sg_evidence.rc != 0 or generate_pdf.rc != 0
+    
+    # # - command: turbot-aws -a aau ec2 authorize-security-group-ingress --group-id sg-0f033f79311bcdbff --ip-permissions IpProtocol="{{ item.proto }}",FromPort="{{ item.from_port }}",ToPort="{{ item.to_port }}",IpRanges='[{CidrIp={{ item.cidr_ip }}}]'
+    # #- command: turbot-aws -a aau ec2 authorize-security-group-ingress --group-id sg-06c8e78e6e837a71e --ip-permissions {{ concat_var }}
+    
+    # # turbot-aws -a aau ec2 describe-security-groups --group-ids sg-05d1cc15cce287814
+    # # turbot-aws -a aau ec2 delete-security-group --group-id sg-0b5444721c0a101a2
+
+
+#turbot-aws -a aau ec2 describe-security-group-rules --filter Name="Service_Catalog_Testing"
+
+# turbot-aws -a aau ec2 delete-security-group --group-id sg-0e3114d956d06264c
+
+# SG Creation Failed ITPAM
+# Ountbound Rules set successfully
+# Inbound Rules set successfully
+
+
+
+# - name: "Run this task when its condition in true"
+#       debug: msg=', in Ingres_IP_Protocol'
+#       when:  (Ingres_IP_Protocol|regex_findall(',')|length) == 0
+
+
+
+----------------------------------------------------------------------------------------------------------------------------------------------------
+security_group_prod/hosts
+
+localhost
+
+----------------------------------------------------------------------------------------------------------------------------------------------------
+
+security_group_prod/sg_vasrs_ingress.yml.j2
+
+{% for in_pro_idx in range(0, in_protoidx|int) %}
+IpProtocol={{ Ingres_IP_Protocol.split(',')[in_pro_idx] }},FromPort={{ Ingress_From_Port.split(',')[in_pro_idx] }},ToPort={{ Ingress_To_Port.split(',')[in_pro_idx] }},IpRanges=[{CidrIp={{ Ingress_CIDR_IP.split(',')[in_pro_idx] }}}]
+{% endfor %}
+
+----------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+security_group_prod/sg_vasrs_egress.yml.j2
+
+{% for eg_pro_idx in range(0, eg_protoidx|int) %}
+IpProtocol={{ Egress_Ip_Protocol.split(',')[eg_pro_idx] }},FromPort={{ Egress_From_Port.split(',')[eg_pro_idx] }},ToPort={{ Egress_To_Port.split(',')[eg_pro_idx] }},IpRanges=[{CidrIp={{ Egress_CIDR_IP.split(',')[eg_pro_idx] }}}]
+{% endfor %}
+
+----------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+security_group_prod/sg_vars.yml.j2.bkp
+
+---
+ingress_details:
+{% for in_pro_idx in range(0, in_protoidx|int) %}
+  - proto: {{ Ingres_IP_Protocol.split(',')[in_pro_idx] }}
+    from_port: {{ Ingress_From_Port.split(',')[in_pro_idx] }}
+    to_port: {{ Ingress_To_Port.split(',')[in_pro_idx] }}
+    cidr_ip: {{ Ingress_CIDR_IP.split(',')[in_pro_idx] }}
+{% endfor %}
+egress_details:
+{% for eg_pro_idx in range(0, eg_protoidx|int) %}
+  - proto: {{ Egress_Ip_Protocol.split(',')[eg_pro_idx] }}
+    from_port: {{ Egress_From_Port.split(',')[eg_pro_idx] }}
+    to_port: {{ Egress_To_Port.split(',')[eg_pro_idx] }}
+    cidr_ip: {{ Egress_CIDR_IP.split(',')[eg_pro_idx] }}
+{% endfor %}
+
+----------------------------------------------------------------------------------------------------------------------------------------------------
+
