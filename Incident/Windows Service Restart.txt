@@ -1,0 +1,1375 @@
+1. Get Ticket
+
+Pre Execution:
+
+var uri="https://"+Process.SnowEnv+".service-now.com/api/now/table/incident?sysparm_fields=number%2Cactive%2Csys_id%2Cincident_state%2Cdescription%2Cassigned_to=SVC-itpam@biogen.com&sysparm_limit=1&number="+Process.incidentNumber
+Process.url=uri
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket details fetched successfully"
+  Process.Output=Process[OpName].HTTPResponseContent
+  
+}
+else
+{
+  Process.ReturnCode=1;
+  Process.ReturnMessage="Failure fetching ticket details"
+}
+
+2. Second Operator (Read)
+
+Inline:
+
+var str =Process.Output
+var start=str.indexOf('[')+2;
+var end=str.indexOf(']')-1;
+var res = str.substring(start,end);
+var out1= res.split(',');
+for(var i=0;i < out1.length;i++)
+{
+  out1[i]=out1[i].replace(/\"/g,"");
+  if(out1[i].indexOf('active')>=0)
+  {Process.active=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('sys_id')>=0)
+  {Process.Sys_Id=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('description')>=0)
+  {Process.description=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('incident_state')>=0)
+  {Process.Incidentstate=(out1[i].split(':'))[1]}
+  out1[i]=(out1[i].split(':'))[1]
+}
+
+Post Execution:
+
+if(Process.active)
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket is active.";
+}
+else
+{
+  Process.ReturnCode=1;
+  Process.ReturnMessage="Ticket is inactive.";
+}
+
+3.Ticket Update
+
+Pre Execution:
+
+Process.payload = "<request><entry><assigned_to>d2f5f34bdb5efb8036c73c9b7c961900</assigned_to><incident_state>2</incident_state><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+"</work_notes></entry></request>"
+Process.putURL="https://"+Process.SnowEnv+".service-now.com/api/now/v2/table/incident/"+Process.Sys_Id+"?sysparm_fields=incident_state"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  if(Process[OpName].HTTPResponseContent.indexOf("incident_state\":\"")>=0)
+  {
+	Process.ReturnCode=0;
+	Process.ReturnMessage="Ticket resolved successfully ";
+  }
+  else
+  {
+	Process.ReturnCode=-1;
+	Process.ReturnMessage="Error occurred while  resolving ticket";
+  }
+}
+else
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Failure occurred while resolving ticket"
+}
+
+4.Script
+
+Inline:
+
+param(
+$computer,
+$INCNumber)
+
+function timestamp{
+    Get-Date -Format "dd_MMM_yyyy_HH:mm:ss tt"
+}
+
+$log_path = "D:\Incident\Heart_Beat_Failure\$INCNumber\logs\"
+
+$log=@()
+$log += "Service Account used is SVC-ITPAM"
+$log += "$scenario Utilization Remediation steps initiated."
+$log += "-----------------"
+$log += "Script Execution Started at $(timestamp)"
+
+If(!(test-path -PathType container $log_path))
+{
+    $log += "Creating a new Folder in $log_path at $(timestamp)"
+    New-Item -ItemType Directory -Path $log_path
+}
+
+if(Test-Connection -ComputerName $computer -Quiet)
+{Write-Host "True"
+$log += "Ping Check successful with Hostname"}
+else{Write-Host "False"
+$log += "Ping Check Unsuccessful with Hostname"}
+
+$log += "Script Execution Ends $(timestamp)"
+$log += "-----------------"
+
+$log | Add-Content $log_path\log.txt
+
+
+Post Execution:
+
+if(Process.Ping_Check.scriptOutput.indexOf("True")>=0)
+{
+  Process.ReturnCode=0
+  Process.ReturnMessage="Connection to target CI with Hostname is Successful"
+}
+else if(Process.Ping_Check.scriptOutput.indexOf("False")>=0)
+{
+  Process.ReturnCode=-1
+  Process.ReturnMessage="Connection to target CI not succesful, routing Incident to “Windows” Assignment Group"
+}
+else
+{
+Process.ReturnCode=1
+Process.returnMessage = "Fatal Error"
+}
+
+
+5.Ticket Update
+
+Success:
+
+Pre Execution:
+
+Process.PingPayload="<request><entry><work_notes>Connection to target CI with Hostname is Successful</work_notes></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  if(Process[OpName].HTTPResponseContent.indexOf("incident_state\":\"")>=0)
+  {
+	Process.ReturnCode=0;
+	Process.ReturnMessage="Ticket resolved successfully ";
+  }
+  else
+  {
+	Process.ReturnCode=-1;
+	Process.ReturnMessage="Error occurred while  resolving ticket";
+  }
+}
+else
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Failure occurred while resolving ticket"
+}
+
+Failure:
+
+Pre Execution:
+
+Process.PingFailPayLoad ="<request><entry><work_notes>"+Process.ReturnMessage+"</work_notes><assignment_group>d32d41c5dbe73e00d41dd3cb5e96194f</assignment_group></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  if(Process[OpName].HTTPResponseContent.indexOf("incident_state\":\"")>=0)
+  {
+	Process.ReturnCode=0;
+	Process.ReturnMessage="Ticket resolved successfully ";
+  }
+  else
+  {
+	Process.ReturnCode=-1;
+	Process.ReturnMessage="Error occurred while  resolving ticket";
+  }
+}
+else
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Failure occurred while resolving ticket"
+}
+
+First Scenario
+
+6.Script
+
+Inline:
+
+param($computer,
+$RDPUsername,
+$RDPPassword,
+$INCNumber,
+$service)
+
+$pwd = $RDPPassword | ConvertTo-SecureString -AsPlainText -Force
+$creds = New-Object pscredential -ArgumentList ($RDPUsername , $pwd)
+
+function timestamp{
+    Get-Date -Format "dd_MMM_yyyy_HH:mm:ss tt"
+}
+
+$log_path = "D:\Incident\Service_Restart\$INCNumber\logs"
+
+If(!(test-path $log_path))
+{
+      New-Item -ItemType Directory -Force -Path $log_path
+}
+
+$log=@()
+$log += "-----------------"
+$log += "Script Execution Started at $(timestamp)"
+
+try
+{
+    $status = (Get-WmiObject -ComputerName $computer -Credential $creds -Class win32_service | ? {$_.Name -eq "$service"}).State
+
+    if($status -eq "Stopped")
+    {
+        Write-Host "Stopped"
+        $log += "$service is in Stopped State"
+"What is the Issue: The $service is in Stopped State.
+
+Current Status: $service is in Stopped State
+
+Cause of the issue or Analysis: Alert triggered as a result of $service might be down" | Out-File "D:\Incident\Service_Restart\$INCNumber\logs\close_notes.txt" 
+    }
+    elseif($status -eq "Running")
+    {
+        Write-Host "Running"		
+
+        $log += "HealthService is in Running State"
+
+"What is the Issue: Incident created for $service failure in $computer
+
+Current Status: $service is in Running State
+
+Cause of the issue or Analysis: Issue Not known, as the $service is in running state" | Out-File "D:\Incident\Service_Restart\$INCNumber\logs\close_notes.txt" 
+
+    }
+    else
+    {
+        Write-Host "Not defined"
+        $log += "$service state is not defined"
+    }
+}
+catch
+{
+    Write-Host "Unable to fetch"
+    $log += "Unable to fetch the Service Status"
+}
+
+$log += "Script Execution Ends $(timestamp)"
+$log += "-----------------"
+
+$log | Add-Content "$log_path\log.txt"
+
+
+Post Execution:
+
+if(Process.Win_Service_Status_1.scriptOutput.indexOf("Running")>=0)
+{
+  Process.ReturnCode=0
+  Process.ReturnMessage= "The "+Process.Service+" is in Running State"
+  Process.Service_Status="Running"
+}
+else if(Process.Win_Service_Status_1.scriptOutput.indexOf("Stopped")>=0)
+{
+  Process.ReturnCode=1
+  Process.ReturnMessage="The "+Process.Service+" is in Stopped State"
+}
+else if(Process.Win_Service_Status_1.scriptOutput.indexOf("Unable to fetch")>=0)
+{
+  Process.ReturnCode=2
+  Process.ReturnMessage="Unable to Fetch the "+Process.Service+" Status"
+}
+else
+{
+   Process.ReturnCode =2
+   Process.ReturnMessage="Failed to get the "+Process.Service+" State"
+ }
+
+7.Ticket Update
+
+Pre Execution:
+
+Process.WIN_Restarting_Service="<request><entry><work_notes>"+Process.ReturnMessage+"</work_notes></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  if(Process[OpName].HTTPResponseContent.indexOf("incident_state\":\"")>=0)
+  {
+	Process.ReturnCode=0;
+	Process.ReturnMessage="Ticket updated successfully ";
+  }
+  else
+  {
+	Process.ReturnCode=-1;
+	Process.ReturnMessage="Error occurred while updating ticket";
+  }
+}
+else
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Failure occurred while updating ticket"
+}
+
+8.Script
+
+Inline:
+
+param($computer,
+$RDPUsername,
+$RDPPassword,
+$INCNumber,
+$service)
+
+
+$pwd = $RDPPassword | ConvertTo-SecureString -AsPlainText -Force
+$creds = New-Object pscredential -ArgumentList ($RDPUsername , $pwd)
+
+function timestamp{
+    Get-Date -Format "dd_MMM_yyyy_HH:mm:ss tt"
+}
+
+$log_path = "D:\Incident\Service_Restart\$INCNumber\logs"
+
+
+If(!(test-path $log_path))
+{
+      New-Item -ItemType Directory -Force -Path $log_path
+}
+
+$log=@()
+$log += "-----------------"
+$log += "Script Execution Started at $(timestamp)"
+$log += "Service Account used for remediation is Svc-ITPAM"
+try
+{
+$session = New-PSSession -ComputerName $computer -Credential $creds
+}
+catch
+{
+    Write-Host "Failed to create a session"
+}
+try
+{
+    Invoke-Command -Session $session -ScriptBlock {param($service) Get-Service | ? {$_.Name -eq "$service"} | Start-Service } -ArgumentList $service 
+    Write-Host "Service started successfully"
+    $log += "Service started successfully"
+}
+catch
+{
+    Write-Host "Unable to start the Service"
+    $log += "Unable to start the Service"
+}
+
+$log += "Script Execution Ends $(timestamp)"
+$log += "-----------------"
+
+$log | Add-Content "$log_path\log.txt"
+
+
+Post Execution:
+
+if(Process.Win_Service_Restart_1.scriptOutput.indexOf("Service started successfully")>=0)
+{
+  Process.ReturnCode=1
+  Process.ReturnMessage="The "+Process.Service+" started successfully"
+}
+else if(Process.Win_Service_Restart_1.scriptOutput.indexOf("Unable to start the Service")>=0)
+{
+  Process.ReturnCode=-1
+  Process.ReturnMessage="Unable to start the "+Process.Service
+}
+else
+{
+   Process.ReturnCode =-1
+   Process.ReturnMessage="Failed to Start the "+Process.Service
+ }
+
+9.Ticket Update
+
+Pre Execution:
+
+Process.WIN_Check_Restart="<request><entry><work_notes>"+Process.ReturnMessage+"</work_notes></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  if(Process[OpName].HTTPResponseContent.indexOf("incident_state\":\"")>=0)
+  {
+	Process.ReturnCode=0;
+	Process.ReturnMessage="Ticket updated successfully ";
+  }
+  else
+  {
+	Process.ReturnCode=-1;
+	Process.ReturnMessage="Error occurred while updating ticket";
+  }
+}
+else
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Failure occurred while updating ticket"
+}
+
+10.Script
+
+Inline:
+
+param($computer,
+$RDPUsername,
+$RDPPassword,
+$INCNumber,
+$service)
+
+$pwd = $RDPPassword | ConvertTo-SecureString -AsPlainText -Force
+$creds = New-Object pscredential -ArgumentList ($RDPUsername , $pwd)
+
+function timestamp{
+    Get-Date -Format "dd_MMM_yyyy_HH:mm:ss tt"
+}
+
+$log_path = "D:\Incident\Service_Restart\$INCNumber\logs"
+
+If(!(test-path $log_path))
+{
+      New-Item -ItemType Directory -Force -Path $log_path
+}
+
+$log=@()
+$log += "-----------------"
+$log += "Script Execution Started at $(timestamp)"
+$log += "Service Account used for remediation is Svc-ITPAM"
+
+try
+{
+    $status = (Get-WmiObject -ComputerName $computer -Credential $creds -Class win32_service | ? {$_.Name -eq "$service"}).State
+
+    if($status -eq "Stopped")
+    {
+        Write-Host "Stopped"
+        $log += "HealthService is in Stopped State"
+
+    }
+    elseif($status -eq "Running")
+    {
+        Write-Host "Running"
+        $log += "$service is in Running State"
+
+"What is the Issue: Splunk Forwarder Service was not running in $computer
+
+Current Status: Splunk Forwarder service has been started Successfully
+
+Cause of the issue or Analysis: Splunk Forwarder Service was down, As a result an Incident was triggered" | Out-File "D:\Incident\Service_Restart\$INCNumber\logs\close_notes.txt" 
+
+    }
+    else
+    {
+        Write-Host "not defined"
+        $log += "$service state is not defined"
+    }
+}
+catch
+{
+    Write-Host "Unable to fetch"
+    $log += "Unable to fetch the $service Status"
+}
+
+"
+Action Taken: Starting the HealthService Service
+
+Current Status: $service is in $status State" | Out-File "D:\Incident\Service_Restart\$INCNumber\logs\close_notes.txt"  -Append
+
+$log += "Script Execution Ends $(timestamp)"
+$log += "-----------------"
+
+$log | Add-Content "$log_path\log.txt"
+
+
+Post Execution:
+
+if(Process.Win_Service_Check_1.scriptOutput.indexOf("Stopped")>=0)
+{
+  Process.ReturnCode=0
+  Process.ReturnMessage="iAutomate cannot restart the service. Please perform the activity manually."
+}
+else if(Process.Win_Service_Check_1.scriptOutput.indexOf("Running")>=0)
+{
+  Process.ReturnCode=1
+  Process.ReturnMessage="The service has been started and it is in running state. Hence resolving the incident."
+  Process.Service_Status="Running"
+}
+else if(Process.Win_Service_Check_1.scriptOutput.indexOf("Unable to fetch")>=0)
+{
+  Process.ReturnCode=2
+  Process.ReturnMessage="Unable to Fetch the HealthService Status"
+}
+else
+{
+   Process.ReturnCode =2
+   Process.ReturnMessage="Failed to get the HealthService State"
+ }
+
+11.Ticket Update
+
+Pre Execution:
+
+Process.WIN_Check_Restart="<request><entry><work_notes>"+Process.ReturnMessage+"</work_notes></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  if(Process[OpName].HTTPResponseContent.indexOf("incident_state\":\"")>=0)
+  {
+	Process.ReturnCode=0;
+	Process.ReturnMessage="Ticket updated successfully ";
+  }
+  else
+  {
+	Process.ReturnCode=-1;
+	Process.ReturnMessage="Error occurred while updating ticket";
+  }
+}
+else
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Failure occurred while updating ticket"
+}
+
+12.Script
+
+Inline:
+
+param
+($serverName,
+$INCNumber,
+$SNOW_Env)
+
+function timestamp{
+    Get-Date -Format "dd_MMM_yyyy_HH:mm:ss tt"
+}
+
+$log_path = "D:\Incident\Windows_Utilization\$INCNumber\logs\"
+
+$log=@()
+$log += "-----------------"
+$log += "Script Execution Started at $(timestamp)"
+
+If(!(test-path -PathType container $log_path))
+{
+    $log += "Creating a new Folder in $log_path at $(timestamp)"
+    New-Item -ItemType Directory -Path $log_path
+}
+
+[Net.ServicePointManager]::SecurityProtocol = "tls12, tls11, tls"
+$password = ConvertTo-SecureString “Hs2n7MB7o3JmB2G4” -AsPlainText -Force
+$Credentials = New-Object System.Management.Automation.PSCredential (“SVC-itpam”, $password)
+
+$apikey = 'svc_itpam'
+$password = 'V2!RfaRE#%4GQ*J_'
+$global:headers = @{"Authorization" = "Basic "+[System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($apikey+":"+$password))}
+
+$applurl = "https://$SNOW_Env.service-now.com/api/now/table/cmdb_rel_ci?sysparm_query=childLIKE"+$serverName
+try
+{
+    $result2 = Invoke-WebRequest -Uri $applurl -Headers $global:headers -Method Get -ContentType "application/json" -UseBasicParsing
+    $log+= "Server details fetched successfully from CMDB"
+}
+catch
+{
+    Write-host "Failed to fetch the Server information from CMDB"
+    $log += "Failed to fetch the Server information from CMDB at $(timestamp)"
+    break
+}
+
+$ciOut2 = $result2 | ConvertFrom-JSON
+$applinks = $ciOut2.result.parent.link
+
+foreach($applink in $applinks)
+{
+    try
+    {
+        $appdata = Invoke-WebRequest -Uri $applink -Headers $global:headers -Method Get -ContentType "application/json" -ErrorAction SilentlyContinue -UseBasicParsing
+    }
+    catch
+    {
+        Write-host "Failed to fetch the Application details mapped witht the server"
+        $log +="Failed to fetch the Application details mapped witht the server $(timestamp)"
+    }
+    $appresult = $appdata | ConvertFrom-JSON
+
+    $category = $appresult.result.category
+    $application_name = $appresult.result.name
+    $assgrp_link = $appresult.result.assignment_group.link
+    $ITSO_link = $appresult.result.u_it_system_owner.link
+    
+    $log += "Name of the application mapped in $serverName is $application_name"
+    if($category -match "Application")
+    {
+        
+        if($ITSO_link)
+        {
+            $log += "ITSO LINK: $ITSO_link "
+        }
+        else
+        {
+            $log += "ITSO Information is not available"
+        }
+        if($application_name)
+        {
+            $log += "APllication Name: $application_name"
+        }
+        else
+        {
+            $log += "APllication Information is not available"
+        }
+        
+        if($assgrp_link)
+        {
+            $log += "Assignment Group Link: $assgrp_link"
+        }
+        else
+        {
+            $log += "Assignment Group details not available"
+        }
+
+        try
+        {
+            $ITSO_out = Invoke-WebRequest -Uri $ITSO_link -Headers $global:headers -Method Get -ContentType "application/json" -UseBasicParsing
+            $ITSO = $ITSO_out | ConvertFrom-Json
+            $log += "ITSO Information fetched Successfully"
+        }
+        catch
+        {
+            $log += "Failed to Fetch ITSO Information"
+            Write-Host "Failed to Fetch ITSO Information"
+        }
+        
+        $ITSO_Name = $ITSO.result.name
+        $ITSO_Email = $ITSO.result.email
+
+        if($ITSO_Name)
+        {
+            $log += "ITSO Name of $application_name is $ITSO_Name"
+        }
+        else
+        {
+            $log += "ITSO Name is not available"
+        }
+        
+        if($ITSO_Email)
+        {
+            $log += "ITSO Email ID is $ITSO_Email"
+        }
+        else
+        {
+            Write-Host "ITSO Email is not available"
+        }
+    }
+    else
+    {
+        Write-Host "No Application is hosted"
+    }
+}
+
+try
+{
+if($ITSO_Email)
+{
+
+    $body = "Hi $ITSO_Name
+    
+An incident has been raised ($INCNumber) due to Restart Service alert on $serverName.
+    
+Regards
+iAutomate Team
+     
+**This is an automated mail. Please do not Reply to this."
+
+    $from = "iAutomateNotification@biogen.com"
+    $to = "$ITSO_Email"
+    $body = $body
+    $cc = "DL-WindowsServerAdmins-HCL@biogen.com"
+    $bcc = "DL-hclbiogenAutomation@biogen.com"
+    $smtpserver = "smtp.biogen.com"
+    $subject = "Reg $INCNumber : Restart Service Alert on $serverName"
+
+    Send-MailMessage -to $to -From $from -Body $body -Bcc $bcc -SmtpServer $smtpserver -Cc $cc -Subject $subject
+    $log += "Notification mail sent successfully to ITSO"
+    Write-Host "Notification mail sent successfully to ITSO"
+}
+else
+{
+    try
+    {
+            $body = "Hi Team
+    
+An incident has been raised ($INCNumber) due to Restart Service alert on $serverName.
+    
+Regards
+iAutomate Team
+     
+**This is an automated mail. Please do not Reply to this."
+
+    $from = "iAutomateNotification@biogen.com"
+    $to = "DL-WindowsServerAdmins-HCL@biogen.com"
+    $body = $body
+    $cc = "DL-hclbiogenAutomation@biogen.com"
+    $bcc = "DL-hclbiogenAutomation@biogen.com"
+    $smtpserver = "smtp.biogen.com"
+    $subject = "Reg $INCNumber : Restart Service Alert on $serverName"
+
+        Send-MailMessage -to $to -From $from -Body $body -Bcc $bcc -SmtpServer $smtpserver -Cc $cc -Subject $subject
+        $log += "Notified the Windows team"
+        Write-Host "Notified the Windows team"
+    }
+    catch
+    {
+        $log += "Failed to Notify Windows Team"
+        Write-Host "Failed to Notify Windows Team"
+    }
+}
+}
+catch
+{
+    $log += 
+    Write-Host "Failed to Send mail notification to ITSO"
+}
+
+$log += "Script Execution Ends $(timestamp)"
+$log += "-----------------"
+$log | Add-Content $log_path\log.txt
+
+
+Post Execution:
+
+
+if(Process[OpName].scriptOutput.indexOf("Notification mail sent successfully to ITSO")>=0)
+{
+  Process.ReturnCode=5
+  Process.ReturnMessage ="Notification mail sent successfully to ITSO"
+}
+
+else if(Process[OpName].scriptOutput.indexOf("Notified the Windows team")>=0)
+{
+  Process.ReturnCode=5
+  Process.ReturnMessage="Notified the Windows team"
+}
+
+else if(Process[OpName].scriptOutput.indexOf("Failed to Notify Windows Team")>=0)
+{
+  Process.ReturnCode=7
+  Process.ReturnMessage="Failed to Notify Windows Team"
+}
+
+else if(Process[OpName].scriptOutput.indexOf("Failed to Send mail notification to ITSO")>=0)
+{
+  Process.ReturnCode=7
+  Process.ReturnMessage="Failed to Send mail notification"
+}
+
+else if(Process[OpName].scriptOutput.indexOf("ITSO Email is not available")>=0)
+{
+  Process.ReturnCode=7
+  Process.ReturnMessage="ITSO Email is not available"
+}
+
+else if(Process[OpName].scriptOutput.indexOf("No Application is hosted")>=0)
+{
+  Process.ReturnCode=7
+  Process.ReturnMessage="No Application is hosted"
+}
+
+else if(Process[OpName].scriptOutput.indexOf("Failed to Fetch ITSO Information")>=0)
+{
+  Process.ReturnCode=7
+  Process.ReturnMessage="Failed to Fetch ITSO Information"
+}
+
+else if(Process[OpName].scriptOutput.indexOf("Failed to fetch the Server information from CMDB")>=0)
+{
+  Process.ReturnCode=7
+  Process.ReturnMessage="Failed to fetch the Server information from CMDB"
+}
+
+else if(Process[OpName].scriptOutput.indexOf("Failed to fetch the Application details mapped witht the server")>=0)
+{
+  Process.ReturnCode=7
+  Process.ReturnMessage="Failed to fetch the Application details mapped witht the server"
+}
+
+else
+{
+Process.ReturnCode=-1
+Process.returnMessage = "Fatal Error"
+}
+
+
+13.Ticket Update
+
+Pre Execution:
+
+Process.ServiceRestart = "<request><entry><work_notes>"+Process.ReturnMessage+"</work_notes></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  if(Process[OpName].HTTPResponseContent.indexOf("incident_state\":\"")>=0)
+  {
+	Process.ReturnCode=0;
+	Process.ReturnMessage="Ticket resolved successfully ";
+  }
+  else
+  {
+	Process.ReturnCode=-1;
+	Process.ReturnMessage="Error occurred while  resolving ticket";
+  }
+}
+else
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Failure occurred while resolving ticket"
+}
+
+Second Scenario
+
+14.Ticket Update
+
+Pre Execution:
+
+Process.WIN_Check_Restart="<request><entry><work_notes>"+Process.ReturnMessage+"</work_notes></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  if(Process[OpName].HTTPResponseContent.indexOf("incident_state\":\"")>=0)
+  {
+	Process.ReturnCode=0;
+	Process.ReturnMessage="Ticket updated successfully ";
+  }
+  else
+  {
+	Process.ReturnCode=-1;
+	Process.ReturnMessage="Error occurred while updating ticket";
+  }
+}
+else
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Failure occurred while updating ticket"
+}
+
+15.Script
+
+Inline:
+
+param($hostname,
+$INCNumber,
+$RDPUser,
+$RDPPass)
+
+#$hostname = "usawsgaax0033"
+#$INCNumber = "logging"
+#$RDPUser = "svc-itpam"
+#$RDPPass = "Hs2n7MB7o3JmB2G4"
+######################Variables##########################
+$id=1;
+$statusHash=@{}
+
+function timestamp{
+    Get-Date -Format "dd_MMM_yyyy_HH:mm:ss tt"
+}
+
+$log_path = "D:\Incident\Service_Restart\$INCNumber\logs\"
+
+$log=@()
+$log += "-----------------"
+$log += "Health Check Script Execution Started at $(timestamp)"
+
+
+$password =  $RDPPass | ConvertTo-SecureString -AsPlainText -Force
+$winCred = New-Object pscredential -ArgumentList ($RDPUser , $password)
+
+######################Folder Creation#####################
+$filePath="D:\Incident\Service_Restart\$INCNumber\Windows_Health_Check"
+If(!(test-path $filePath))
+{
+      New-Item -ItemType Directory -Force -Path $filePath
+}
+
+    $Report = @()
+    $ping,$uptime,$AVGProc,$mem,$vol,$storageUti,$sccm,$bits,$wmi,$port,$up = ""
+    $statusCount=0;
+try
+{
+    if((Test-Connection $hostName -Count 4 -Quiet) -and (New-PSSession -ComputerName "$hostName" -Credential $winCred)){
+
+    $ping = "Pingable"
+    #cpu utilization
+    $log += "Ping Status is $ping"
+    $AVGProc = Invoke-Command -ComputerName $hostName -Credential $winCred -ScriptBlock{gwmi win32_processor |  Measure-Object -property LoadPercentage -Average | Select Average -ErrorAction SilentlyContinue}
+    $log += "Average CPU is $($AVGProc.Average)"
+
+    # memory usage
+    $mem = Invoke-Command -ComputerName $hostName -Credential $winCred -ScriptBlock{gwmi -Class win32_operatingsystem  | Select-Object @{Name = "MemoryUsage"; Expression = {“{0:N2}” -f ((($_.TotalVisibleMemorySize - $_.FreePhysicalMemory)*100)/ $_.TotalVisibleMemorySize) }} -ErrorAction SilentlyContinue}
+    $log += "Average MEM is $($mem.MemoryUsage)"
+    # disk space free
+    $vol = Invoke-Command -ComputerName $hostName -Credential $winCred  -ScriptBlock{gwmi win32_logicaldisk -filter "drivetype=3" | select @{name =  "DriveName" ;Expression = {$_.deviceid}},@{name = "TotalSize";Expression = {($_.size/1GB).ToString(0.00)+"GB"}},@{name = "Utilized";Expression = {(($_.size-$_.freespace)/1GB).ToString(0.00)+"GB"}}, @{name = "FreeSpace" ;Expression = {($_.freespace/1GB).ToString(0.00)+"GB"}} -ErrorAction SilentlyContinue}
+    $storageUti = $vol[0].FreeSpace
+    $log += "C: Drive Space is $storageUti"
+    #SCCM Client - CcmExec 
+    $sccm = Invoke-Command -ComputerName $hostName -Credential $winCred -ScriptBlock{Get-Service -Name "CcmExec"}
+    $log += "SSCM Service Status is $($sccm.Status)"
+    $wmi = Invoke-Command -ComputerName $hostName -Credential $winCred -ScriptBlock{Get-Service  -Name "Winmgmt"}
+    $log += "WMI Service Status is $($wmi.Status)"
+    #Port Check
+    $port = test-netconnection -computername $hostName -Port 3389 | Select -ExpandProperty TcpTestSucceeded  
+    $log += "Port Status is $port"
+    #uptime Check
+    $up = Get-WmiObject Win32_OperatingSystem -ComputerName $hostName -Credential $winCred
+    $rawtime = $up.ConvertToDateTime($up.LastBootUpTime)
+    $formatedtime = (Get-Date)-$rawtime
+    $uptime = "$($formatedtime.Days) Days,$($formatedtime.Hours) Hours,$($formatedtime.Minutes) Minutes,$($formatedtime.Seconds) Seconds"
+    
+    #Close Ps-Session
+    Get-PSSession | Remove-PSSession
+    }else
+    {
+        write-host "Skipping $hostName"
+        if(Test-Connection $hostName -Count 2 -Quiet){
+            $ping = "Unable to take a Remote Session"
+			Write-Host "Unable to take a Remote Session"
+        }else{
+            $ping = "Non-Pingable"
+        }
+    }
+    $usrName = $winCred.username;
+    $execDate=get-date -Format "MM_dd_yyyy_HH_mm"
+}
+catch
+{
+    $log += "Failed to Generate Report"
+    Write-Host "Failed to Generate Report"
+}
+$log += "Writing the HTML File"
+try
+{
+$body = @()
+$body +="<HTML>
+<HEAD><TITLE>SERVER STATUS</TITLE></HEAD>
+<BODY>
+
+<h1><b>
+            <center>Server Health Check Status</center>
+        </b></h1>
+    <table width=100% border=1>
+<tr> <br> </tr>
+        <tr>
+            <th class='label' colspan=2> Server Baseline Information </th>
+        </tr>
+        <tr>
+            <td><b> Host Name </b></td>
+            <td>$HOSTNAME</td>
+        </tr>
+        <tr>
+            <td><b> Executed at </b></td>
+            <td>$execDate</td>
+        </tr>           
+        <tr>
+            <td><b> Executed By </b></td>
+            <td>$usrName</td>
+        </tr>   
+        <tr>
+            <td><b> Ping Status </b></td>"
+        if($ping -like "Pingable")
+        {
+            $body += "<td><b style='color:#20A608'>Pingable</b></td>"
+        }
+        else
+        {
+            $body += "<td><b style='color:#FF3C33'>Server is Not Reachable</b></td>"
+        }
+        $body += "</tr>
+        <tr>
+            <td><b> Uptime </b></td>
+            <td>$uptime</td>
+        </tr>
+        <tr>
+        <td><b> Average CPU </b></td>"  
+ 
+        if($($AVGProc.Average) -le 80)
+        {
+           $body += "<td><b style='color:#20A608'>$($AVGProc.Average) %</b></td>"
+        }
+        else
+        {
+           $body += "<td><b style='color:#FF3C33'>$($AVGProc.Average) %</b></td>"
+        } 
+        $body += "</td>  
+        </tr>
+        <tr>
+            <td><b> Average MEM </b></td>"
+        if($($mem.MemoryUsage) -le 80)
+        {
+           $body += "<td><b style='color:#20A608'>$($mem.MemoryUsage) %</b></td>"
+        }
+        else
+        {
+           $body += "<td><b style='color:#FF3C33'>$($mem.MemoryUsage) %</b></td>"
+        }
+        $body +="</tr>
+        <tr>
+            <td><b> C: Drive Space </b></td>"
+        if($($storageUti) -ge 80)
+        {
+           $body += "<td><b style='color:#20A608'>$($storageUti)</b></td>"
+        }
+        else
+        {
+           $body += "<td><b style='color:#FF3C33'>$($storageUti)</b></td>"
+        }
+
+        $body += "</tr>
+        <tr>
+            <td><b>SCCM Agent Service Status </b></td>"
+         if($($sccm.status) -eq "Running")
+        {
+           $body += "<td><b style='color:#20A608'>$($sccm.status)</b></td>"
+        }
+        else
+        {
+           $body += "<td><b style='color:#FF3C33'>$($sccm.status)</b></td>"
+        }
+        $body +="</tr>
+        <tr>
+        <td><b>WMI Service Status </b></td>"
+        if($($wmi.status) -eq "Running")
+        {
+           $body += "<td><b style='color:#20A608'>$($wmi.status)</b></td>"
+        }
+        else
+        {
+           $body += "<td><b style='color:#FF3C33'>$($wmi.status)</b></td>"
+        }
+        $body +="</tr>
+        <tr>
+            <td><b>RDP Port </b></td>"
+        if($port)
+        {
+           $body += "<td><b style='color:#20A608'>$port</b></td>"
+        }
+        else
+        {
+           $body += "<td><b style='color:#FF3C33'>$port</b></td>"
+        }
+        
+        $body +="</tr>
+ </body></html>"
+ 
+$body | Out-File "D:\Incident\Service_Restart\$INCNumber\Windows_Health_Check\HealthCheckReport.html"
+$log += "HTML File created successfully"
+Write-Host "HTML File created successfully"
+}
+catch
+{
+$log += "Failed to write HTML File"
+Write-Host "Failed to write HTML File"
+}
+
+try
+{
+$wkhtmltopdf = "D:\wkhtmltopdf\bin\wkhtmltopdf.exe"
+$var = "-q"
+$html = "D:\Incident\Service_Restart\$INCNumber\Windows_Health_Check\HealthCheckReport.html"
+$pdf = "D:\Incident\Service_Restart\$INCNumber\Windows_Health_Check\HealthCheckReport.pdf"
+& $wkhtmltopdf $var $html $pdf
+$log += "Successfully Converted HTML file to PDF Format"
+Write-Host "Successfully Converted HTML file to PDF Format"
+}
+catch
+{
+$log += "Failed to convert the HTML file to PDF"
+Write-Host "Failed to convert the HTML file to PDF"
+}
+
+$log += "Health Check Script Execution Completed $(timestamp)"
+$log += "-----------------"
+
+$log | Add-Content $log_path\log.txt 
+
+
+Post Execution:
+
+if(Process[OpName].scriptOutput.indexOf("Successfully Converted HTML file to PDF Format")>=0)
+{
+  Process.ReturnCode=5
+  Process.ReturnMessage ="Successfully Converted HTML file to PDF Format"
+}
+else if(Process[OpName].scriptOutput.indexOf("Failed to Generate Report")>=0)
+{
+  Process.ReturnCode=-1
+  Process.ReturnMessage="Failed to Generate Report"
+}
+else if(Process[OpName].scriptOutput.indexOf("Unable to take a Remote Session")>=0)
+{
+  Process.ReturnCode=-1
+  Process.ReturnMessage="Unable to take a Remote Session"
+}
+else if(Process[OpName].scriptOutput.indexOf("Failed to write HTML File")>=0)
+{
+  Process.ReturnCode=-1
+  Process.ReturnMessage="Failed to write HTML File"
+}
+else if(Process[OpName].scriptOutput.indexOf("Failed to convert the HTML file to PDF")>=0)
+{
+  Process.ReturnCode=-1
+  Process.ReturnMessage="Failed to convert the HTML file to PDF"
+}
+else
+{
+Process.ReturnCode=-1
+Process.returnMessage = "Fatal Error"
+}
+
+
+16.Ticket Update
+
+Pre Execution:
+
+Process.HealthCheck = "<request><entry><work_notes>"+Process.ReturnMessage+"</work_notes></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  if(Process[OpName].HTTPResponseContent.indexOf("incident_state\":\"")>=0)
+  {
+	Process.ReturnCode=0;
+	Process.ReturnMessage="Ticket resolved successfully ";
+  }
+  else
+  {
+	Process.ReturnCode=-1;
+	Process.ReturnMessage="Error occurred while  resolving ticket";
+  }
+}
+else
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Failure occurred while resolving ticket"
+}
+
+
+17.Script
+
+Inline:
+
+Param($INC_Number)
+$file = Get-ChildItem "D:\Incident\Service_Restart\$($INC_Number)\Windows_Health_Check\*.pdf"
+
+if($file)
+{
+write-Host "PDF File Exist"
+$fullPath = $file.FullName 
+$fileName = $file.Name
+$fullPath
+$fileName 
+}
+else
+{write-host "PDF file doesnot exist"}
+
+Post Execution:
+
+if(Process[OpName].scriptOutput.indexOf("PDF File Exist")>=0)
+{
+Process.ReturnCode = 0
+Process.ReturnMessage = "PDF Generated successfully"
+Process.Data = Process[OpName].scriptOutput
+}
+else if(Process[OpName].scriptOutput.indexOf("PDF file doesnot exist")>=0)
+{
+Process.ReturnCode = 2
+Process.ReturnMessage = "PDF file doesnot exist."
+
+}
+else if(Process.Utilization = "Low")
+{
+Process.ReturnMessage = "Utilization is Below Threshold"
+Process.ReturnCode = 5
+}
+else
+{
+Process.ReturnCode=2
+Process.ReturnMessage = "Fatal Error."
+}
+
+
+
+18.Ticket Update
+
+Pre Execution:
+
+Process.dat=Process.PDF_Report.scriptOutput.split('\n')
+Process.fname=Process.dat[2]
+Process.pdffile=Process.dat[1]
+
+//Process.putURL= "https://"+Process.Instance+".service-now.com/api/now/attachment/file?table_name=change_task&table_sys_id="+Process.Sys_Id+"&file_name="+Process.fname
+
+
+Process.postURL= "https://"+Process.SnowEnv+".service-now.com/api/now/attachment/file?table_name=incident&table_sys_id="+Process.Sys_Id+"&file_name="+Process.fname
+//Process.payload = "<request><entry><assigned_to>d2f5f34bdb5efb8036c73c9b7c961900</assigned_to><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+"</work_notes><state>2</state></entry></request>"
+
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="Created" && Process[OpName].HTTPResponseStatusCode==201 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="PDF updated successfully."
+
+
+}else if(Process[OpName].Reason.indexOf('non-success') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Error occurred while uploading PDF file to Service Now."
+  
+}
+
+19.Script
+
+Inline:
+
+Param($INC_Number)
+Get-Content "D:\Incident\Service_Restart\$INC_Number\logs\close_notes.txt" 
+
+Post Execution:
+
+if(Process[OpName].scriptOutput.indexOf("What is the Issue:")>=0)
+{
+Process.ReturnCode = 0
+Process.ReturnMessage = "Close Codes file retrived successfully"
+Process.Data = Process[OpName].scriptOutput
+}
+else if(Process[OpName].scriptOutput.indexOf("Get-Content")>=0)
+{
+Process.ReturnCode = 2
+Process.ReturnMessage = "Failed to update the CLose codee"
+}
+else
+{
+Process.ReturnCode=2
+Process.ReturnMessage = "Fatal Error."
+}
+
+
+20.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.SnowEnv+".service-now.com/api/now/v2/table/incident/"+Process.Sys_Id+"?sysparm_fields=incident_state"
+
+if(Process.Service_Status == "Running")
+{
+Process.Final = "<request><entry><close_code>Solved (Permanently)</close_code><u_knowledge_issues>true</u_knowledge_issues><u_knowledge_issue_type>2</u_knowledge_issue_type><close_notes>"+Process.PDF_Report_1_1.scriptOutput+"</close_notes><u_comments>Ticekt Resolved Successfully</u_comments><u_repeat_incident>No</u_repeat_incident><work_notes>Service has been started successfully and it is in running state. hence resolving the Incident.</work_notes><incident_state>6</incident_state></entry></request>"
+Process.ReturnCode=9
+}
+else 
+{
+Process.Final = "<request><entry><assigned_to></assigned_to><work_notes>iAutomate cannot restart the service. Please perform the activity manually.</work_notes><assignment_group>d32d41c5dbe73e00d41dd3cb5e96194f</assignment_group></entry></request>"
+}
+
+
+Post Execution:
+
+ if(Process.ReturnCode==9)
+{
+  Process.ReturnCode=9;
+  Process.ReturnMessage="Upload the KB"
+}
+else if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  if(Process[OpName].HTTPResponseContent.indexOf("incident_state\":\"")>=0)
+  {
+	Process.ReturnMessage="Ticket resolved successfully ";
+	Process.ReturnCode=0;
+  }
+  else
+  {
+	Process.ReturnMessage="Error occurred while  resolving ticket";
+	Process.ReturnCode=-1;
+  }
+}
+else
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Failure occurred while resolving ticket"
+}
+
+
+21.Ticket Update
+
+Pre Execution:
+
+
+//Process.putURL= "https://"+Process.Instance+".service-now.com/api/now/attachment/file?table_name=change_task&table_sys_id="+Process.Sys_Id+"&file_name="+Process.fname
+
+
+Process.postURL1= "https://"+Process.SnowEnv+".service-now.com/api/now/attachment/file?table_name=incident&table_sys_id="+Process.Sys_Id+"&file_name="+Process.docname
+//Process.payload = "<request><entry><assigned_to>d2f5f34bdb5efb8036c73c9b7c961900</assigned_to><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+"</work_notes><state>2</state></entry></request>"
+
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="Created" && Process[OpName].HTTPResponseStatusCode==201 )
+{
+  Process.ReturnCode=1;
+  Process.ReturnMessage="PDF updated successfully."
+
+
+}else if(Process[OpName].Reason.indexOf('non-success') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Error occurred while uploading PDF file to Service Now."
+  
+}
+
+22. Fatal Ticket Update
+
+Pre Execution:
+
+Process.FatalErrorPayLoad ="<request><entry><work_notes>Automation Failed, Routing the Ticket to Windows Assignmenet Group</work_notes><assignment_group>d32d41c5dbe73e00d41dd3cb5e96194f</assignment_group><assigned_to></assigned_to></entry></request>"

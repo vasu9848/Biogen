@@ -1,0 +1,484 @@
+1.Get Ticket
+
+Pre Execution:
+
+Process.url = "https://"+Process.SNOW_Env+".service-now.com/api/now/table/sc_task?number="+Process.Number
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket details fetched successfully"
+  Process.Output=Process[OpName].HTTPResponseContent
+  
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure fetching ticket details"
+}
+
+2. Second Operator (Read)
+
+Inline:
+
+var str =Process.Output
+var start=str.indexOf('[')+2;
+var end=str.indexOf(']')-1;
+var res = str.substring(start,end);
+var out1= res.split(',');
+for(var i=0;i < out1.length;i++)
+{
+  out1[i]=out1[i].replace(/\"/g,"");
+  if(out1[i].indexOf('active')>=0)
+  {Process.active=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('sys_id')>=0)
+  {Process.Sys_Id=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('description')>=0)
+  {Process.description=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('state')>=0)
+  {Process.state=(out1[i].split(':'))[1]}
+  out1[i]=(out1[i].split(':'))[1]
+}
+
+Post Execution:
+
+if(Process.active=='true')
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket is active.";
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Ticket is inactive.";
+}
+
+3.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.SNOW_Env+".service-now.com/api/now/table/sc_task/"+Process.Sys_Id+""
+Process.payload = "<request><entry><assigned_to>d2f5f34bdb5efb8036c73c9b7c961900</assigned_to><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+"</work_notes><state>2</state></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  if(Process[OpName].HTTPResponseContent.indexOf("state\":\"")>=0)
+  {
+	Process.ReturnCode=0;
+	Process.ReturnMessage="Ticket updated successfully ";
+  }
+  else
+  {
+	Process.ReturnCode=2;
+	Process.ReturnMessage="Error occurred while  updating ticket";
+  }
+}
+else
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Failure occurred while updating ticket."
+}
+
+4.Script
+
+Inline:
+
+
+Param(
+$Number,
+$vm,
+$vcenter,
+$username,
+$password,
+$snowkey,
+$snowp,
+$snowpa,
+$SNOW_Env,
+$inc_sysid)
+
+$Number,
+$vm,
+$vcenter,
+$username,
+$password,
+$snowkey,
+$snowp,
+$snowpa,
+$SNOW_Env,
+$inc_sysid
+
+$snowpass = "$snowp"+"#%4"+$snowpa+"_"
+
+function Update-Ticket
+{
+    param(
+    $inc_sysid,
+    $SNOW_Env,
+    $apikey,
+    $password,
+    $work_notes
+    )
+    
+    [Net.ServicePointManager]::SecurityProtocol = "tls12, tls11, tls"
+    $global:headers = @{"Authorization" = "Basic "+[System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($apikey+":"+$password))}
+        
+    $update = "https://$SNOW_Env.service-now.com/api/now/v2/table/sc_task/$($inc_sysid)"
+    $body=@{            
+            work_notes = $work_notes
+           }
+    $bodyJson=$body|ConvertTo-Json
+    $createTicket=Invoke-RestMethod -Headers $global:headers -Method Put -Uri $update -Body $bodyJson -ContentType "application/json"
+    $result=$createTicket.result
+    #Write-Host "Work Notes updated successfully"
+    $log += "Work Notes updated successfully"
+    
+}
+
+function Route-Ticket
+{
+    param(
+    $inc_sysid,
+    $SNOW_Env,
+    $snowkey,
+    $snowpass,
+    $work_notes,
+    $asign_grp
+    )
+
+    $update = "https://$SNOW_Env.service-now.com/api/now/v2/table/sc_task/$($inc_sysid)"
+    $body=@{            
+            assignment_group= $asign_grp
+            assigned_to=""
+            work_notes=$work_notes
+			u_automation_result="Unsuccessful"
+           }
+    $bodyJson=$body|ConvertTo-Json
+    $createTicket=Invoke-RestMethod -Headers $global:headers -Method Put -Uri $update -Body $bodyJson -ContentType "application/json"
+    $result=$createTicket.result
+    Write-Host "Assignment Group updated successfully"
+    $log += "Assignment Group updated successfully"
+}
+
+
+function Resolve-Ticket
+{
+    param(
+    $inc_sysid,
+    $SNOW_Env,
+    $snowkey,
+    $snowpass,
+    $work_notes,
+    $asign_grp
+    )
+
+    $update = "https://$SNOW_Env.service-now.com/api/now/v2/table/sc_task/$($inc_sysid)"
+    $body=@{            
+            state=3
+            work_notes=$work_notes
+			u_automation_result = "Successful"
+           }
+    $bodyJson=$body|ConvertTo-Json
+    $createTicket=Invoke-RestMethod -Headers $global:headers -Method Put -Uri $update -Body $bodyJson -ContentType "application/json"
+    $result=$createTicket.result
+    Write-Host "Ticket Resolved Successfully"
+    $log += "Ticket Resolved Successfully"
+}
+
+function timestamp{
+    Get-Date -Format "dd_MMM_yyyy_HH:mm:ss tt"
+}
+
+#try
+#{
+#    [Net.ServicePointManager]::SecurityProtocol = "tls12, tls11, tls"
+#    $global:headers = @{"Authorization" = "Basic "+[System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($snowkey+":"+$snowpass))}
+#    
+#    [Net.ServicePointManager]::SecurityProtocol = "tls12, tls11, tls"
+#    $get_inc = "https://$SNOW_Env.service-now.com/api/now/v2/table/sc_task?number=$Number"
+#    $inc_result = Invoke-WebRequest -Uri $get_inc -Headers $global:headers -Method Get -ContentType "application/json" -UseBasicParsing
+#    $incout = $inc_result | ConvertFrom-JSON
+#    $inc_sysid = $incout.result.sys_id
+#    $inc_sysid
+#}
+#catch
+#{
+#    Write-Host "Failed to fetch Ticket details"
+#    $log += "Failed to fetch Ticket details"
+#
+#    $log += "Script Execution Ends $(timestamp)"
+#    $log += "-----------------"
+#
+#    $log | Out-file "$filePath\log.txt"
+#
+#    Exit
+#}
+
+$log=@()
+$log += "-----------------"
+$log += "Script Execution Started at $(timestamp)"
+$log += "Service Account used for execution is Svc-ITPAM"
+
+$filePath= "D:\Service_Request\Server_Restart\$Number\logs"
+If(!(test-path $filePath))
+{
+      New-Item -ItemType Directory -Force -Path $filePath 
+}
+
+$pwd = $password | ConvertTo-SecureString -AsPlainText -Force
+$creds = New-Object pscredential -ArgumentList ($username , $pwd)
+
+[System.Net.ServicePointManager]::SecurityProtocol =[System.Net.SecurityProtocolType]'Ssl3,Tls,Tls11,Tls12'
+
+if(Test-Connection -ComputerName $vm -Quiet)
+{
+    $initialping = $true
+
+    try
+    {
+        $uptime1 = Invoke-Command -ComputerName $vm -Credential $creds -ScriptBlock {(gcim Win32_OperatingSystem). LastBootUpTime}
+        Write-Host "Uptime Fetched Successfully"
+        $log += "Uptime Fetched Successfully"
+        Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Last Reboot time of $vm is $uptime1"
+    }
+    catch
+    {
+        Write-Host "Failed to Fetch the Uptime"
+        $log += "Failed to Fetch the Uptime"
+        Route-Ticket -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to Fetch the Uptime" -asign_grp "d32d41c5dbe73e00d41dd3cb5e96194f"
+        #Update-Ticket -inc_sysid $inc_sysid -SNOW_Env "biogendev" -apikey $snowkey -password $snowpass -work_notes "Failed to Fetch the Uptime of $vm"
+        
+        $log += "Script Execution Ends $(timestamp)"
+        $log += "-----------------"
+    
+        $log | Out-file "$filePath\log.txt"
+        
+        Exit
+    }
+}
+else
+{
+    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env "biogendev" -apikey $snowkey -password $snowpass -work_notes "Currently the server is not reachable. Proceeding with the restart"
+}
+try
+{
+    Import-Module VMware.VimAutomation.Core
+    Write-Host "VMWare Module Imported Successfully"
+    $log += "VMWare Module Imported Successfully"
+}
+catch
+{
+    Write-Host "Failed to Import the VMWare Module"
+    $log += "Failed to Import the VMWare Module"
+    Route-Ticket -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to Import the VMWare Module" -asign_grp "d32d41c5dbe73e00d41dd3cb5e96194f"
+    #Update-Ticket -inc_sysid $inc_sysid -SNOW_Env "biogendev" -apikey $snowkey -password $snowpass -work_notes "Failed to Import the VMWare Module, Hence routing the ticket to Windows Queue"
+
+    $log += "Script Execution Ends $(timestamp)"
+    $log += "-----------------"
+
+    $log | Out-file "$filePath\log.txt"
+
+    Exit
+}
+
+
+if($Connect_vCenter = Connect-VIServer -Server $vcenter -user $username -Password $password)
+{
+    if($Connect_vCenter.IsConnected)
+    {
+        Write-Host "Successfully connected to the vCenter"
+        $log += "Successfully connected to the vCenter"
+        Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Successfully connected to $vcenter"
+
+        if($vm_info = Get-VM -Name $vm)
+        {            
+            $vm_state = $vm_info.PowerState
+            Write-Host "VM State Fetched Successfully"
+            $log += "VM State Fetched Successfully"
+            Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "$vm is in $vm_state State, Restarting the Server"
+            try
+            {
+                $vm_info | Restart-VMGuest
+                Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "VM Restart Initiated"
+                Write-Host "VM Restart Initiated"
+                $log += "VM Restart Initiated"
+            }
+            catch
+            {
+                Write-Host "Failed to Initiate the VM Restart"
+                Route-Ticket -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to Initiate the VM Restart" -asign_grp "d32d41c5dbe73e00d41dd3cb5e96194f"
+                $log += "Failed to Initiate the VM Restart"
+
+                $log += "Script Execution Ends $(timestamp)"
+                $log += "-----------------"
+
+                $log | Out-file "$filePath\log.txt"
+                Exit
+            }
+			
+            Start-Sleep -Seconds 60
+            
+            for($i=0;$i -le 30; $i++)
+            {
+                if(Test-Connection -ComputerName $vm -Quiet)
+                {
+                    Write-Host "True"
+                    break
+                }
+                else
+                {
+                    write-host "False"
+                    Start-Sleep -Seconds 60
+                }
+            }
+
+            if(Test-Connection -ComputerName $vm -Quiet)
+            {
+                
+                $uptime2 = Invoke-Command -ComputerName $vm -Credential $creds -ScriptBlock {(gcim Win32_OperatingSystem).LastBootUpTime}
+                if($initialping -eq $true)
+                {
+                    if(($uptime1 -eq $uptime2))
+                    {
+                        Write-Host "Failed to Restart VM"
+                        $log += "Failed to Restart VM"
+                        Route-Ticket -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to Restart VM" -asign_grp "d32d41c5dbe73e00d41dd3cb5e96194f"
+
+                        $log += "Script Execution Ends $(timestamp)"
+                        $log += "-----------------"
+                        
+                        $log | Out-file "$filePath\log.txt"
+
+                        Exit
+                    }
+                    else
+                    {
+                        Write-Host "VM Restarted Successfully"
+                        $log += "VM Restarted Successfully"
+                        #Update-Ticket -inc_sysid $inc_sysid -SNOW_Env "biogendev" -apikey $snowkey -password $snowpass -work_notes "Last reboot time of $vm is $uptime2, Server Restarted Successfully"
+                        #Update-Ticket -inc_sysid $inc_sysid -SNOW_Env "biogendev" -apikey $snowkey -password $snowpass -work_notes "Updated Successfully"
+			        	#Route-Ticket -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to Restart VM." -asign_grp "d32d41c5dbe73e00d41dd3cb5e96194f"
+                        Resolve-Ticket -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Last reboot time of $vm is $uptime2, Server Restarted Successfully"
+                    }
+                }
+                elseif(($initialping -eq $false) -and ($uptime2 -ne ""))
+                {
+                    Write-Host "VM Restarted Successfully"
+                    $log += "VM Restarted Successfully"
+                    #Update-Ticket -inc_sysid $inc_sysid -SNOW_Env "biogendev" -apikey $snowkey -password $snowpass -work_notes "Last reboot time of $vm is $uptime2, Server Restarted Successfully"
+                    #Update-Ticket -inc_sysid $inc_sysid -SNOW_Env "biogendev" -apikey $snowkey -password $snowpass -work_notes "Updated Successfully"
+			        #Route-Ticket -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to Restart VM." -asign_grp "d32d41c5dbe73e00d41dd3cb5e96194f"
+                    Resolve-Ticket -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Last reboot time of $vm is $uptime2, Server Restarted Successfully"
+                }
+                else
+                {
+                    Route-Ticket -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to Restart VM. Hence Routing the ticekt for manual execution." -asign_grp "d32d41c5dbe73e00d41dd3cb5e96194f"
+
+                    $log += "Script Execution Ends $(timestamp)"
+                    $log += "-----------------"
+                    
+                    $log | Out-file "$filePath\log.txt"
+
+                    Exit
+                }
+            }
+            else
+            {
+                Route-Ticket -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to Restart VM, Hence Routing the ticekt for manual execution." -asign_grp "d32d41c5dbe73e00d41dd3cb5e96194f"   
+                
+                $log += "Script Execution Ends $(timestamp)"
+                $log += "-----------------"
+                
+                $log | Out-file "$filePath\log.txt"
+
+                Exit
+            }
+
+        }
+        else
+        {
+            Write-Host "Failed to Fetch VM Information"
+            $log += "Failed to Fetch VM Information"
+            Route-Ticket -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to Fetch VM Information" -asign_grp "d32d41c5dbe73e00d41dd3cb5e96194f"
+
+            $log += "Script Execution Ends $(timestamp)"
+            $log += "-----------------"
+            
+            $log | Out-file "$filePath\log.txt"
+
+            Exit
+        }
+    }
+
+}
+else
+{
+    Write-Host "Failed to Connect to vCenter"
+    $log += "Failed to Connect to vCenter"
+    Route-Ticket -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to Connect to vCenter" -asign_grp "d32d41c5dbe73e00d41dd3cb5e96194f"
+    
+    $log += "Script Execution Ends $(timestamp)"
+    $log += "-----------------"
+    $log | Out-file "$filePath\log.txt"
+
+    Exit
+}
+
+$log += "Script Execution Ends $(timestamp)"
+$log += "-----------------"
+
+$log | Out-file "$filePath\log.txt"
+
+
+Post Execution:
+
+if(Process.Ping_check.scriptOutput.indexOf("Ticket Resolved Successfully")>=0)
+{
+  Process.ReturnCode=1
+  Process.ReturnMessage="Ticket Resolved Successfully"
+}
+else if(Process.Ping_check.scriptOutput.indexOf("Failed to Connect to vCenter")>=0)
+{
+  Process.ReturnCode=2
+  Process.ReturnMessage="Failed to Connect to vCenter"
+}
+else if(Process.Ping_check.scriptOutput.indexOf("Failed to Fetch VM Information")>=0)
+{
+  Process.ReturnCode=2
+  Process.ReturnMessage="Failed to Fetch VM Information"
+}else if(Process.Ping_check.scriptOutput.indexOf("Failed to Restart VM")>=0)
+{
+  Process.ReturnCode=2
+  Process.ReturnMessage="Failed to Restart VM"
+}else if(Process.Ping_check.scriptOutput.indexOf("Failed to Initiate the VM Restart")>=0)
+{
+  Process.ReturnCode=2
+  Process.ReturnMessage="Failed to Initiate the VM Restart"
+}else if(Process.Ping_check.scriptOutput.indexOf("Failed to Import the VMWare Module")>=0)
+{
+  Process.ReturnCode=2
+  Process.ReturnMessage="Failed to Import the VMWare Module"
+}else if(Process.Ping_check.scriptOutput.indexOf("Failed to Fetch the Uptime")>=0)
+{
+  Process.ReturnCode=2
+  Process.ReturnMessage="Failed to Fetch the Uptime"
+}else if(Process.Ping_check.scriptOutput.indexOf("Failed to fetch Ticket information")>=0)
+{
+  Process.ReturnCode=2
+  Process.ReturnMessage="Failed to fetch Ticket information"
+}
+else
+{
+Process.ReturnCode=-1
+Process.returnMessage = "Failed to Restart VM"
+}
+
+5. Fatal Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.SNOW_Env+".service-now.com/api/now/table/sc_task/"+Process.Sys_Id+""
+Process.FatalErrorPayLoad ="<request><entry><u_automation_result>Unsuccessful</u_automation_result><state>1</state><work_notes>"+Process.returnMessage+"Hence Routing the ticket.</work_notes><assignment_group>d32d41c5dbe73e00d41dd3cb5e96194f</assignment_group></entry></request>"

@@ -1,0 +1,705 @@
+1. Get Ticket
+
+Pre Execution:
+
+Process.RunbookName = Process.InstanceName
+Process.RunbookID = Process.RuntimeROID
+var uri="https://"+Process.Instance+".service-now.com/api/now/table/incident?sysparm_fields=number%2Cactive%2Csys_id%2Cincident_state%2Cdescription%2Cassigned_to=SVC-itpam@biogen.com&sysparm_limit=1&number="+Process.incidentNumber
+Process.url=uri
+
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  	Process.ReturnCode=0;
+	Process.ReturnMessage="Ticket details fetched successfully."
+   Process.Output=Process[OpName].HTTPResponseContent
+} 
+else if(Process[OpName].Reason.indexOf('non-success') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent  
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent
+
+}
+else
+{
+  	Process.ReturnCode=2;
+  	Process.ReturnMessage="Failure fetching ticket details."
+
+}
+
+2. Second Operator
+
+Inline:
+
+
+var str =Process.Output
+var start=str.indexOf('[')+2;
+var end=str.indexOf(']')-1;
+var res = str.substring(start,end);
+var out1= res.split(',');
+for(var i=0;i < out1.length;i++)
+{
+  out1[i]=out1[i].replace(/\"/g,"");
+  if(out1[i].indexOf('active')>=0)
+  {Process.active=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('sys_id')>=0)
+  {Process.Sys_Id=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('description')>=0)
+  {Process.description=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('incident_state')>=0)
+  {Process.Incidentstate=(out1[i].split(':'))[1]}
+  out1[i]=(out1[i].split(':'))[1]
+}
+
+Post Execution:
+
+if(Process.active)
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket is active.";
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Ticket is inactive.";
+}
+
+3.Ticket Update
+
+Pre Execution:
+
+//Process.putURL="https://"+Process.Instance+".service-now.com/api/now/table/change_task/"+Process.Sys_Id+""
+//Process.payload = "<request><entry><assigned_to>d2f5f34bdb5efb8036c73c9b7c961900</assigned_to><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+"</work_notes><state>2</state></entry></request>"
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/v2/table/incident/"+Process.Sys_Id+"?sysparm_fields=incident_state"
+Process.payload = "<request><entry><assigned_to>d2f5f34bdb5efb8036c73c9b7c961900</assigned_to><incident_state>2</incident_state><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+"</work_notes></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  if(Process[OpName].HTTPResponseContent.indexOf("state\":\"")>=0)
+  {
+	Process.ReturnCode=0;
+	Process.ReturnMessage="Ticket updated successfully ";
+  }
+  else
+  {
+	Process.ReturnCode=2;
+	Process.ReturnMessage="Error occurred while  updating ticket";
+  }
+}
+else
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Failure occurred while updating ticket."
+}
+
+4.Script
+
+Inline:
+
+Param(
+$Number,
+$server,
+$FileSystem,
+$snowkey,
+$username,
+$SSHpass,
+$snowp,
+$snowpa,
+$SNOW_Env)
+
+
+Import-Module "D:\Wave 1 Scripts\Biogen_Module\Biogen_Module.psm1"
+
+
+$keyfile  = "D:\ssh.key"
+$password = "$SSHpass"+"%"
+$snowpass = "$snowp"+"#%4"+$snowpa+"_"
+$table = "incident"
+$script_name = "LINUX_FileSystem_Utilization"
+$Log = $null
+$service = "crond"
+$path = "D:\$script_name\$Number"
+$log = "$path\logs"
+$log_paths = "$path\logs","$path\Commands", "$path\Evidence"
+$threshold = 85
+$CPU,$CPU_Restart = $null
+$TOP, $TOP_Restart = $null
+
+$UNIX = "5b2d41c5dbe73e00d41dd3cb5e961955"
+$DB =   "2b8994d1db0caf00fa0f8e5c2996196e"
+
+#Uploading KB article evidence
+$KBarticle_link = "D:\KB Articles\LINUX\KB-High filesystem Utilization.docx"
+$KBarticle = Get-ChildItem -Path $KBarticle_link
+$KBarticle_FullName  = $KBarticle.FullName               
+$KBarticle_Name      = $KBarticle.Name
+
+foreach($log_path in $log_paths)
+{
+    If(!(test-path $log_path))
+    {
+          New-Item -ItemType Directory -Force -Path $log_path 
+    }
+}
+If(!(test-path "$log_path\log.txt"))
+{
+    New-Item -ItemType File -Name "Log.txt" -Path $log
+}
+
+function Health-check
+{
+    param(
+    $session,
+    $path,
+    $username,
+    $servername
+    )
+
+    #CPU
+    $CPU = Invoke-SSHCommand -SessionId $session -Command "top -bn1 | grep %Cpu | awk '{print `$8}'"
+    Add-Content -Path "$log_path\Log.txt" -Value  "`nAverage Ideal CPU is $($CPU.Output)%"
+
+    #Memory
+    $Memory_free = Invoke-SSHCommand -SessionId $session -Command "free | awk '/^Mem/ { printf(`"%.2f %\n`", `$4/`$2 * 100.0) }'"
+    $Memory = ($Memory_free.output).split("%") | ?{$_ -ne ""}
+    Add-Content -Path "$log_path\Log.txt" -Value  "`nAverage Memory is $($Memory)%"
+    
+
+    #Disk space free
+    $used_disk_space = Invoke-SSHCommand -SessionId $session -Command "df -h / | grep /| awk '{print `$5}'"
+    #$used_disk_space = $used_disk_spaces.Output
+    $used_space = ($used_disk_space.output).split("%") | ?{$_ -ne ""}
+    $disk_space = 100 - $used_space
+    Add-Content -Path "$log_path\Log.txt" -Value  "`nAverage Disk Utilization is $($disk_space)%"
+
+    #Disk space free
+    $Uptime = Invoke-SSHCommand -SessionId $session -Command "uptime -s"
+    Add-Content -Path "$log_path\Log.txt" -Value  "`nUptime is $($Uptime.output)%"
+
+    $execDate = timestamp
+    
+    Add-Content -Path "$log_path\Log.txt" -Value  "`nWriting the HTML File"
+    try
+    {
+        $body = @()
+        $body +="<HTML>
+        <HEAD><TITLE>SERVER STATUS</TITLE></HEAD>
+        <BODY>
+
+        <h1><b>
+                    <center>Server Health Check Status</center>
+                </b></h1>
+            <table width=100% border=1>
+        <tr> <br> </tr>
+                <tr>
+                    <th class='label' colspan=2> Server Baseline Information </th>
+                </tr>
+                <tr>
+                    <td><b> Host Name </b></td>
+                    <td>$servername</td>
+                </tr>
+                <tr>
+                    <td><b> Executed at </b></td>
+                    <td>$execDate</td>
+                </tr>           
+                <tr>
+                    <td><b> Executed By </b></td>
+                    <td>$username</td>"
+                $body += "</tr>
+                <tr>
+                    <td><b> Uptime </b></td>
+                    <td>$($Uptime.output)</td>
+                </tr>
+                <tr>
+                <td><b> Average Ideal CPU </b></td>"  
+                if($($CPU.Output) -ge 20)
+                {
+                   $body += "<td><b style='color:#20A608'>$($CPU.Output) %</b></td>"
+                }
+                else
+                {
+                   $body += "<td><b style='color:#FF3C33'>$($CPU.Output) %</b></td>"
+                } 
+                $body += "</td>  
+                </tr>
+                <tr>
+                    <td><b> Average Free MEM </b></td>"
+                if($($Memory.Output) -ge 20)
+                {
+                   $body += "<td><b style='color:#20A608'>$($Memory) %/b></td>"
+                }
+                else
+                {
+                   $body += "<td><b style='color:#FF3C33'>$($Memory) %</b></td>"
+                }
+                $body +="</tr>
+                <tr>
+                    <td><b> Available Disk Space </b></td>"
+                if($($disk_space) -ge 20)
+                {
+                   $body += "<td><b style='color:#20A608'>$($disk_space) %</b></td>"
+                }
+                else
+                {
+                   $body += "<td><b style='color:#FF3C33'>$($disk_space) %</b></td>"
+                }
+
+                $body +="</tr>
+         </body></html>"
+ 
+        $body | Out-File "$path\Evidence\HealthCheckReport.html"
+        Add-Content -Path "$log_path\Log.txt" -Value  "`nHTML File created successfully"
+    }
+    catch
+    {
+        Add-Content -Path "$log_path\Log.txt" -Value  "`nFailed to write HTML File"
+        write-host "Failed to write HTML File"
+    }
+    try
+    {
+        #$wkhtmltopdf = "D:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe"
+        $wkhtmltopdf = "D:\wkhtmltopdf\bin\wkhtmltopdf.exe"
+        $var = "-q"
+        $html = "$path\Evidence\HealthCheckReport.html"
+        $pdf = "$path\Evidence\HealthCheckReport.pdf"
+        & $wkhtmltopdf $var $html $pdf
+        Add-Content -Path "$log_path\Log.txt" -Value  "`nSuccessfully Converted HTML file to PDF Format"
+    }
+    catch
+    {
+        Add-Content -Path "$log_path\Log.txt" -Value  "`nFailed to convert the HTML file to PDF"
+        Write-Host "Failed to convert the HTML file to PDF"
+        try{Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Failed to Upload Health Check Report" -asign_grp $UNIX -table "incident"}
+        catch{Write-Host "Failed to Route Ticket"}
+        Exit
+    }
+    #Uploading Healthcheck evidence
+    $HealthcheckReport = "$path\Evidence\HealthCheckReport.pdf"
+    $HealthcheckReport_pdf = Get-ChildItem -Path $HealthcheckReport
+    $HealthcheckReport_FullName  = $HealthcheckReport_pdf.FullName               
+    $HealthcheckReport_Name      = $HealthcheckReport_pdf.Name
+    try
+    {
+        Upload-PreAttachment -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -pre_Name $HealthcheckReport_Name -pre_FullName $HealthcheckReport_FullName -table "incident"
+        #Write-Host "$inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -pre_Name $HealthcheckReport_Name - $HealthcheckReport_Name"
+        Add-Content -Path "$log_path\Log.txt" -Value  "`nUploaded Health Check Report"
+    }
+    catch
+    {
+        write-Host "Failed to Upload Health Check Report"
+        Add-Content -Path "$log_path\Log.txt" -Value  "`nFailed to Upload Health Check Report"
+        try{Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -work_notes "Failed to Upload Health Check Report" -asign_grp $UNIX -table "incident"}
+        catch{Write-Host "Failed to Route Ticket"}
+        Exit
+    }
+}
+
+try
+{
+    [Net.ServicePointManager]::SecurityProtocol = "tls12, tls11, tls"
+    $global:headers = @{"Authorization" = "Basic "+[System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($snowkey+":"+$snowpass))}
+    
+    [Net.ServicePointManager]::SecurityProtocol = "tls12, tls11, tls"
+    $get_inc = "https://$SNOW_Env.service-now.com/api/now/v2/table/incident?number=$Number"
+    $inc_result = Invoke-WebRequest -Uri $get_inc -Headers $global:headers -Method Get -ContentType "application/json" -UseBasicParsing
+    $incout = $inc_result | ConvertFrom-JSON
+    $inc_sysid = $incout.result.sys_id
+}
+catch
+{
+    Write-Host "Failed to fetch Ticket details"
+    Add-Content -Path "$log_path\Log.txt" -Value  "`nFailed to fetch Ticket details"
+    Exit
+}
+
+try
+{
+    $applurl = "https://$SNOW_Env.service-now.com/api/now/table/cmdb_ci_linux_server?sysparm_query=nameLIKE"+$server
+    $result2 = Invoke-WebRequest -Uri $applurl -Headers $global:headers -Method Get -ContentType "application/json" -UseBasicParsing
+    Add-Content -Path "$log_path\Log.txt" -Value  "`nServer details fetched successfully from CMDB"
+}
+catch
+{
+    Write-host "Failed to fetch the Server information from CMDB"
+    Add-Content -Path "$log_path\Log.txt" -Value  "`nFailed to fetch the Server information from CMDB at $(timestamp)"
+    Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to fetch the Server information from CMDB" -asign_grp $UNIX -table $table
+    Exit
+}
+$ciOut2 = $result2 | ConvertFrom-JSON
+$serverIP = $ciOut2.result.ip_address
+$pwd = $password | ConvertTo-SecureString -AsPlainText -Force
+$cred = New-Object pscredential -ArgumentList ($username , $pwd)
+if(Test-Connection -ComputerName "$serverIP" -Quiet)
+{
+    Add-Content -Path "$log_path\Log.txt" -Value  "`nTarget Server reached successfully"
+    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Target server reached Successfully" -table $table
+    try
+    {
+        if(New-SSHSession -ComputerName $serverIP -Credential $cred -AcceptKey -ErrorAction SilentlyContinue)
+        {
+            try
+            {
+                $session = (Get-SSHSession).SessionId
+                $File_Sys = Invoke-SSHCommand -SessionId $session -Command "df -h $FileSystem | grep $FileSystem| awk '{print `$5}'"
+                $file = $File_Sys.Output
+                $File_Systems = ($File_Sys.Output).split("%") | ?{$_ -ne ""}
+                $File_Systems = [float] $File_Systems
+                if($File_Sys.ExitStatus -eq "0")
+                {
+                    Add-Content -Path "$log_path\Log.txt" -Value  "`nSSH Session Established Successfully. The Utilization of $FileSystem in $server is $file"
+                    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "SSH Session Established Successfully. The Utilization of $FileSystem in $server is $file" -table $table
+                }
+                else
+                {
+                    Add-Content -Path "$log_path\Log.txt" -Value  "`nFailed to fetch the FileSystem utilization of $server"
+                    Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to fetch the FileSystem utilization of $server" -asign_grp $UNIX -table $table
+                    Exit
+                }
+            }
+            catch
+            {
+                Add-Content -Path "$log_path\Log.txt" -Value  "`nFailed to Fetch the FileSystem Utilization of $server"
+                Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to Fetch the FileSystem Utilization of $server" -asign_grp $UNIX -table $table
+                Exit
+            }
+        }
+        elseif(New-SSHSession -Computer $server -Credential $cred -Keyfile $keyfile -AcceptKey)
+        {
+            try
+            {
+                $session = (Get-SSHSession).SessionId
+                $File_Sys = Invoke-SSHCommand -SessionId $session -Command "df -h $FileSystem | grep $FileSystem| awk '{print `$5}'"
+                $file = $File_Sys.Output
+                $File_Systems = ($File_Sys.Output).split("%") | ?{$_ -ne ""}
+                $File_Systems = [float] $File_Systems
+                if($File_Sys.ExitStatus -eq "0")
+                {
+                    Add-Content -Path "$log_path\Log.txt" -Value  "`nSSH Session Established Successfully. The Utilization of $FileSystem in $server is $file"
+                    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "SSH Session Established Successfully. The Utilization of $FileSystem in $server is $file" -table $table
+                }
+                else
+                {
+                    Add-Content -Path "$log_path\Log.txt" -Value  "`nFailed to fetch the FileSystem utilization of $server"
+                    Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to fetch the FileSystem Utilization of $server" -asign_grp $UNIX -table $table
+                    Exit
+                }
+            }
+            catch
+            {
+                Add-Content -Path "$log_path\Log.txt" -Value  "`nFailed to Fetch the FileSystem Utilization of $server"
+                Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to Fetch the FileSystem Utilization of $server" -asign_grp $UNIX -table $table
+                Exit
+            }
+        }
+        else
+        {
+            Add-Content -Path "$log_path\Log.txt" -Value  "`nFailed to Establish SSH Session with $server"
+            Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to Establish SSH Session with $server" -asign_grp $UNIX -table $table
+            Exit
+        }
+    }
+    catch
+    {
+        Add-Content -Path "$log_path\Log.txt" -Value  "`nFailed to Establish SSH Session with $server"
+        Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to Establish SSH Session with $server" -asign_grp $UNIX -table $table
+        Exit
+    }
+    if(($File_Systems -ge $Threshold) -and (($FileSystem -eq "/") -or ($FileSystem -eq "/var")))
+    {
+        $clean = (Invoke-SSHCommand -SessionId $session -Command "yum clean all")#.Output
+        if($clean.ExitStatus -eq 0)
+        {
+            start-sleep -Seconds 60
+            $File_Sys_clean = Invoke-SSHCommand -SessionId $session -Command "df -h $FileSystem | grep $FileSystem| awk '{print `$5}'"
+            $file_clean = $File_Sys_clean.Output
+            $File_Systems_clean = ($File_Sys_clean.Output).split("%") | ?{$_ -ne ""}
+            $File_Systems_clean = [float] $File_Systems_clean
+            if(($File_Systems_clean -ge $Threshold) -and ($File_Sys_clean.ExitStatus -eq 0))
+            {
+                Add-Content -Path "$log_path\Log.txt" -Value  "`nPost clearing the YUM repository, the File System Utilization $File_Systems_clean% is above threshold. Hence routing the ticket for manual closure."
+                Health-check -session $session -path $path -username $username -servername $server
+                #Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Post clearing the repository, the File System Utilization $File_Systems_clean% is above threshold. Hence routing the ticket." -asign_grp $UNIX -table $table
+                Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Post clearing the repository, the File System Utilization of $FileSystem is $File_Systems_clean`% which is above threshold. Hence routing the ticket." -asign_grp $UNIX -table $table
+                Exit
+            }
+            else
+            {
+                Add-Content -Path "$log_path\Log.txt" -Value  "`nPost clearing the YUM Repository the Utilization of $File_Systems_clean% in $server is below threshold of $Threshold%. Hence resolving the Incident."
+                Health-check -session $session -path $path -username $username -servername $server
+                Upload-PreAttachment -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -pre_Name $KBarticle_Name -pre_FullName $KBarticle_FullName -table "incident"
+                #Resolve-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Post clearing the YUM Repository the Utilization $File_Systems_clean% in $server is below threshold of $Threshold%. Hence resolving the Incident." -table $table -close_Notes "Post clearing the YUM Repository the Utilization $File_Systems_clean% in $server is below threshold of $Threshold%. Hence resolving the Incident."
+                Resolve-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Post clearing the Repository in $server the current Utilization of $FileSystem is $File_Systems_clean`% which is below threshold. Hence resolving the Incident." -table $table -close_Notes "Post clearing the Repository in $server the current Utilization of $FileSystem is $File_Systems_clean`% which is below threshold. Hence resolving the Incident."
+                Exit
+            }
+        }
+        else
+        {
+            Add-Content -Path "$log_path\Log.txt" -Value  "`nUnable to clear repository, hence routing the ticket"
+            Health-check -session $session -path $path -username $username -servername $server
+            Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Unable to clear repository, hence routing the ticket" -asign_grp $UNIX -table $table
+            Exit
+        }
+    }
+    elseif(($File_Systems -ge $Threshold))
+    {
+        Add-Content -Path "$log_path\Log.txt" -Value  "`nFileSystem Utilization is High and not / or /var"
+        $applurl = "https://$SNOW_Env.service-now.com/api/now/table/cmdb_rel_ci?sysparm_query=childLIKE"+$server
+        try
+        {
+            $result2 = Invoke-WebRequest -Uri $applurl -Headers $global:headers -Method Get -ContentType "application/json" -UseBasicParsing
+            Add-Content -Path "$log_path\Log.txt" -Value  "`nServer details fetched successfully from CMDB"
+        }
+        catch
+        {
+            Write-host "Failed to fetch the Server information from CMDB"
+            Add-Content -Path "$log_path\Log.txt" -Value  "`nFailed to fetch the Server information from CMDB at $(timestamp)"
+            Health-check -session $session -path $path -username $username -servername $server
+            Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to fetch the Server information from CMDB" -asign_grp $UNIX  -table $table
+            Exit
+        }
+        $ciOut2 = $result2 | ConvertFrom-JSON
+        $applinks = $ciOut2.result.parent.link
+        #Creatingan array to store only the application links in the $applink
+        [System.Collections.ArrayList]$application = @()
+        foreach($applink in $applinks)
+        {
+            try
+            {
+                $appdata = Invoke-WebRequest -Uri $applink -Headers $global:headers -Method Get -ContentType "application/json" -ErrorAction SilentlyContinue -UseBasicParsing
+                Write-Host "Fetched Application data for $applink"
+            }
+            catch
+            {
+                Write-host "Failed to fetch the Application details mapped witht the server"
+                Add-Content -Path "$log_path\Log.txt" -Value  "`nFailed to fetch the Application details mapped witht the server $(timestamp)"
+                Health-check -session $session -path $path -username $username -servername $server
+                Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to fetch the Application details mapped witht the server" -asign_grp $UNIX -table $table
+                Exit
+            }
+            $appresult = $appdata | ConvertFrom-JSON
+            if($appresult.result.category -match "Application")
+            {
+                $application.Add(@($appresult.result.name, $appresult.result.assignment_group.link, $appresult.result.u_it_system_owner.link, $appresult.result.category))
+            }
+        }
+        #If no application exist as per CMDB
+        if($application -eq $null)
+        {
+            Write-host "No application found on the servers"
+            Add-Content -Path "$log_path\Log.txt" -Value  "`nNo application found on the servers. Hence routing the ticket"
+            Health-check -session $session -path $path -username $username -servername $server
+            Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "No application attached to the server." -asign_grp $UNIX -table $table
+            Exit
+        }
+        for($i=0; $i -le $application.count; $i++)
+        {
+            if($application[$i][3] -match "Application")
+            {
+                Add-Content -Path "$log_path\Log.txt" -Value  "`nName of the application mapped in $serverName is $application_name"    
+                if($application[$i][2]) 
+                {
+                    Add-Content -Path "$log_path\Log.txt" -Value  "`nITSO LINK: $($application[$i][2]) "
+                }
+                else
+                {
+                    Add-Content -Path "$log_path\Log.txt" -Value  "`nITSO Information is not available"
+                }
+                if($application[$i][0])
+                {
+                    Add-Content -Path "$log_path\Log.txt" -Value  "`nApplication Name: $($application[$i][0])"
+                }
+                else
+                {
+                    Add-Content -Path "$log_path\Log.txt" -Value  "`nApplication Information is not available"
+                }
+                if($application[$i][1])
+                {
+                    $asgrp_out = Invoke-WebRequest -Uri $application[$i][1] -Headers $global:headers -Method Get -ContentType "application/json"
+                    $asgrp = $asgrp_out | ConvertFrom-Json
+                    $sys_id = $asgrp.result.sys_id
+                	if($sys_id -ne "")
+                	{
+                		Write-Host "Assignment Group Sys ID is available"
+                        Add-Content -Path "$log_path\Log.txt" -Value  "`nAssignment Group Sys ID is $sys_id"
+                        Add-Content -Path "$log_path\Log.txt" -Value  "`nAssignment Group Link: $($application[$i][1])"
+                        Add-Content -Path "$log_path\Log.txt" -Value  "`nAssignment Group Name is $($asgrp.result.name)"
+                        try
+                        {
+                            $ITSO_out = Invoke-WebRequest -Uri $application[0][2] -Headers $global:headers -Method Get -ContentType "application/json" -UseBasicParsing
+                            $ITSO = $ITSO_out | ConvertFrom-Json
+                            Add-Content -Path "$log_path\Log.txt" -Value  "`nITSO Information fetched Successfully"
+                            $ITSO_Name = $ITSO.result.name
+                            $ITSO_Email = $ITSO.result.email
+                            if($ITSO_Name)
+                            {
+                                Add-Content -Path "$log_path\Log.txt" -Value  "`nITSO Name of $application_name is $ITSO_Name"
+                            }
+                            else
+                            {
+                                Add-Content -Path "$log_path\Log.txt" -Value  "`nITSO Name is not available"
+                            }
+                            if($ITSO_Email -ne "")
+                            {
+                                Add-Content -Path "$log_path\Log.txt" -Value  "`nITSO Email ID is $ITSO_Email"
+                                try
+                                {
+                                    <#$from = "automation@biogen.com"
+                                    #$to = "gopinath.senthilrajan@biogen.com"
+                                    $to = $ITSO_Email
+                                    $body = "$top"
+                                    $cc = ""
+                                    $bcc = ""
+                                    $smtpserver = "smtp.biogen.com"
+                                    $subject = "test"
+                    
+                                    #Send-MailMessage -to $to -From $from -Body $result -SmtpServer $smtpserver -Subject $subject#>
+                                    Add-Content -Path "$log_path\Log.txt" -Value  "`nNotified ITSO"
+                                    Write-Host "Notified ITSO"
+                                    Health-check -session $session -path $path -username $username -servername $server
+                                    Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "FileSystem Utilization of $server is $File_Systems% which is above the threshold." -asign_grp $sys_id -table $table
+                                    Write-Host "Script over"
+                                    Exit
+                                }
+                                catch
+                                {
+                                    Add-Content -Path "$log_path\Log.txt" -Value  "`nFailed to Notify ITSO"
+                                    Health-check -session $session -path $path -username $username -servername $server
+                                    Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to Notify ITSO" -asign_grp $UNIX -table $table
+                                    Exit
+                                }
+                            }
+                            else
+                            {
+                                Add-Content -Path "$log_path\Log.txt" -Value  "`nITSO Email is not available"
+                                try
+                                {
+                                    <#$from = "automation@biogen.com"
+                                    $to = $ITSO_Email
+                                    $body = "$top"
+                                    $cc = ""
+                                    $bcc = ""
+                                    $smtpserver = "smtp.biogen.com"
+                                    $subject = "test"
+                    
+                                    #Send-MailMessage -to -From -Body -Bcc -SmtpServer -Cc -Subject #>
+                                    #Add-Content -Path "$log_path\Log.txt" -Value  "`nNotified the UNIX Team"
+                                    #Write-Host "Notified the UNIX Team"
+                                    Health-check -session $session -path $path -username $username -servername $server
+                                    Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "FileSystem Utilization of $server is $File_Systems% which is above the threshold." -asign_grp $UNIX -table $table
+                                    Exit
+                                }
+                                catch
+                                {
+
+                                    Add-Content -Path "$log_path\Log.txt" -Value  "`nFailed to Notify UNIX Team"
+                                    Health-check -session $session -path $path -username $username -servername $server
+                                    Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to UNIX Team" -asign_grp $UNIX -table $table
+                                    Exit
+                                }
+                            }
+                        }
+                        catch
+                        {
+                            Add-Content -Path "$log_path\Log.txt" -Value  "`nFailed to Fetch ITSO Information"
+                            Write-Host "Failed to Fetch ITSO Information"
+                            Health-check -session $session -path $path -username $username -servername $server
+                            Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to Fetch ITSO Information" -asign_grp $UNIX -table $table
+                            Exit
+                        }
+                	}
+                	else                				
+                    {
+                		Add-Content -Path "$log_path\Log.txt" -Value  "`nAssignment Group Sys ID is not available"
+                        Health-check -session $session -path $path -username $username -servername $server
+                        Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Assignment Group Sys ID is not available" -asign_grp $UNIX -table $table
+                        Exit
+                	}
+                }
+                else
+                {
+                    Add-Content -Path "$log_path\Log.txt" -Value  "`nAssignment Group details not available"
+                    Health-check -session $session -path $path -username $username -servername $server
+                    Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Application details not available in CMDB" -asign_grp $UNIX -table $table
+                    Exit
+                }
+            }
+            else
+            {
+                Add-Content -Path "$log_path\Log.txt" -Value  "`nNo Application is hosted"
+                Health-check -session $session -path $path -username $username -servername $server
+                Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "No Application is hosted in $server as per CMDB" -asign_grp $UNIX -table $table
+                try
+                {
+                    <#$from = ""
+                    $to = ""
+                    $body = ""
+                    $cc = ""
+                    $bcc = ""
+                    $smtpserver = ""
+                    $subject = ""
+                    
+                    #Send-MailMessage -to -From -Body -Bcc -SmtpServer -Cc -Subject #>
+                    Add-Content -Path "$log_path\Log.txt" -Value  "`nNotified the UNIX team"
+                    Write-Host "Notified the UNIX team"
+                    Health-check -session $session -path $path -username $username -servername $server
+                    Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "FileSystem Utilization of $server is $File_Systems% which is above the threshold." -asign_grp $UNIX -table $table
+                    Exit
+                }
+                catch
+                {
+                    Add-Content -Path "$log_path\Log.txt" -Value  "`nFailed to Notify UNIX Team"
+                    Health-check -session $session -path $path -username $username -servername $server
+                    Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to UNIX Team" -asign_grp $UNIX -table $table
+                    Exit
+                }
+            }
+        }
+    }
+    else
+    {
+        write-host "FileSystem below"
+        Add-Content -Path "$log_path\Log.txt" -Value  "`nCurrent FileSystem Utilization of $server is $File_Systems`% which is below the threshold of $Threshold%. hence Resolving the Incident."
+        Health-check -session $session -path $path -username $username -servername $server
+        Upload-PreAttachment -inc_sysid $inc_sysid -SNOW_Env $Snow_env -apikey $snowkey -password $snowpass -pre_Name $KBarticle_Name -pre_FullName $KBarticle_FullName -table "incident"
+        Resolve-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Current FileSystem Utilization of $server is $File_Systems`% which is below the threshold of $Threshold%. hence Resolving the Incident." -table $table -close_Notes "Current FileSystem Utilization of $server is $File_Systems`% which is below the threshold of $Threshold%. hence Resolving the Incident."
+        #Resolve-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Post clearing the Repository in $server the current Utilization of $FileSystem is $File_Systems`% which is below threshold. Hence resolving the Incident." -table $table -close_Notes "Post clearing the Repository in $server the current Utilization of $FileSystem is $File_Systems`% which is below threshold. Hence resolving the Incident."
+        #Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Post clearing the repository, the File System Utilization of $FileSystem is 90.5% which is above threshold. Hence routing the ticket." -asign_grp $UNIX -table $table
+        Exit
+    }
+}
+else
+{
+        Add-Content -Path "$log_path\Log.txt" -Value  "`nUnable to reach $server. Hence routing the Incident to UNIX team for manual fulfilment"
+        Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Unable to reach $server. Hence routing the Incident to UNIX team for manual fulfilment" -asign_grp $UNIX -table $table
+        Exit
+}
+
+Post Execution:
+
+if(Process[OpName].scriptOutput.indexOf('Ticket Resolved Successfully') >= 0)
+{
+  Process.ReturnCode = 1
+  Process.ReturnMessage = "Ticket Resolved Successfully"
+}
+else if(Process[OpName].scriptOutput.indexOf('Assignment Group updated successfully') >= 0)
+{
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Ticket Routed Successfully"
+}
+else
+{
+	Process.ReturnCode = -1
+	Process.ReturnMessage = "Some error occurred."
+}
+
+

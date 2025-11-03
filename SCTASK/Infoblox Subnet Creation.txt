@@ -1,0 +1,318 @@
+1. Get Ticket
+
+Pre Execution:
+
+Process.RunbookName = Process.InstanceName
+Process.RunbookID = Process.RuntimeROID
+var uri="https://"+Process.SNOWInstance+".service-now.com/api/now/table/sc_task?sysparm_fields=number%2Cactive%2Csys_id%2Cincident_state%2Cdescription%2Cu_document_results%2Cassigned_to=SVC-itpam@biogen.com&sysparm_limit=1&number="+Process.SCTASK_Number
+Process.url=uri
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Ticket details fetched successfully"
+  Process.Output=Process[OpName].HTTPResponseContent
+  
+} else if(Process[OpName].Reason.indexOf('non-success') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure fetching ticket details"
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+2. Second Operator (Read)
+
+Inline:
+
+var str =Process.Output
+var start=str.indexOf('[')+2;
+var end=str.indexOf(']')-1;
+var res = str.substring(start,end);
+var out1= res.split(',');
+for(var i=0;i < out1.length;i++)
+{
+  out1[i]=out1[i].replace(/\"/g,"");
+  if(out1[i].indexOf('active')>=0)
+  {Process.active=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('sys_id')>=0)
+  {Process.Sys_Id=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('description')>=0)
+  {Process.description=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('incident_state')>=0)
+  {Process.Incidentstate=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('u_document_results')>=0)
+  {Process.document_results=(out1[i].split(':'))[1]}
+  out1[i]=(out1[i].split(':'))[1]
+}
+
+Post Execution:
+
+if(Process.active)
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Ticket is active.";
+}
+else
+{
+  Process.ReturnCode=1;
+  Process.ReturnMessage="Ticket is inactive.";
+}
+
+3.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.SNOWInstance+".service-now.com/api/now/v2/table/sc_task/"+Process.Sys_Id
+Process.updateWorkNotes = "<request><entry><assigned_to>d2f5f34bdb5efb8036c73c9b7c961900</assigned_to><incident_state>2</incident_state><state>2</state><work_notes>Automation acknowledged Ref ID"+Process.RunbookID+" </work_notes></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Ticket worknotes updated successfully"
+  Process.Output=Process[OpName].HTTPResponseContent
+  
+}else if(Process[OpName].Reason.indexOf('non-success') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure updating ticket details"
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+4.Script
+
+Inline:
+
+Param(
+[string]$infoblox_server,
+[string]$userName,
+[string]$passWord,
+[string]$cidr = "26"
+)
+$pwd ="n398ttGt1MHXoXYvkv31UA63"
+function Ignore-SelfSignedCerts
+{
+ try
+ {
+
+ Add-Type -TypeDefinition @"
+ using System.Net;
+ using System.Security.Cryptography.X509Certificates;
+ public class TrustAllCertsPolicy : ICertificatePolicy
+ {
+ public bool CheckValidationResult(
+ ServicePoint srvPoint, X509Certificate certificate,
+ WebRequest request, int certificateProblem)
+ {
+ return true;
+ }
+ }
+"@
+ 
+ }
+ catch
+ {
+ Write-Host $_ -ForegroundColor "Yellow"
+ }
+ [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
+}
+
+Ignore-SelfSignedCerts
+
+$pwd = ConvertTo-SecureString "$passWord" -AsPlainText -Force
+$Credential = New-Object Management.Automation.PSCredential ("svc-infoblox", $pwd) -ErrorAction stop
+
+
+$discovery_network_subnet_url = "https://$infoblox_server/wapi/v2.9.7/network"
+$networkData = @{
+network="func:nextavailablenetwork:192.168.0.0/16,default,$cidr";
+comment="Created using Automation";
+network_view="default"
+}
+
+try{
+$jsonBody = $networkData | ConvertTo-Json 
+$results = Invoke-RestMethod -Uri $discovery_network_subnet_url -Method POST -Body $jsonBody -Credential $Credential   -ContentType 'application/json'  -UseBasicParsing -ErrorAction Stop
+$new_subnet_result = $results.Split(':')[1].replace('/default',' ')
+Write-Host "Subnet created successfully"
+Write-host "New Subnet: $new_subnet_result"
+} Catch {
+	Write-Host "Failed to create the subnet in infoblox server"
+}
+
+Post Execution:
+
+if(Process[OpName].scriptOutput.indexOf('400 Bad') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Unable to discover network subnet"
+  Process.Ping_Fail_Status_update = "Unable to discover network subnet"
+
+}else if(Process[OpName].scriptOutput.indexOf('Subnet created successfully') >= 0){
+  Process.ReturnCode = -1
+  Process.network_subnet = Process[OpName].scriptOutput.split('\n')[1]
+  Process.ReturnMessage = Process.network_subnet+"\n  Network Subnet  discovered successfully"
+  Process.Ping_Success_Status_update = Process.network_subnet
+  Process.Subnet_Status_update = "Network Subnet  discovered successfully"
+}else if(Process[OpName].scriptOutput.indexOf('Failed to create the subnet in infoblox server') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to create the subnet in infoblox server"
+  Process.Ping_Fail_Status_update = "Failed to create the subnet in infoblox server"
+
+}else {
+	Process.ReturnCode = 2
+	Process.ReturnMessage = "Some error occurred while creating the  subnet in infoblox server"
+	Process.Ping_Success_Status_update = "Some error occurred while creating the  subnet in infoblox server"
+}
+
+5.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.SNOWInstance+".service-now.com/api/now/v2/table/sc_task/"+Process.Sys_Id
+Process.updateWorkNotes = "<request><entry><assigned_to>d2f5f34bdb5efb8036c73c9b7c961900</assigned_to><state>2</state><work_notes>"+Process.Subnet_Status_update+" </work_notes></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Ticket worknotes updated successfully"
+  Process.Output=Process[OpName].HTTPResponseContent
+  
+}else if(Process[OpName].Reason.indexOf('non-success') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure updating ticket details"
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+6.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.SNOWInstance+".service-now.com/api/now/v2/table/sc_task/"+Process.Sys_Id  
+Process.updateWorkNotes = "<request><entry><assigned_to>d2f5f34bdb5efb8036c73c9b7c961900</assigned_to><state>2</state><work_notes>"+Process.Ping_Success_Status_update+" </work_notes></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Ticket worknotes updated successfully"
+  Process.Output=Process[OpName].HTTPResponseContent
+  
+}else if(Process[OpName].Reason.indexOf('non-success') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure updating ticket details"
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+7.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.SNOWInstance+".service-now.com/api/now/v2/table/sc_task/"+Process.Sys_Id
+Process.updateWorkNotes =  "<request><entry><state>3</state></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Execution Successfull, Issue Resolved"
+  Process.Output=Process[OpName].HTTPResponseContent
+  
+}else if(Process[OpName].Reason.indexOf('non-success') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure updating ticket details"
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+8.Fatal Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.SNOWInstance+".service-now.com/api/now/v2/table/sc_task/"+Process.Sys_Id
+Process.updateWorkNotes = "<request><entry><assigned_to></assigned_to><assignment_group>238994d1db0caf00fa0f8e5c29961941</assignment_group><state>2</state><work_notes>"+Process.ReturnMessage+" </work_notes></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Ticket Successfully Transferred Issue not Resolved"
+  Process.Output=Process[OpName].HTTPResponseContent
+  
+}
+else
+{
+  Process.ReturnCode=1;
+  Process.ReturnMessage="Failure updating ticket details"
+}
+
+

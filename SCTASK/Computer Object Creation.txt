@@ -1,0 +1,148 @@
+1. Get Ticket
+
+Pre Execution:
+
+//Process.number="SCTASK0488509"
+Process.url = "https://biogen.service-now.com/api/now/table/sc_task?sysparm_fields=sys_id%2Cdescription&sysparm_limit=1&number="+Process.number
+
+Post Execution:
+
+Process.out=Process.HTTP_Get_1_1.HTTPResponseContent
+
+//Steps to fetch the summary from httpresponse
+
+Process.firstvariable ='"description":"';
+Process.secondvariable = '"}]}';
+
+Process.summary= Process.out
+
+    Process.i = Process.summary.indexOf(Process.firstvariable);
+    if (Process.i >= 0) {
+        Process.summary = Process.summary.substring(i + Process.firstvariable.length);
+    }
+    else {
+        return '';
+    }
+    if (Process.secondvariable) {
+        Process.i = Process.summary.indexOf(Process.secondvariable);
+        if (Process.i >= 0) {
+            Process.summary = Process.summary.substring(0, i);
+        }
+        else {
+          return '';
+        }
+    }
+
+//Steps to fetch the sys id from httpresponse
+Process.firstvariable ='{"result":[{"sys_id":"';
+Process.secondvariable = '","description"';
+
+Process.SysId= Process.out
+
+    Process.i = Process.SysId.indexOf(Process.firstvariable);
+    if (Process.i >= 0) {
+        Process.SysID = Process.SysId.substring(i + Process.firstvariable.length);
+    }
+    else {
+        return '';
+    }
+    if (Process.secondvariable) {
+        Process.i = Process.SysId.indexOf(Process.secondvariable);
+        if (Process.i >= 0) {
+            Process.SysId = Process.SysId.substring(0, i);
+        }
+        else {
+          return '';
+        }
+    }
+
+2. Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://biogen.service-now.com/api/now/table/sc_task/"+Process.SysId
+Process.payload = "<request><entry><assigned_to>d2f5f34bdb5efb8036c73c9b7c961900</assigned_to><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+"</work_notes><state>2</state></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  if(Process[OpName].HTTPResponseContent.indexOf("state\":\"")>=0)
+  {
+	Process.ReturnCode = 51
+	Process.ReturnMessage = "IAutomate: In Progress ";
+  }
+  else
+  {
+	Process.ReturnCode=52;
+	Process.ReturnMessage="Error occurred while  updating assigned to ticket";
+  }
+}
+else
+{
+  Process.ReturnCode=52;
+  Process.ReturnMessage="Failure occurred while updating assigned to ticket"
+}
+
+Process.object = Process.summary.split(".corp.biogen.com")[0]
+
+
+3.Script Update
+
+Inline:
+
+Param(
+[String]$SerUser,
+[String]$SerPass,
+[String]$description
+)
+
+$ErrorActionPreference = 'Stop'
+
+$password = ConvertTo-SecureString $SerPass -AsPlainText -Force
+$Cred = New-Object System.Management.Automation.PSCredential ($SerUser, $password)
+
+$pos = $description.IndexOf(".corp.biogen.com")
+$Name = $description.Substring(0, $pos)
+$SamAccountNaame = "$Name$"
+$DNSHostname = "CN=$Name,OU=Cloud,DC=corp,DC=biogen,DC=com"
+try{
+New-ADComputer -Name $Name -SAMAccountName $SamAccountNaame -Path "OU=Cloud,DC=corp,DC=biogen,DC=com" -Enabled $true -DNSHostName $DNSHostname -Credential $Cred 
+if($?){
+return 0
+}
+else{
+return 1
+}
+}
+catch
+{
+return 1
+}
+
+
+4.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://biogen.service-now.com/api/now/table/sc_task/"+Process.SysId
+Process.payload = "<request><entry><work_notes>Object:"+ Process.Object+"</work_notes><state>3</state></entry></request>"
+
+Post Execution:
+
+Process.ReturnCode = -51
+Process.ReturnMessage = "Iautomate: Successfully Resolved"
+
+5.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://biogen.service-now.com/api/now/table/sc_task/"+Process.SysId
+Process.payload = "<request><entry><assigned_to></assigned_to><work_notes>Object:"+ Process.Object+"</work_notes><state>1</state></entry></request>"
+
+6.Ticket Update
+
+Post Execution:
+
+Process.ReturnCode = 52
+Process.ReturnMessage = "Iautomate: Successfully Transferred Issue not Resolved"

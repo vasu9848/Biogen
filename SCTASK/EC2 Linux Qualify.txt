@@ -1,0 +1,3133 @@
+1. Get Update
+
+Pre Execution:
+
+Process.RunbookName = Process.InstanceName
+Process.RunbookID = Process.RuntimeROID
+var uri="https://biogen.service-now.com/api/now/table/sc_task?sysparm_fields=number%2Cactive%2Csys_id%2Cincident_state%2Cdescription%2Cu_document_results%2Cassigned_to=SVC-itpam@biogen.com&sysparm_limit=1&number="+Process.SCTASK_Number
+Process.url=uri
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Ticket details fetched successfully"
+  Process.Output=Process[OpName].HTTPResponseContent
+  
+} else if(Process.Get_CTASK_Ticket.Reason.indexOf('non-success') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else if(Process.Get_CTASK_Ticket.Reason.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure fetching ticket details"
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+2. Second Operator (Read)
+
+Inline:
+
+var str =Process.Output
+var start=str.indexOf('[')+2;
+var end=str.indexOf(']')-1;
+var res = str.substring(start,end);
+var out1= res.split(',');
+for(var i=0;i < out1.length;i++)
+{
+  out1[i]=out1[i].replace(/\"/g,"");
+  if(out1[i].indexOf('active')>=0)
+  {Process.active=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('sys_id')>=0)
+  {Process.Sys_Id=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('description')>=0)
+  {Process.description=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('incident_state')>=0)
+  {Process.Incidentstate=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('u_document_results')>=0)
+  {Process.document_results=(out1[i].split(':'))[1]}
+  out1[i]=(out1[i].split(':'))[1]
+}
+
+Post Execution:
+
+if(Process.active)
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Ticket is active.";
+}
+else
+{
+  Process.ReturnCode=1;
+  Process.ReturnMessage="Ticket is inactive.";
+}
+
+3.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://biogen.service-now.com/api/now/v2/table/sc_task/"+Process.Sys_Id
+Process.updateWorkNotes = "<request><entry><assigned_to>d2f5f34bdb5efb8036c73c9b7c961900</assigned_to><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+"</work_notes><state>2</state></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Ticket worknotes updated successfully"
+  Process.Output=Process[OpName].HTTPResponseContent
+  
+}else if(Process.Update_CTASK.Reason.indexOf('non-success') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else if(Process.Update_CTASK.Reason.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure updating ticket details"
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+4.Script
+
+Inline:
+
+Param(
+[string]$target_server
+)
+try {
+   Test-Connection $target_server -Count 2 -ErrorAction Stop
+   Write-host "$target_server is reachable"
+}
+catch {
+   Write-host "$target_server is not reachable"
+   $_.Exception.Message
+}
+
+Post Execution:
+
+if(Process.Ping_Check.scriptOutput.indexOf('not reachable') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Target server "+Process.targetServer+" is unreachable. Hence closing the ticket."
+  Process.Ping_Fail_Status_update = "Target server "+Process.targetServer+" is unreachable. Hence closing the ticket."
+
+}else if(Process.Ping_Check.scriptOutput.indexOf('is reachable') >= 0){
+  Process.ReturnCode = -1
+  Process.ReturnMessage = "Target server "+Process.targetServer+"  is reachable"
+  Process.Ping_Success_Status_update = "Target server "+Process.targetServer+"  is  Reachable"
+}else {
+	Process.ReturnCode = 2
+	Process.ReturnMessage = "Some error occurred while reaching the "+Process.targetServer+"   target server"
+	Process.Ping_Success_Status_update = "Some error occurred while reaching the "+Process.targetServer+"   target server"
+}
+
+
+Success
+
+5.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://biogen.service-now.com/api/now/v2/table/sc_task/"+Process.Sys_Id
+Process.updateWorkNotes = "<request><entry><work_notes>"+Process.ReturnMessage+" </work_notes></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Ticket worknotes updated successfully"
+  Process.Output=Process[OpName].HTTPResponseContent
+  
+}else if(Process[OpName].Reason.indexOf('non-success') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure updating ticket details"
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+6.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand = "ansible-playbook ~/ec2prod/main.yml -e 'server_name="+Process.targetServer+" sctask_number="+Process.SCTASK_Number+"'"
+
+Post Execution:
+
+if(Process[OpName].ec2out.indexOf('Failed to connect to the host via ssh: Permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host ("+Process.targetServer+") via ssh from Ansible playbook"
+  Process.Playbook_Status_update = "Failed to connect to the host ("+Process.targetServer+") via ssh from Ansible playbook"
+
+}else if(Process[OpName].ec2out.indexOf('TASK [HW info]') >= 0){
+  Process.ReturnCode = -1
+  Process.ReturnMessage = "Playbook Execution Successfull"
+  Process.Playbook_Status_update = "Playbook Execution Successfull"
+}else if(Process[OpName].ec2out.indexOf('yml could not be found') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = Process.Trigger_Playbook_1.ec2out
+  Process.Playbook_Status_update = Process.Trigger_Playbook_1.ec2out
+}else if(Process[OpName].ec2out.indexOf('could not locate file') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "PDF File failed to generate at the time of Ansible playbook execution"
+  Process.Playbook_Status_update = "PDF File failed to generate at the time of Ansible playbook execution"
+}else if(Process[OpName].ec2out.indexOf('Unable to find') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Unable to find the generated PDF File"
+  Process.Playbook_Status_update = "Unable to find the generated PDF File"
+}else if(Process[OpName].ec2out.indexOf('no hosts matched') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "No hosts matched in the ansible hosts file"
+  Process.Playbook_Status_update = "No hosts matched in the ansible hosts file"
+}else if(Process[OpName].ec2out.indexOf('unhandled exception occurred') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "An unhandled exception occurred while executing playbook"
+  Process.Playbook_Status_update = "An unhandled exception occurred while executing playbook"
+
+}else if(Process[OpName].ec2out.indexOf('aws: error:') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "An unhandled exception occurred while uploading pdf to S3 bucket"
+  Process.Playbook_Status_update = "An unhandled exception occurred while uploading pdf to S3 bucket"
+
+}else {
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook"
+	Process.Playbook_Status_update = "Some error occurred while  executing the Ansible Playbook"
+}
+
+
+7.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand = "ansible-playbook ~/ec2prod/main.yml -e 'server_name="+Process.targetServer+" sctask_number="+Process.SCTASK_Number+"'"
+
+Post Execution:
+
+if(Process[OpName].ec2out1.indexOf('Failed to connect to the host via ssh: Permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host ("+Process.targetServer+") via ssh from Ansible playbook"
+  Process.Playbook_Status_update = "Failed to connect to the host ("+Process.targetServer+") via ssh from Ansible playbook"
+
+}else if(Process[OpName].ec2out1.indexOf('TASK [HW info]') >= 0){
+  Process.ReturnCode = -1
+  Process.ReturnMessage = "Playbook Execution Successfull"
+  Process.Playbook_Status_update = "Playbook Execution Successfull"
+}else if(Process[OpName].ec2out1.indexOf('yml could not be found') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = Process[OpName].ec2out1
+  Process.Playbook_Status_update = Process[OpName].ec2out1
+}else if(Process[OpName].ec2out1.indexOf('could not locate file') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "PDF File failed to generate at the time of Ansible playbook execution"
+  Process.Playbook_Status_update = "PDF File failed to generate at the time of Ansible playbook execution"
+}else if(Process[OpName].ec2out1.indexOf('Unable to find') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Unable to find the generated PDF File"
+  Process.Playbook_Status_update = "Unable to find the generated PDF File"
+}else if(Process[OpName].ec2out1.indexOf('no hosts matched') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "No hosts matched in the ansible hosts file"
+  Process.Playbook_Status_update = "No hosts matched in the ansible hosts file"
+}else if(Process[OpName].ec2out1.indexOf('unhandled exception occurred') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "An unhandled exception occurred while executing playbook"
+  Process.Playbook_Status_update = "An unhandled exception occurred while executing playbook"
+
+}else if(Process[OpName].ec2out1.indexOf('aws: error:') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "An unhandled exception occurred while uploading pdf to S3 bucket"
+  Process.Playbook_Status_update = "An unhandled exception occurred while uploading pdf to S3 bucket"
+
+}else {
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook"
+	Process.Playbook_Status_update = "Some error occurred while  executing the Ansible Playbook"
+}
+
+
+8.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand = "ansible-playbook ~/ec2prod/main.yml -e 'server_name="+Process.targetServer+" sctask_number="+Process.SCTASK_Number+"'"
+
+Post Execution:
+
+if(Process[OpName].ec2out2.indexOf('Failed to connect to the host via ssh: Permission denied') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Failed to connect to the host ("+Process.targetServer+") via ssh from Ansible playbook"
+  Process.Playbook_Status_update = "Failed to connect to the host ("+Process.targetServer+") via ssh from Ansible playbook"
+
+}else if(Process[OpName].ec2out2.indexOf('TASK [HW info]') >= 0){
+  Process.ReturnCode = -1
+  Process.ReturnMessage = "Playbook Execution Successfull"
+  Process.Playbook_Status_update = "Playbook Execution Successfull"
+}else if(Process[OpName].ec2out2.indexOf('yml could not be found') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = Process[OpName].ec2out2
+  Process.Playbook_Status_update = Process[OpName].ec2out2
+}else if(Process[OpName].ec2out2.indexOff('could not locate file') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "PDF File failed to generate at the time of Ansible playbook execution"
+  Process.Playbook_Status_update = "PDF File failed to generate at the time of Ansible playbook execution"
+}else if(Process[OpName].ec2out2.indexOf('Unable to find') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "Unable to find the generated PDF File"
+  Process.Playbook_Status_update = "Unable to find the generated PDF File"
+}else if(Process[OpName].ec2out2.indexOf('no hosts matched') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "No hosts matched in the ansible hosts file"
+  Process.Playbook_Status_update = "No hosts matched in the ansible hosts file"
+}else if(Process[OpName].ec2out2.indexOf('unhandled exception occurred') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "An unhandled exception occurred while executing playbook"
+  Process.Playbook_Status_update = "An unhandled exception occurred while executing playbook"
+
+}else if(Process[OpName].ec2out2.indexOf('aws: error:') >= 0){
+  Process.ReturnCode = 2
+  Process.ReturnMessage = "An unhandled exception occurred while uploading pdf to S3 bucket"
+  Process.Playbook_Status_update = "An unhandled exception occurred while uploading pdf to S3 bucket"
+
+}else {
+	Process.ReturnCode = 2
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook"
+	Process.Playbook_Status_update = "Some error occurred while  executing the Ansible Playbook"
+}
+
+
+9.Script
+
+Inline:
+
+param($hostname,$sctask_number)
+$Linux_path = "\\usawsgabb0082\Linux_Prod\linux_qualify\$($sctask_number)"
+$dest = "D:\Linux_Prod\linux_qualify\$($sctask_number)"
+
+ New-Item -ItemType Directory -Force -Path $dest 
+
+try
+{
+Copy-Item -Path "$Linux_path\$hostname*.pdf" -Destination $dest
+}
+catch
+{Write-Host "Copying Failed"}    
+$file=Get-ChildItem -Force -Recurse -File -Path "D:\Linux_Prod\linux_qualify\$($sctask_number)" | Sort-Object LastAccessTime | select -Last 1
+if($file.count -eq "1")
+{
+    $name=$file.Name   
+    if($name -like "*fail*")
+    {write-host "fail"}
+    else
+    {Write-Host "pass"} 
+}
+elseif($file.count -eq "0")
+{Write-Host "File Not Copied"}
+else
+{Write-Host "More than 1 files"}
+
+Post Execution:
+
+if(Process.PDF_Path.scriptOutput.indexOf("pass")>=0)
+{
+Process.ReturnCode = 1
+Process.ReturnMessage = "PDF generated has pass"
+}
+else if(Process.PDF_Path.scriptOutput.indexOf("fail")>=0)
+{
+Process.ReturnCode = 2
+Process.ReturnMessage = "PDF generated has fail"
+}
+else
+{
+Process.ReturnCode=-1
+Process.ReturnMessage = "Error occured while copying PDF File."
+}
+
+
+Success
+
+10.Script
+
+Inline:
+
+param($hostname,$sctask_number)
+$Linux_path = "\\usawsgabb0082\Linux_Prod\linux_qualify\$($sctask_number)"
+$dest = "D:\Linux_Prod\linux_qualify\$($sctask_number)"
+try
+{
+$file=Get-ChildItem -Force -Recurse -File -Path "D:\Linux_Prod\linux_qualify\$($sctask_number)" | Sort-Object LastAccessTime | select -Last 1
+$name=$file.Name
+$fname="$dest\$name"
+Write-Host "$fname"
+Write-Host "$name"
+}
+catch
+{
+    Write-Host "Some Error Occured"
+}
+
+Post Execution:
+
+if(Process.Success_PDF_Name.scriptOutput.indexOf("pdf")>=0)
+{
+Process.ReturnCode = 1
+Process.ReturnMessage = "Got the PDF Files"
+Process.Data = Process.Success_PDF_Name.scriptOutput
+}
+else
+{
+Process.ReturnCode=-1
+Process.ReturnMessage = "Error occurred while executing the verification script."
+}
+
+11.Ticket Update (Post)
+
+Pre Execution:
+
+//Process.dat=Process.data.split('\n')
+
+Process.dat=Process.Data.split("\n")
+
+Process.pdffile=Process.dat[0]
+Process.fname=Process.dat[1]
+Process.putURL= "https://biogen.service-now.com/api/now/attachment/file?table_name=sc_task&table_sys_id="+Process.Sys_Id+"&file_name="+Process.fname
+//Process.payload = "<request><entry><assigned_to>d2f5f34bdb5efb8036c73c9b7c961900</assigned_to><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+"</work_notes><state>2</state></entry></request>"
+
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="Created" && Process[OpName].HTTPResponseStatusCode==201 )
+{
+  Process.ReturnCode=0;
+  //Process.ReturnMessage="Execution Successfull, Issue  resolved"
+  Process.Output=Process[OpName].HTTPResponseContent
+  
+}else if(Process[OpName].Reason.indexOf('non-success') >= 0){
+	Process.ReturnCode =2;
+  //Process.ReturnMessage = Process[OpName].HTTPResponseContent
+	Process.ReturnMessage = "Error in uploading the PDF FIle to the ticket"
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  //Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  Process.ReturnMessage = "Error in uploading the PDF FIle to the ticket"
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage= "Error in uploading the PDF FIle to the ticket"
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+12.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://biogen.service-now.com/api/now/v2/table/sc_task/"+Process.Sys_Id
+Process.updateWorkNotes = "<request><entry><work_notes>Script used for component fulfillment is Domain: INFRASTRUCTURE_IT Project: IAO_Platform_Qual Run ID: 551</work_notes><state>3</state></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Execution Successfull, Issue  resolved"
+  Process.Output=Process[OpName].HTTPResponseContent
+  
+}else if(Process.Update_CTASK.Reason.indexOf('non-success') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else if(Process.Update_CTASK.Reason.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure updating ticket details"
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+Failure
+
+13.Script
+
+Inline:
+
+Param($hostname, $sctask_number)
+$Linux_path = "\\usawsgabb0082\Linux_Prod\linux_qualify\$($sctask_number)"
+$dest = "D:\Linux_Prod\linux_qualify\$($sctask_number)"
+try
+{
+$file=Get-ChildItem -Force -Recurse -File -Path "D:\Linux_Prod\linux_qualify\$($sctask_number)" | Sort-Object LastAccessTime | select -Last 1
+$name=$file.Name
+$fname="$dest\$name"
+Write-Host "$fname"
+Write-Host "$name"
+}
+catch
+{
+    Write-Host "Some Error Occured"
+}
+
+Post Execution:
+
+if(Process.Failur_PDF_Name.scriptOutput.indexOf("pdf")>=0)
+{
+Process.ReturnCode = 1
+Process.ReturnMessage = "Got the PDF Files"
+Process.Data = Process.Failur_PDF_Name.scriptOutput
+}
+else
+{
+Process.ReturnCode=-1
+Process.ReturnMessage = "Error occurred while executing the verification script."
+}
+
+14.Ticket Update
+
+Pre Execution:
+
+//Process.dat=Process.data.split('\n')
+
+Process.dat=Process.data.split("\n")
+
+Process.pdffile=Process.dat[0]
+Process.fname=Process.dat[1]
+Process.putURL= "https://biogen.service-now.com/api/now/attachment/file?table_name=sc_task&table_sys_id="+Process.Sys_Id+"&file_name="+Process.fname
+//Process.payload = "<request><entry><assigned_to>d2f5f34bdb5efb8036c73c9b7c961900</assigned_to><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+"</work_notes><state>2</state></entry></request>"
+
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="Created" && Process[OpName].HTTPResponseStatusCode==201 )
+{
+  Process.ReturnCode=0;
+  //Process.ReturnMessage="Execution Successfull, Issue  resolved"
+  Process.Output=Process[OpName].HTTPResponseContent
+  
+}else if(Process[OpName].Reason.indexOf('non-success') >= 0){
+	Process.ReturnCode =2;
+  //Process.ReturnMessage = Process[OpName].HTTPResponseContent
+	Process.ReturnMessage = "Error in uploading the PDF FIle to the ticket"
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  //Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  Process.ReturnMessage = "Error in uploading the PDF FIle to the ticket"
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage= "Error in uploading the PDF FIle to the ticket"
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+15.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://biogen.service-now.com/api/now/v2/table/sc_task/"+Process.Sys_Id
+Process.updateWorkNotes = "<request><entry><state>7</state><work_notes>Server is not qualified according to Biogen standards. Please refer to the PDF attached for more details</work_notes></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Successfully Transferred, Issuse not resolved"
+  Process.Output=Process[OpName].HTTPResponseContent
+  
+}else if(Process.Update_CTASK.Reason.indexOf('non-success') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else if(Process.Update_CTASK.Reason.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure updating ticket details"
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+
+Failure
+
+16.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://biogen.service-now.com/api/now/v2/table/sc_task/"+Process.Sys_Id
+//Process.updateWorkNotes = "<request><entry><state>1</state><assignment_group>5b2d41c5dbe73e00d41dd3cb5e961955</assignment_group><work_notes>"+Process.ReturnMessage+", Hence routing the ticket to UNIX Queue. </work_notes></entry></request>"
+Process.updateWorkNotes = "<request><entry><state>7</state><work_notes>"+Process.ReturnMessage+"</work_notes></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Successfully Transferred, Issuse not resolved"
+  Process.Output=Process[OpName].HTTPResponseContent
+  
+}else if(Process.Update_CTASK.Reason.indexOf('non-success') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else if(Process.Update_CTASK.Reason.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure updating ticket details"
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+17.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://biogen.service-now.com/api/now/v2/table/sc_task/"+Process.Sys_Id
+Process.updateWorkNotes = "<request><entry><state>7</state><work_notes>"+Process.ReturnMessage+"</work_notes></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Ticket worknotes updated successfully"
+  Process.Output=Process[OpName].HTTPResponseContent
+  
+}else if(Process[OpName].Reason.indexOf('non-success') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure updating ticket details"
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+18.Fatal Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://biogen.service-now.com/api/now/v2/table/sc_task/"+Process.Sys_Id
+Process.updateWorkNotes = "<request><entry><state>7</state><work_notes>"+Process.ReturnMessage+"</work_notes></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Successfully Transferred, Issuse not resolved"
+  Process.Output=Process[OpName].HTTPResponseContent
+  
+}else if(Process.Update_CTASK.Reason.indexOf('non-success') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else if(Process.Update_CTASK.Reason.indexOf('failure') >= 0){
+	Process.ReturnCode =2;
+  Process.ReturnMessage = Process[OpName].HTTPResponseContent
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+  Process.Output=Process[OpName].HTTPResponseContent
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure updating ticket details"
+  Process.Fail_Status_Update = Process[OpName].HTTPResponseContent
+}
+
+
+
+Ansible Playbook
+
+ec2prod/hosts
+
+10.
+
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+
+ec2prod/1
+
+---
+- name: Generating Retro qualification report
+  hosts: localhost
+  #strategy: free
+  become_method: sudo
+  tasks: 
+    - add_host:
+        hostname: "{{ server_name }}"
+        groups: ec2_server 
+- hosts: ec2_server
+  gather_facts: true
+  tasks:    
+    - name: HW info
+      vars:
+        msg: |
+          CPU Core: {{ ansible_processor_cores }}
+      debug:
+        msg: "{{ msg.split('\n') }}"
+      tags: get_hw_info
+    - name: display hardware status
+      set_fact:
+        hardware_status: >
+                          {% if ansible_processor_cores >= 1 %} 
+                           "Processor: {{ ansible_processor_cores }} -> PASS "
+                          {% else %} 
+                            "Processor: {{ ansible_processor_cores }} -> FAIL "
+                          {% endif %}
+      tags: get_hw_info
+    - debug:
+        msg: "{{ hardware_status}}"
+      tags: get_hw_info
+
+    # Get RAM Information
+    - name: Get RAM Information
+      set_fact:
+        check_memory: "{{ (ansible_memtotal_mb/1024)|float| round }}"
+      tags: get_ram_info
+    - debug:
+        msg: >
+              {% if check_memory >= 1.0 %}
+                Memory (in GB) {{ (ansible_memtotal_mb/1024)|float| round }} -> PASS 
+                {% else %}
+                Memory (in GB) {{ (ansible_memtotal_mb/1024)|float| round }} -> FAIL
+              {% endif %} 
+      tags: get_ram_info  
+    
+
+     # Get Kernel Information
+    - name: Get Kernel Info
+      vars:
+        msg: |
+          Kernel Version: {{ ansible_kernel }}
+      debug:
+        msg: "{{ msg }}"
+      tags: get_kernel_version_info
+    - name: display kernel data
+      set_fact:
+        kernel_base_version: "{{ ansible_kernel.split('.')[0]}}"
+        kernel_sub_version: "{{ ansible_kernel.split('.')[1]}}"
+      tags: get_kernel_version_info
+    - debug:
+        msg: >
+             {% if kernel_base_version == 2 and kernel_sub_version >= 4 or kernel_base_version > 2 %} 
+                "Kernel Version : {{ kernel_base_version }}.{{ kernel_sub_version }} -> PASS "
+             {% else %}
+                "Kernel Version : {{ kernel_base_version }}.{{ kernel_sub_version }} -> FAIL "
+              {% endif %}
+      tags: get_kernel_version_info
+
+    # Get Disk Information
+    - name: Get disk info
+      set_fact:
+        disk_size: "{{ item.value.size }}"      
+      with_dict:
+        - "{{ ansible_facts['devices'] }}"  
+      ignore_errors: yes    
+      tags: get_disk_info
+    - name: getting disk size info
+      shell: df -hk / | tail -n 1  | awk -F ' ' '{print $2}'
+      register: check_disk_size
+      ignore_errors: yes
+      tags: get_disk_info
+    - debug:
+        msg: "{{ check_disk_size.stdout }}"
+      ignore_errors: yes
+      tags: get_disk_info
+    - name: Get disk info
+      set_fact:
+        disk_size_value:  "{{ check_disk_size.stdout }}"
+      ignore_errors: yes
+      tags: get_disk_info
+    - debug:
+        msg: >
+             {% set mb = ((disk_size_value|int)/1024) | round(1) %}
+             {% set gb = ((disk_size_value|int)/1024/1024) | round(1) %}
+              {% set tb =  ((disk_size_value|int)/1024/1024/1024) | round(1) %} 
+                {% if gb < 10 %}   
+                    Disk Size {{ gb }} GB -> FAIL
+                {% elif gb > 10 %}
+                   Disk Size {{ gb }} GB -> PASS 
+                {% elif tb >= 1 %}
+                   Disk Size {{ tb }} TB -> PASS                  
+                {% else %}
+                   Disk Size {{ mb }} MB -> FAIL
+                {% endif %}
+            
+      tags: get_disk_info
+    
+     # Get Server Platform Information
+    - name: Get Server Platform
+      shell: uname -a | awk '{print $NF " " $3}'
+      register: get_server_platform
+      async: 60
+      poll: 10
+      tags: server_platform_info         
+    
+    # stopping the ntpd daemon
+    - name: stopping the ntpd daemons
+      command: systemctl stop ntpd && systemctl disable ntpd
+      become: true
+      register: check_ntpd_status
+      ignore_errors: yes
+      tags: ntp_server_status
+    - name: display ntpd daemons
+      debug:
+        msg: "{{ check_ntpd_status }}"
+      ignore_errors: yes
+      tags: ntp_server_status
+
+    - name: when ntpd is not installed
+      debug:
+        msg: "ntpd is not installled on the server"
+      when: "'Failed' in check_ntpd_status.stderr"
+      tags: ntp_server_status
+    
+    # restarting the chronyd service
+    - name: restarting the chronyd service
+      command: systemctl restart chronyd
+      become: true
+      register: check_chronyd_status
+      ignore_errors: yes
+      tags: ntp_server_status
+    - name: display chronyd daemons
+      debug:
+        msg: "{{ check_chronyd_status }}"
+      ignore_errors: yes
+      tags: ntp_server_status
+
+    # wait time
+    - name: wait time for chronyd up and running
+      wait_for:
+        timeout: 180
+
+    - name: check chronyc sources synchronized
+      shell: chronyc sources | grep -i biogen
+      register: check_ntp_status
+      async: 60
+      poll: 10
+      ignore_errors: yes
+      tags: ntp_server_status
+    - name: display ntp server status
+      debug:
+        msg: "{{ check_ntp_status }}"
+      ignore_errors: yes
+      tags: ntp_server_status
+    # Get NTP server Information
+    - name: Get ntp server syncing
+      shell: timedatectl | grep -i synchronized
+      register: get_ntp_server
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: ntp_server_status
+    - name: display ntp server syncing
+      debug:
+        msg: "{{ get_ntp_server }}"
+      ignore_errors: yes
+      tags: ntp_server_status     
+    - debug:
+        msg: >
+              {% if 'yes' in get_ntp_server.stdout and check_ntp_status.stdout != ''  %}
+                NTP Synchronized: YES -> PASS           
+              {% else %} 
+                NTP Synchronized: NO -> FAIL 
+              {% endif %}
+      tags: ntp_server_status    
+    # check turbot
+    - name: check turbot connected
+      shell: cat /etc/ssh/sshd_config | egrep 'ec2-user|clckwrk'
+      become: true
+      register: check_turbot_connected
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: turbot
+    - name: set facts for turbot
+      set_fact:
+        turbot_status: "{{ check_turbot_connected }}"
+      ignore_errors: yes
+      tags: turbot
+    - name: check turbot success connection
+      debug:
+        msg: "server under turbot"
+      when: check_turbot_connected.rc == 0
+      ignore_errors: yes
+      tags: turbot
+    - name: check turbot failure connection
+      debug:
+        msg: "server not under turbot"
+      when: check_turbot_connected.rc != 0
+      ignore_errors: yes
+      tags: turbot    
+
+    # check adinfo user status
+    - name: check adinfo user status
+      command: adinfo
+      become: true
+      register: check_adinfo_user_status
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: centrify
+    - debug:
+        msg: >
+            {% if check_adinfo_user_status.rc == 0 and 'connected' in check_adinfo_user_status.stdout %}  
+                Authentication Mechanism: Centrify -> PASS 
+            {% elif check_turbot_connected.rc == 0 %}
+                Authentication Mechanism: Turbot -> PASS
+            {% else %}
+                Authentication Mechanism: Native Authentication -> PASS
+             {% endif %}
+      ignore_errors: yes
+      tags: centrify    
+
+    # Get Syslog Information
+    - name: Get Syslog Info
+      ansible.builtin.service_facts:
+      register: syslog_service
+      ignore_errors: true
+      async: 60
+      poll: 10
+      tags: get_syslog_info  
+   
+    - debug:
+        msg: >
+             {% if syslog_service.ansible_facts.services['rsyslog.service'].state == 'running' and syslog_service.ansible_facts.services['rsyslog.service'].status == 'enabled' %}
+                 Logging is enabled and running  -> PASS 
+             {% elif  syslog_service.ansible_facts.services['rsyslog.service'].state == 'stopped' and syslog_service.ansible_facts.services['rsyslog.service'].status == 'enabled' %}
+                Logging is enabled, but not running -> FAIL 
+             {% else %} 
+                Logging is  not enabled and not running -> FAIL
+             {% endif %}
+      ignore_errors: true
+      tags: get_syslog_info
+
+    # Check nessus/ tenable installation status
+    - name: check nessus instalation status
+      shell: rpm -qa | grep -i nessus
+      register: check_nessus_installation_status
+      become: true
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: nessus_installation_status
+    - name: set facts falcon conn status
+      set_fact:
+        nessus_install_status: "{{ check_nessus_installation_status }}"
+      ignore_errors: true
+      tags: get_falcon_info
+    - name: display nessus install success status
+      debug:
+        msg: "Nessus is installed" 
+      when: nessus_install_status.rc == 0
+      tags: nessus_installation_status
+    - name: display nessus install failure status
+      debug:
+        msg: "Nessus is not installed" 
+      when: nessus_install_status.rc != 0
+      tags: nessus_installation_status
+    
+    # Check nessus/ tenable installation status
+    - name: check falcon instalation status
+      shell: rpm -qa | grep -i falcon 
+      register: check_falcon_installation_status
+      become: true
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: falcon_installation_status
+    - name: set facts falcon install status
+      set_fact:
+        falcon_install_status: "{{ check_falcon_installation_status }}"
+      ignore_errors: true
+      tags: falcon_installation_status
+    - name: display falcon install success status
+      debug:
+        msg: "Falcon is installed" 
+      when: falcon_install_status.rc == 0
+      tags: falcon_installation_status
+    - name: display falcon install failure status
+      debug:
+        msg: "Falcon is not installed" 
+      when: falcon_install_status.rc != 0
+      tags: falcon_installation_status
+
+    # Get Crowdstrike Information
+    - name: Get Crowdstrike Info
+      ansible.builtin.service_facts:
+      register: falcon_service
+      ignore_errors: true
+      async: 60
+      poll: 10
+      tags: get_falcon_info    
+    - name: check display Falcon connection
+      shell: sudo netstat -tapn | grep falcon | grep -i ESTABLISHED      
+      register: check_display_falcon_connection
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: get_falcon_info 
+    - name: set facts falcon conn status
+      set_fact:
+        falcon_conn_status: "{{ check_display_falcon_connection }}"
+      ignore_errors: true
+      tags: get_falcon_info 
+    - debug: 
+        msg: >
+             {% if falcon_conn_status.rc == 0 %} 
+                Falcon is connected -> PASS
+             {% else %}
+                Falcon is not connected -> FAIL
+              {% endif %}
+      ignore_errors: yes
+      tags: get_falcon_info
+
+    - debug:
+        msg: >
+             {% if falcon_install_status.rc != 0 %}     
+                Falcon is not installed -> FAIL
+             {% elif  falcon_service.ansible_facts.services['falcon-sensor.service'].state == 'running' and falcon_service.ansible_facts.services['falcon-sensor.service'].status == 'enabled' and falcon_conn_status.rc == 0 %} 
+                Falcon is enabled and running -> PASS 
+             {% elif  falcon_service.ansible_facts.services['falcon-sensor.service'].state == 'stopped' and falcon_service.ansible_facts.services['falcon-sensor.service'].status == 'enabled' or falcon_service.ansible_facts.services['falcon-sensor.service'].status == 'unknown' %} 
+                Falcon is  enabled, but not  running -> FAIL                     
+             {% else %} 
+                Falcon is not installed and enabled -> FAIL
+             {% endif %}
+      ignore_errors: true
+      tags: get_falcon_info
+
+     # Get Nessus Information
+    - name: Get Crowdstrike Info
+      ansible.builtin.service_facts:
+      register: nessusagent_service 
+      async: 60
+      poll: 10     
+      ignore_errors: yes
+      tags: get_nessusagent_info
+    # - debug:
+    #     msg: "nessus not installed"
+    #   when: item.ansible_facts is not defined
+    #   with_items:
+    #     - falcon-sensor.service
+    #     - nessus_agent.service
+    #   tags: get_nessusagent_info
+     # check the nessus is connected
+    - name: check nessus connectivity state
+      shell: cat /opt/nessus_agent/var/nessus/logs/backend.log | grep -i successful
+      register: check_nessus_connectivity_state
+      become: true
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: get_nessusagent_info 
+    - name: set facts nessus conn status
+      set_fact:
+        nessus_conn_status: "{{ check_nessus_connectivity_state }}"
+      ignore_errors: true
+      tags: get_nessusagent_info 
+    - name: display nessus connectivity success state
+      debug:
+        msg: "nessus connected successfully" 
+      when: nessus_conn_status.rc == 0
+      ignore_errors: yes
+      tags: get_nessusagent_info
+    - name: display nessus connectivity failure state
+      debug:
+        msg: "nessus connection failed" 
+      when: nessus_conn_status.rc != 0
+      ignore_errors: yes
+      tags: get_nessusagent_info
+    - debug:
+        msg: >
+           
+             {% if  nessusagent_service.ansible_facts.services['nessusagent.service'].state == 'stopped' and nessusagent_service.ansible_facts.services['nessusagent.service'].status == 'unknown' %} 
+                Nessus Agent is not enabled and not  running -> FAIL 
+             {% elif  nessusagent_service.ansible_facts.services['nessusagent.service'].state == 'running'  and nessus_conn_status.rc == 0  %} 
+                Nessus Agent is  running and connected -> PASS
+             {% else %} 
+                Nessus Agent is not enabled and installed -> FAIL           
+             {% endif %}
+      ignore_errors: yes
+      tags: get_nessusagent_info
+    
+    - name: creating linux_qualify directory in tmp folder
+      file:
+        path: /tmp/linux_qualify/{{ sctask_number }}
+        state: directory
+      register: trial
+      become: true
+      ignore_errors: yes
+      delegate_to: localhost
+    # Generating overall report
+    - name: Generate the report
+      template:
+        src: templates/index.html.j2
+        dest: /tmp/linux_qualify/{{ sctask_number }}/{{ ansible_hostname }}_report.html
+      register: resrep
+      become: true
+      ignore_errors: yes
+      delegate_to: localhost
+    - name: chceking the report creation
+      debug:
+        msg: "{{ resrep}}"  
+
+    - name: read the Output File
+      set_fact:
+        output: "{{lookup('file', '/tmp/linux_qualify/{{ sctask_number }}/{{ ansible_hostname }}_report.html') }}"  
+      become: true
+      ignore_errors: yes
+      delegate_to: localhost
+      when: "resrep.failed == false"
+        #      when: "'false' in resrep "  
+    - name: Generate the report as fail
+      template:
+        src: templates/index.html.j2
+        dest: /tmp/linux_qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_fail.html
+      when: (output | regex_findall('FAIL') | length) >= 1
+      register: report_content_success_status
+      become: true
+      ignore_errors: yes
+      delegate_to: localhost
+      when: "resrep.failed == false"
+    - name: Generate the pass report
+      template:
+        src: templates/index.html.j2
+        dest: /tmp/linux_qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_pass.html
+      when: (output | regex_findall('FAIL') | length) == 0
+      register: report_content_fail_status
+      become: true
+      ignore_errors: yes
+      delegate_to: localhost
+      when: "resrep.failed == false"
+    
+    - name: creating {{ sctask_number }} directory in temp folder
+      file:
+        path: "/tmp/linux_qualify/{{ sctask_number }}"
+        state: directory
+      become: true
+      delegate_to: localhost
+      when: "resrep.failed == false"
+      tags: file_copy
+    - name: creating {{ sctask_number }} directory in Linux Prod Share  folder
+      file:
+        path: "/Linux_Prod/linux_qualify/{{ sctask_number }}"
+        state: directory
+      become: true
+      when: "resrep.failed == false"
+      delegate_to: localhost
+      tags: file_copy
+    - name: Generate report to pdf format
+      shell: /usr/local/bin/wkhtmltopdf /tmp/linux_qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_pass.html /Linux_Prod/linux_qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_pass.pdf
+      when: 
+        - "(output | regex_findall('FAIL') | length) == 0"
+        - "resrep.failed == false"
+      become: true
+      delegate_to: localhost
+    - name: Generate report to pdf format
+      shell: /usr/local/bin/wkhtmltopdf /tmp/linux_qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_fail.html /Linux_Prod/linux_qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_fail.pdf
+      when:
+        - "(output | regex_findall('FAIL') | length) >= 1"
+        - "resrep.failed == false"
+      become: true
+      ignore_errors: yes
+      delegate_to: localhost
+    - name: Listing the pdf files
+      shell: "ls /Linux_Prod/linux_qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_*.pdf"
+      register: list_pdf_files
+      when: "resrep.failed == false"
+      become: true
+      delegate_to: localhost
+    - debug:
+        msg: "{{ list_pdf_files.stdout }}" 
+      when: "resrep.failed == false"
+
+
+
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+
+ec2prod/ansible.cfg
+
+[defaults]
+inventory = hosts
+host_key_checking = False
+
+
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+
+ec2prod/main.yml
+
+---
+- name: Generating Retro qualification report
+  hosts: localhost
+  #strategy: free
+  become_method: sudo
+  tasks: 
+    - add_host:
+        hostname: "{{ server_name }}"
+        groups: ec2_server 
+- hosts: ec2_server
+  gather_facts: true
+  tasks:    
+    - name: HW info
+      vars:
+        msg: |
+          CPU Core: {{ ansible_processor_cores }}
+      debug:
+        msg: "{{ msg.split('\n') }}"
+      tags: get_hw_info
+    - name: display hardware status
+      set_fact:
+        hardware_status: >
+                          {% if ansible_processor_cores >= 1 %} 
+                           "Processor: {{ ansible_processor_cores }} -> PASS "
+                          {% else %} 
+                            "Processor: {{ ansible_processor_cores }} -> FAIL "
+                          {% endif %}
+      tags: get_hw_info
+    - debug:
+        msg: "{{ hardware_status}}"
+      tags: get_hw_info
+
+    # Get RAM Information
+    - name: Get RAM Information
+      set_fact:
+        check_memory: "{{ (ansible_memtotal_mb/1024)|float| round }}"
+      tags: get_ram_info
+    - debug:
+        msg: >
+              {% if check_memory >= 1.0 %}
+                Memory (in GB) {{ (ansible_memtotal_mb/1024)|float| round }} -> PASS 
+                {% else %}
+                Memory (in GB) {{ (ansible_memtotal_mb/1024)|float| round }} -> FAIL
+              {% endif %} 
+      tags: get_ram_info  
+    
+
+     # Get Kernel Information
+    - name: Get Kernel Info
+      vars:
+        msg: |
+          Kernel Version: {{ ansible_kernel }}
+      debug:
+        msg: "{{ msg }}"
+      tags: get_kernel_version_info
+    - name: display kernel data
+      set_fact:
+        kernel_base_version: "{{ ansible_kernel.split('.')[0]}}"
+        kernel_sub_version: "{{ ansible_kernel.split('.')[1]}}"
+      tags: get_kernel_version_info
+    - debug:
+        msg: >
+             {% if kernel_base_version == 2 and kernel_sub_version >= 4 or kernel_base_version > 2 %} 
+                "Kernel Version : {{ kernel_base_version }}.{{ kernel_sub_version }} -> PASS "
+             {% else %}
+                "Kernel Version : {{ kernel_base_version }}.{{ kernel_sub_version }} -> FAIL "
+              {% endif %}
+      tags: get_kernel_version_info
+
+    # Get Disk Information
+    - name: Get disk info
+      set_fact:
+        disk_size: "{{ item.value.size }}"      
+      with_dict:
+        - "{{ ansible_facts['devices'] }}"  
+      ignore_errors: yes    
+      tags: get_disk_info
+    - name: getting disk size info
+      shell: df -hk / | tail -n 1  | awk -F ' ' '{print $2}'
+      register: check_disk_size
+      ignore_errors: yes
+      tags: get_disk_info
+    - debug:
+        msg: "{{ check_disk_size.stdout }}"
+      ignore_errors: yes
+      tags: get_disk_info
+    - name: Get disk info
+      set_fact:
+        disk_size_value:  "{{ check_disk_size.stdout }}"
+      ignore_errors: yes
+      tags: get_disk_info
+    - debug:
+        msg: >
+             {% set mb = ((disk_size_value|int)/1024) | round(1) %}
+             {% set gb = ((disk_size_value|int)/1024/1024) | round(1) %}
+              {% set tb =  ((disk_size_value|int)/1024/1024/1024) | round(1) %} 
+                {% if gb < 5 %}   
+                    Disk Size {{ gb }} GB -> FAIL
+                {% elif gb > 5 %}
+                   Disk Size {{ gb }} GB -> PASS 
+                {% elif tb >= 1 %}
+                   Disk Size {{ tb }} TB -> PASS                  
+                {% else %}
+                   Disk Size {{ mb }} MB -> FAIL
+                {% endif %}
+            
+      tags: get_disk_info
+    
+     # Get Server Platform Information
+    - name: Get Server Platform
+      shell: uname -a | awk '{print $NF " " $3}'
+      register: get_server_platform
+      async: 60
+      poll: 10
+      tags: server_platform_info         
+    
+    # stopping the ntpd daemon
+    - name: stopping the ntpd daemons
+      command: systemctl stop ntpd && systemctl disable ntpd
+      become: true
+      register: check_ntpd_status
+      ignore_errors: yes
+      tags: ntp_server_status
+    - name: display ntpd daemons
+      debug:
+        msg: "{{ check_ntpd_status }}"
+      ignore_errors: yes
+      tags: ntp_server_status
+
+    - name: Checking ntpd is not installed or not
+      debug:
+        msg: "ntpd is not installled on the server"
+      when: "'Failed' in check_ntpd_status.stderr"
+      tags: ntp_server_status
+    
+    # restarting the chronyd service
+    - name: restarting the chronyd service
+      command: systemctl restart chronyd
+      become: true
+      register: check_chronyd_status
+      ignore_errors: yes
+      tags: ntp_server_status
+    - name: display chronyd daemons
+      debug:
+        msg: "{{ check_chronyd_status }}"
+      ignore_errors: yes
+      tags: ntp_server_status
+
+    # wait time
+    - name: wait time for chronyd up and running
+      wait_for:
+        timeout: 180
+
+    - name: check chronyc sources synchronized
+      shell: chronyc sources | grep -i biogen
+      register: check_ntp_status
+      async: 60
+      poll: 10
+      ignore_errors: yes
+      tags: ntp_server_status
+    - name: display ntp server status
+      debug:
+        msg: "{{ check_ntp_status }}"
+      ignore_errors: yes
+      tags: ntp_server_status
+    # Get NTP server Information
+    - name: Get ntp server syncing
+      shell: timedatectl | grep -i synchronized
+      register: get_ntp_server
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: ntp_server_status
+    - name: display ntp server syncing
+      debug:
+        msg: "{{ get_ntp_server }}"
+      ignore_errors: yes
+      tags: ntp_server_status     
+    - debug:
+        msg: >
+              {% if 'yes' in get_ntp_server.stdout and check_ntp_status.stdout != ''  %}
+                NTP Synchronized: YES -> PASS           
+              {% else %} 
+                NTP Synchronized: NO -> FAIL 
+              {% endif %}
+      tags: ntp_server_status    
+    # check turbot
+    - name: check turbot connected
+      shell: cat /etc/ssh/sshd_config | egrep 'ec2-user|clckwrk'
+      become: true
+      register: check_turbot_connected
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: turbot
+    - name: set facts for turbot
+      set_fact:
+        turbot_status: "{{ check_turbot_connected }}"
+      ignore_errors: yes
+      tags: turbot
+    - name: check turbot success connection
+      debug:
+        msg: "server under turbot"
+      when: check_turbot_connected.rc == 0
+      ignore_errors: yes
+      tags: turbot
+    - name: check turbot failure connection
+      debug:
+        msg: "server not under turbot"
+      when: check_turbot_connected.rc != 0
+      ignore_errors: yes
+      tags: turbot    
+
+    # check adinfo user status
+    - name: check adinfo user status
+      command: adinfo
+      become: true
+      register: check_adinfo_user_status
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: centrify
+    - debug:
+        msg: >
+            {% if check_adinfo_user_status.rc == 0 and 'connected' in check_adinfo_user_status.stdout %}  
+                Authentication Mechanism: Centrify -> PASS 
+            {% elif check_turbot_connected.rc == 0 %}
+                Authentication Mechanism: Turbot -> PASS
+            {% elif check_adinfo_user_status.rc == 2 %}
+                adinfo is not installed in the server
+            {% else %}
+                Authentication Mechanism: Native Authentication -> PASS
+             {% endif %}
+      ignore_errors: yes
+      tags: centrify    
+
+    # Get Syslog Information
+    - name: Get Syslog Info
+      ansible.builtin.service_facts:
+      register: syslog_service
+      ignore_errors: true
+      async: 60
+      poll: 10
+      tags: get_syslog_info  
+   
+    - debug:
+        msg: >
+             {% if syslog_service.ansible_facts.services['rsyslog.service'].state == 'running' and syslog_service.ansible_facts.services['rsyslog.service'].status == 'enabled' %}
+                 Logging is enabled and running  -> PASS 
+             {% elif  syslog_service.ansible_facts.services['rsyslog.service'].state == 'stopped' and syslog_service.ansible_facts.services['rsyslog.service'].status == 'enabled' %}
+                Logging is enabled, but not running -> FAIL 
+             {% else %} 
+                Logging is  not enabled and not running -> FAIL
+             {% endif %}
+      ignore_errors: true
+      tags: get_syslog_info
+
+    # Check nessus/ tenable installation status
+    - name: check nessus instalation status
+      shell: rpm -qa | grep -i nessus
+      register: check_nessus_installation_status
+      become: true
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: nessus_installation_status
+    - name: set facts falcon conn status
+      set_fact:
+        nessus_install_status: "{{ check_nessus_installation_status }}"
+      ignore_errors: true
+      tags: get_falcon_info
+    - name: display nessus install success status
+      debug:
+        msg: "Nessus is installed" 
+      when: nessus_install_status.rc == 0
+      tags: nessus_installation_status
+    - name: display nessus install failure status
+      debug:
+        msg: "Nessus is not installed" 
+      when: nessus_install_status.rc != 0
+      tags: nessus_installation_status
+    
+    # Check nessus/ tenable installation status
+    - name: check falcon instalation status
+      shell: rpm -qa | grep -i falcon 
+      register: check_falcon_installation_status
+      become: true
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: falcon_installation_status
+    - name: set facts falcon install status
+      set_fact:
+        falcon_install_status: "{{ check_falcon_installation_status }}"
+      ignore_errors: true
+      tags: falcon_installation_status
+    - name: display falcon install success status
+      debug:
+        msg: "Falcon is installed" 
+      when: falcon_install_status.rc == 0
+      tags: falcon_installation_status
+    - name: display falcon install failure status
+      debug:
+        msg: "Falcon is not installed" 
+      when: falcon_install_status.rc != 0
+      tags: falcon_installation_status
+
+    # Get Crowdstrike Information
+    - name: Get Crowdstrike Info
+      ansible.builtin.service_facts:
+      register: falcon_service
+      ignore_errors: true
+      async: 60
+      poll: 10
+      tags: get_falcon_info    
+    - name: check display Falcon connection
+      shell: sudo netstat -tapn | grep falcon | grep -i ESTABLISHED      
+      register: check_display_falcon_connection
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: get_falcon_info 
+    - name: set facts falcon conn status
+      set_fact:
+        falcon_conn_status: "{{ check_display_falcon_connection }}"
+      ignore_errors: true
+      tags: get_falcon_info 
+    - debug: 
+        msg: >
+             {% if falcon_conn_status.rc == 0 %} 
+                Falcon is connected -> PASS
+             {% else %}
+                Falcon is not connected -> FAIL
+              {% endif %}
+      ignore_errors: yes
+      tags: get_falcon_info
+
+    - debug:
+        msg: >
+             {% if falcon_install_status.rc != 0 %}     
+                Falcon is not installed -> FAIL
+             {% elif  falcon_service.ansible_facts.services['falcon-sensor.service'].state == 'running' and falcon_service.ansible_facts.services['falcon-sensor.service'].status == 'enabled' and falcon_conn_status.rc == 0 %} 
+                Falcon is enabled and running -> PASS 
+             {% elif  falcon_service.ansible_facts.services['falcon-sensor.service'].state == 'stopped' and falcon_service.ansible_facts.services['falcon-sensor.service'].status == 'enabled' or falcon_service.ansible_facts.services['falcon-sensor.service'].status == 'unknown' %} 
+                Falcon is  enabled, but not  running -> FAIL                     
+             {% else %} 
+                Falcon is not installed and enabled -> FAIL
+             {% endif %}
+      ignore_errors: true
+      tags: get_falcon_info
+
+     # Get Nessus Information
+    - name: Get Crowdstrike Info
+      ansible.builtin.service_facts:
+      register: nessusagent_service 
+      async: 60
+      poll: 10     
+      ignore_errors: yes
+      tags: get_nessusagent_info
+    # - debug:
+    #     msg: "nessus not installed"
+    #   when: item.ansible_facts is not defined
+    #   with_items:
+    #     - falcon-sensor.service
+    #     - nessus_agent.service
+    #   tags: get_nessusagent_info
+     # check the nessus is connected
+    - name: check nessus connectivity state
+      shell: cat /opt/nessus_agent/var/nessus/logs/backend.log | grep -i successful
+      register: check_nessus_connectivity_state
+      become: true
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: get_nessusagent_info 
+    - name: set facts nessus conn status
+      set_fact:
+        nessus_conn_status: "{{ check_nessus_connectivity_state }}"
+      ignore_errors: true
+      tags: get_nessusagent_info 
+    - name: display nessus connectivity success state
+      debug:
+        msg: "nessus connected successfully" 
+      when: nessus_conn_status.rc == 0
+      ignore_errors: yes
+      tags: get_nessusagent_info
+    - name: display nessus connectivity failure state
+      debug:
+        msg: "nessus connection failed" 
+      when: nessus_conn_status.rc != 0
+      ignore_errors: yes
+      tags: get_nessusagent_info
+    - debug:
+        msg: >
+           
+             {% if  nessusagent_service.ansible_facts.services['nessusagent.service'].state == 'stopped' and nessusagent_service.ansible_facts.services['nessusagent.service'].status == 'unknown' %} 
+                Nessus Agent is not enabled and not  running -> FAIL 
+             {% elif  nessusagent_service.ansible_facts.services['nessusagent.service'].state == 'running'  and nessus_conn_status.rc == 0  %} 
+                Nessus Agent is  running and connected -> PASS
+             {% else %} 
+                Nessus Agent is not enabled and installed -> FAIL           
+             {% endif %}
+      ignore_errors: yes
+      tags: get_nessusagent_info
+    
+    - name: creating linux_qualify directory in tmp folder
+      file:
+        path: /tmp/linux_qualify/{{ sctask_number }}
+        state: directory
+      register: trial
+      become: true
+      ignore_errors: yes
+      delegate_to: localhost
+    # Generating overall report
+    - name: Generate the report
+      template:
+        src: templates/index.html.j2
+        dest: /tmp/linux_qualify/{{ sctask_number }}/{{ ansible_hostname }}_report.html
+      register: resrep
+      become: true
+      ignore_errors: yes
+      delegate_to: localhost
+    - name: chceking the report creation
+      debug:
+        msg: "{{ resrep}}"  
+
+    - name: read the Output File
+      set_fact:
+        output: "{{lookup('file', '/tmp/linux_qualify/{{ sctask_number }}/{{ ansible_hostname }}_report.html') }}"  
+      become: true
+      ignore_errors: yes
+      delegate_to: localhost
+      when: "resrep.failed == false"
+        #      when: "'false' in resrep "  
+    - name: Generate the report as fail
+      template:
+        src: templates/index.html.j2
+        dest: /tmp/linux_qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_fail.html
+      when: (output | regex_findall('FAIL') | length) >= 1
+      register: report_content_success_status
+      become: true
+      ignore_errors: yes
+      delegate_to: localhost
+      when: "resrep.failed == false"
+    - name: Generate the pass report
+      template:
+        src: templates/index.html.j2
+        dest: /tmp/linux_qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_pass.html
+      when: (output | regex_findall('FAIL') | length) == 0
+      register: report_content_fail_status
+      become: true
+      ignore_errors: yes
+      delegate_to: localhost
+      when: "resrep.failed == false"
+    
+    - name: creating {{ sctask_number }} directory in temp folder
+      file:
+        path: "/tmp/linux_qualify/{{ sctask_number }}"
+        state: directory
+      become: true
+      delegate_to: localhost
+      when: "resrep.failed == false"
+      tags: file_copy
+    - name: creating {{ sctask_number }} directory in Linux Prod Share  folder
+      file:
+        path: "/Linux_Prod/linux_qualify/{{ sctask_number }}"
+        state: directory
+      become: true
+      when: "resrep.failed == false"
+      delegate_to: localhost
+      tags: file_copy
+    - name: Generate report to pdf format
+      shell: /usr/local/bin/wkhtmltopdf /tmp/linux_qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_pass.html /Linux_Prod/linux_qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_pass.pdf
+      when:   (output | regex_findall('FAIL') | length) == 0
+      become: true
+      delegate_to: localhost
+      ignore_errors: yes
+      when: "resrep.failed == false"
+    - name: Generate report to pdf format
+      shell: /usr/local/bin/wkhtmltopdf /tmp/linux_qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_fail.html /Linux_Prod/linux_qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_fail.pdf
+      when: (output | regex_findall('FAIL') | length) >= 1
+      become: true
+      ignore_errors: yes
+      delegate_to: localhost
+      when: "resrep.failed == false"
+    - name: Listing the pdf files
+      shell: "ls /Linux_Prod/linux_qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_*.pdf"
+      register: list_pdf_files
+      when: "resrep.failed == false"
+      become: true
+      delegate_to: localhost
+    - debug:
+        msg: "{{ list_pdf_files.stdout }}" 
+      when: "resrep.failed == false"
+
+    - name: Error Report
+      debug: 
+        msg: "PDF couldn't be Generated"
+      when: "resrep.failed == true"
+
+
+
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+
+ec2prod/main1.yml
+
+---
+- name: Generating Retro qualification report
+  hosts: localhost
+  #strategy: free
+  become_method: sudo
+  tasks: 
+    - add_host:
+        hostname: "{{ server_name }}"
+        groups: ec2_server 
+- hosts: ec2_server
+  gather_facts: true
+  tasks:    
+    - name: HW info
+      vars:
+        msg: |
+          CPU Core: {{ ansible_processor_cores }}
+      debug:
+        msg: "{{ msg.split('\n') }}"
+      tags: get_hw_info
+    - name: display hardware status
+      set_fact:
+        hardware_status: >
+                          {% if ansible_processor_cores >= 1 %} 
+                           "Processor: {{ ansible_processor_cores }} -> PASS "
+                          {% else %} 
+                            "Processor: {{ ansible_processor_cores }} -> FAIL "
+                          {% endif %}
+      tags: get_hw_info
+    - debug:
+        msg: "{{ hardware_status}}"
+      tags: get_hw_info
+
+    # Get RAM Information
+    - name: Get RAM Information
+      set_fact:
+        check_memory: "{{ (ansible_memtotal_mb/1024)|float| round }}"
+      tags: get_ram_info
+    - debug:
+        msg: >
+              {% if check_memory >= 1.0 %}
+                Memory (in GB) {{ (ansible_memtotal_mb/1024)|float| round }} -> PASS 
+                {% else %}
+                Memory (in GB) {{ (ansible_memtotal_mb/1024)|float| round }} -> FAIL
+              {% endif %} 
+      tags: get_ram_info  
+    
+
+     # Get Kernel Information
+    - name: Get Kernel Info
+      vars:
+        msg: |
+          Kernel Version: {{ ansible_kernel }}
+      debug:
+        msg: "{{ msg }}"
+      tags: get_kernel_version_info
+    - name: display kernel data
+      set_fact:
+        kernel_base_version: "{{ ansible_kernel.split('.')[0]}}"
+        kernel_sub_version: "{{ ansible_kernel.split('.')[1]}}"
+      tags: get_kernel_version_info
+    - debug:
+        msg: >
+             {% if kernel_base_version == 2 and kernel_sub_version >= 4 or kernel_base_version > 2 %} 
+                "Kernel Version : {{ kernel_base_version }}.{{ kernel_sub_version }} -> PASS "
+             {% else %}
+                "Kernel Version : {{ kernel_base_version }}.{{ kernel_sub_version }} -> FAIL "
+              {% endif %}
+      tags: get_kernel_version_info
+
+    # Get Disk Information
+    - name: Get disk info
+      set_fact:
+        disk_size: "{{ item.value.size }}"      
+      with_dict:
+        - "{{ ansible_facts['devices'] }}"  
+      ignore_errors: yes    
+      tags: get_disk_info
+    - name: getting disk size info
+      shell: df -hk / | tail -n 1  | awk -F ' ' '{print $2}'
+      register: check_disk_size
+      ignore_errors: yes
+      tags: get_disk_info
+    - debug:
+        msg: "{{ check_disk_size.stdout }}"
+      ignore_errors: yes
+      tags: get_disk_info
+    - name: Get disk info
+      set_fact:
+        disk_size_value:  "{{ check_disk_size.stdout }}"
+      ignore_errors: yes
+      tags: get_disk_info
+    - debug:
+        msg: >
+             {% set mb = ((disk_size_value|int)/1024) | round(1) %}
+             {% set gb = ((disk_size_value|int)/1024/1024) | round(1) %}
+              {% set tb =  ((disk_size_value|int)/1024/1024/1024) | round(1) %} 
+                {% if gb < 10 %}   
+                    Disk Size {{ gb }} GB -> FAIL
+                {% elif gb > 10 %}
+                   Disk Size {{ gb }} GB -> PASS 
+                {% elif tb >= 1 %}
+                   Disk Size {{ tb }} TB -> PASS                  
+                {% else %}
+                   Disk Size {{ mb }} MB -> FAIL
+                {% endif %}
+            
+      tags: get_disk_info
+    
+     # Get Server Platform Information
+    - name: Get Server Platform
+      shell: uname -a | awk '{print $NF " " $3}'
+      register: get_server_platform
+      async: 60
+      poll: 10
+      tags: server_platform_info         
+    
+    # Get NTP server Information
+    - name: Get ntp server syncing
+      shell: timedatectl | grep 'NTP synchronized:'
+      register: get_ntp_server
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: ntp_server_status
+    - name: display ntp server syncing
+      debug:
+        msg: "{{ get_ntp_server }}"
+      ignore_errors: yes
+      tags: ntp_server_status
+    - name: stopping the ntpd daemons
+      command: systemctl stop ntpd && systemctl disable ntpd
+      become: true
+      register: check_ntpd_status
+      ignore_errors: yes
+      tags: ntp_server_status
+    - name: display ntpd daemons
+      debug:
+        msg: "{{ check_ntpd_status }}"
+      ignore_errors: yes
+      tags: ntp_server_status
+    - name: restarting the chronyd service
+      command: systemctl restart chronyd
+      become: true
+      register: check_chronyd_status
+      ignore_errors: yes
+      tags: ntp_server_status
+    - name: display chronyd daemons
+      debug:
+        msg: "{{ check_chronyd_status }}"
+      ignore_errors: yes
+      tags: ntp_server_status
+    - name: check ntp synchronized
+      shell: chronyc sources | grep -i biogen
+      register: check_ntp_status
+      async: 60
+      poll: 10
+      ignore_errors: yes
+      tags: ntp_server_status
+    - name: display ntp server status
+      debug:
+        msg: "{{ check_ntp_status }}"
+      ignore_errors: yes
+      tags: ntp_server_status 
+    - debug:
+        msg: >
+              {% if 'yes' in get_ntp_server.stdout and check_ntp_status.stdout != ''  %}
+                NTP Synchronized: YES -> PASS           
+              {% else %} 
+                NTP Synchronized: NO -> FAIL 
+              {% endif %}
+      tags: ntp_server_status
+    
+    # check turbot
+    - name: check turbot connected
+      shell: cat /etc/ssh/sshd_config | egrep 'ec2-user|clckwrk'
+      become: true
+      register: check_turbot_connected
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: turbot
+    - name: set facts for turbot
+      set_fact:
+        turbot_status: "{{ check_turbot_connected }}"
+      ignore_errors: yes
+      tags: turbot
+    - name: check turbot success connection
+      debug:
+        msg: "server under turbot"
+      when: check_turbot_connected.rc == 0
+      ignore_errors: yes
+      tags: turbot
+    - name: check turbot failure connection
+      debug:
+        msg: "server not under turbot"
+      when: check_turbot_connected.rc != 0
+      ignore_errors: yes
+      tags: turbot    
+
+    # check adinfo user status
+    - name: check adinfo user status
+      command: adinfo
+      become: true
+      register: check_adinfo_user_status
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: centrify
+    - debug:
+        msg: >
+            {% if check_adinfo_user_status.rc == 0 and 'connected' in check_adinfo_user_status.stdout %}  
+                Authentication Mechanism: Centrify -> PASS 
+            {% elif check_turbot_connected.rc == 0 %}
+                Authentication Mechanism: Turbot -> PASS
+            {% else %}
+                Authentication Mechanism: Native Authentication -> PASS
+             {% endif %}
+      ignore_errors: yes
+      tags: centrify    
+
+    # Get Syslog Information
+    - name: Get Syslog Info
+      ansible.builtin.service_facts:
+      register: syslog_service
+      ignore_errors: true
+      async: 60
+      poll: 10
+      tags: get_syslog_info  
+   
+    - debug:
+        msg: >
+             {% if syslog_service.ansible_facts.services['rsyslog.service'].state == 'running' and syslog_service.ansible_facts.services['rsyslog.service'].status == 'enabled' %}
+                 Logging is enabled and running  -> PASS 
+             {% elif  syslog_service.ansible_facts.services['rsyslog.service'].state == 'stopped' and syslog_service.ansible_facts.services['rsyslog.service'].status == 'enabled' %}
+                Logging is enabled, but not running -> FAIL 
+             {% else %} 
+                Logging is  not enabled and not running -> FAIL
+             {% endif %}
+      ignore_errors: true
+      tags: get_syslog_info
+
+    # Check nessus/ tenable installation status
+    - name: check nessus instalation status
+      shell: rpm -qa | grep -i nessus && ls /opt | grep -i nessus
+      register: check_nessus_installation_status
+      become: true
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: nessus_installation_status
+    - name: set facts falcon conn status
+      set_fact:
+        nessus_install_status: "{{ check_nessus_installation_status }}"
+      ignore_errors: true
+      tags: get_falcon_info
+    - name: display nessus install success status
+      debug:
+        msg: "Nessus is installed" 
+      when: nessus_install_status.rc == 0
+      tags: nessus_installation_status
+    - name: display nessus install failure status
+      debug:
+        msg: "Nessus is not installed" 
+      when: nessus_install_status.rc != 0
+      tags: nessus_installation_status
+    
+    # Check nessus/ tenable installation status
+    - name: check falcon instalation status
+      shell: rpm -qa | grep -i falcon && ls /opt | grep -i falcon-sensor
+      register: check_falcon_installation_status
+      become: true
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: falcon_installation_status
+    - name: set facts falcon install status
+      set_fact:
+        falcon_install_status: "{{ check_falcon_installation_status }}"
+      ignore_errors: true
+      tags: falcon_installation_status
+    - name: display falcon install success status
+      debug:
+        msg: "Falcon is installed" 
+      when: falcon_install_status.rc == 0
+      tags: falcon_installation_status
+    - name: display falcon install failure status
+      debug:
+        msg: "Falcon is not installed" 
+      when: falcon_install_status.rc != 0
+      tags: falcon_installation_status
+
+    # Get Crowdstrike Information
+    - name: Get Crowdstrike Info
+      ansible.builtin.service_facts:
+      register: falcon_service
+      ignore_errors: true
+      async: 60
+      poll: 10
+      tags: get_falcon_info    
+    - name: check display Falcon connection
+      shell: sudo netstat -tapn | grep falcon | grep -i ESTABLISHED      
+      register: check_display_falcon_connection
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: get_falcon_info 
+    - name: set facts falcon conn status
+      set_fact:
+        falcon_conn_status: "{{ check_display_falcon_connection }}"
+      ignore_errors: true
+      tags: get_falcon_info 
+    - debug: 
+        msg: >
+             {% if falcon_conn_status.rc == 0 %} 
+                Falcon is connected -> PASS
+             {% else %}
+                Falcon is not connected -> FAIL
+              {% endif %}
+      ignore_errors: yes
+      tags: get_falcon_info
+
+    - debug:
+        msg: >
+             {% if falcon_install_status.rc != 0 %}     
+                Falcon is not installed -> FAIL
+             {% elif  falcon_service.ansible_facts.services['falcon-sensor.service'].state == 'running' and falcon_service.ansible_facts.services['falcon-sensor.service'].status == 'enabled' and falcon_conn_status.rc == 0 %} 
+                Falcon is enabled and running -> PASS 
+             {% elif  falcon_service.ansible_facts.services['falcon-sensor.service'].state == 'stopped' and falcon_service.ansible_facts.services['falcon-sensor.service'].status == 'enabled' or falcon_service.ansible_facts.services['falcon-sensor.service'].status == 'unknown' %} 
+                Falcon is  enabled, but not  running -> FAIL                     
+             {% else %} 
+                Falcon is not installed and enabled -> FAIL
+             {% endif %}
+      ignore_errors: true
+      tags: get_falcon_info
+
+    # Get Nessus Information
+    - name: Get Crowdstrike Info
+      ansible.builtin.service_facts:
+      register: nessusagent_service 
+      async: 60
+      poll: 10     
+      ignore_errors: yes
+      tags: get_nessusagent_info   
+    
+    # check the nessus is connected
+    - name: check nessus connectivity state
+      shell: tail /opt/nessus_agent/var/nessus/logs/backend.log | grep -i successful
+      register: check_nessus_connectivity_state
+      become: true
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: get_nessusagent_info 
+    - name: set facts nessus conn status
+      set_fact:
+        nessus_conn_status: "{{ check_nessus_connectivity_state }}"
+      ignore_errors: true
+      tags: get_nessusagent_info 
+    - name: display nessus connectivity success state
+      debug:
+        msg: "nessus connected successfully" 
+      when: nessus_conn_status.rc == 0
+      ignore_errors: yes
+      tags: get_nessusagent_info
+    - name: display nessus connectivity failure state
+      debug:
+        msg: "nessus connection failed" 
+      when: nessus_conn_status.rc != 0
+      ignore_errors: yes
+      tags: get_nessusagent_info
+    - debug:
+        msg: >
+           
+             {% if  nessusagent_service.ansible_facts.services['nessusagent.service'].state == 'stopped' and nessusagent_service.ansible_facts.services['nessusagent.service'].status == 'unknown' %} 
+                Nessus Agent is not enabled and not  running -> FAIL 
+             {% elif  nessusagent_service.ansible_facts.services['nessusagent.service'].state == 'running'  and nessus_conn_status.rc == 0  %} 
+                Nessus Agent is  running and connected -> PASS
+             {% else %} 
+                Nessus Agent is not enabled and installed -> FAIL           
+             {% endif %}
+      ignore_errors: yes
+      tags: get_nessusagent_info
+    
+    - name: creating linux_qualify directory in tmp folder
+      file:
+        path: /tmp/linux_qualify/{{ sctask_number }}
+        state: directory
+      become: true
+      ignore_errors: yes
+      delegate_to: localhost
+    # Generating overall report
+    - name: Generate the report
+      template:
+        src: templates/index.html.j2
+        dest: /tmp/linux_qualify/{{ sctask_number }}/{{ ansible_hostname }}_report.html
+      become: true
+      ignore_errors: yes
+      delegate_to: localhost
+    - name: read the Output File
+      set_fact:
+        output: "{{lookup('file', '/tmp/linux_qualify/{{ sctask_number }}/{{ ansible_hostname }}_report.html') }}"  
+      become: true
+      ignore_errors: yes
+      delegate_to: localhost    
+    - name: Generate the report as fail
+      template:
+        src: templates/index.html.j2
+        dest: /tmp/linux_qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_fail.html
+      when: (output | regex_findall('FAIL') | length) >= 1
+      register: report_content_success_status
+      become: true
+      ignore_errors: yes
+      delegate_to: localhost
+    - name: Generate the pass report
+      template:
+        src: templates/index.html.j2
+        dest: /tmp/linux_qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_pass.html
+      when: (output | regex_findall('FAIL') | length) == 0
+      register: report_content_fail_status
+      become: true
+      ignore_errors: yes
+      delegate_to: localhost
+    
+    - name: creating {{ sctask_number }} directory in Linux Qualify  folder
+      file:
+        path: "/Linux_Val/qualify/{{ sctask_number }}"
+        state: directory
+      become: true
+      delegate_to: localhost
+      tags: file_copy
+    - name: Generate report to pdf format
+      shell: /usr/local/bin/wkhtmltopdf /tmp/linux_qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_pass.html /Linux_Val/qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_pass.pdf
+      when: (output | regex_findall('FAIL') | length) == 0
+      become: true
+      delegate_to: localhost
+    - name: Generate report to pdf format
+      shell: /usr/local/bin/wkhtmltopdf /tmp/linux_qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_fail.html /Linux_Val/qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_fail.pdf
+      when: (output | regex_findall('FAIL') | length) >= 1
+      become: true
+      ignore_errors: yes
+      delegate_to: localhost
+    - name: Listing the pdf files
+      shell: "ls /Linux_Val/qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_*.pdf"
+      register: list_pdf_files
+      become: true
+      delegate_to: localhost
+    - debug:
+        msg: "{{ list_pdf_files.stdout }}" 
+
+
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+
+ec2prod/test.yml
+
+---
+- name: Generating Retro qualification report
+  hosts: localhost
+  #strategy: free
+  become_method: sudo
+  tasks:
+    - add_host:
+        hostname: "{{ server_name }}"
+        groups: ec2_server
+- hosts: ec2_server
+  gather_facts: true
+  tasks:
+    - name: HW info
+      vars:
+        msg: |
+          CPU Core: {{ ansible_processor_cores }}
+      debug:
+        msg: "{{ msg.split('\n') }}"
+      tags: get_hw_info
+    - name: display hardware status
+      set_fact:
+        hardware_status: >
+                          {% if ansible_processor_cores >= 1 %}
+                           "Processor: {{ ansible_processor_cores }} -> PASS "
+                          {% else %}
+                            "Processor: {{ ansible_processor_cores }} -> FAIL "
+                          {% endif %}
+      tags: get_hw_info
+    - debug:
+        msg: "{{ hardware_status}}"
+      tags: get_hw_info
+
+    # Get RAM Information
+    - name: Get RAM Information
+      set_fact:
+        check_memory: "{{ (ansible_memtotal_mb/1024)|float| round }}"
+      tags: get_ram_info
+    - debug:
+        msg: >
+              {% if check_memory >= 1.0 %}
+                Memory (in GB) {{ (ansible_memtotal_mb/1024)|float| round }} -> PASS
+                {% else %}
+                Memory (in GB) {{ (ansible_memtotal_mb/1024)|float| round }} -> FAIL
+              {% endif %}
+      tags: get_ram_info
+
+     # Get Kernel Information
+    - name: Get Kernel Info
+      vars:
+        msg: |
+          Kernel Version: {{ ansible_kernel }}
+      debug:
+        msg: "{{ msg }}"
+      tags: get_kernel_version_info
+    - name: display kernel data
+      set_fact:
+        kernel_base_version: "{{ ansible_kernel.split('.')[0]}}"
+        kernel_sub_version: "{{ ansible_kernel.split('.')[1]}}"
+      tags: get_kernel_version_info
+    - debug:
+        msg: >
+             {% if kernel_base_version == 2 and kernel_sub_version >= 4 or kernel_base_version > 2 %}
+                "Kernel Version : {{ kernel_base_version }}.{{ kernel_sub_version }} -> PASS "
+             {% else %}
+                "Kernel Version : {{ kernel_base_version }}.{{ kernel_sub_version }} -> FAIL "
+              {% endif %}
+      tags: get_kernel_version_info
+
+    # Get Disk Information
+    - name: Get disk info
+      set_fact:
+        disk_size: "{{ item.value.size }}"
+      with_dict:
+        - "{{ ansible_facts['devices'] }}"
+      ignore_errors: yes
+      tags: get_disk_info
+    - name: getting disk size info
+      shell: df -hk / | tail -n 1  | awk -F ' ' '{print $2}'
+      register: check_disk_size
+      ignore_errors: yes
+      tags: get_disk_info
+    - debug:
+        msg: "{{ check_disk_size.stdout }}"
+      ignore_errors: yes
+      tags: get_disk_info
+    - name: Get disk info
+      set_fact:
+        disk_size_value:  "{{ check_disk_size.stdout }}"
+      ignore_errors: yes
+      tags: get_disk_info
+    - debug:
+        msg: >
+             {% set mb = ((disk_size_value|int)/1024) | round(1) %}
+             {% set gb = ((disk_size_value|int)/1024/1024) | round(1) %}
+              {% set tb =  ((disk_size_value|int)/1024/1024/1024) | round(1) %}
+                {% if gb < 10 %}
+                    Disk Size {{ gb }} GB -> FAIL
+                {% elif gb > 10 %}
+                   Disk Size {{ gb }} GB -> PASS
+                {% elif tb >= 1 %}
+                   Disk Size {{ tb }} TB -> PASS
+                {% else %}
+                   Disk Size {{ mb }} MB -> FAIL
+                {% endif %}
+
+      tags: get_disk_info
+
+     # Get Server Platform Information
+    - name: Get Server Platform
+      shell: uname -a | awk '{print $NF " " $3}'
+      register: get_server_platform
+      async: 60
+      poll: 10
+      tags: server_platform_info
+
+    # stopping the ntpd daemon
+    - name: stopping the ntpd daemons
+      command: systemctl stop ntpd && systemctl disable ntpd
+      become: true
+      register: check_ntpd_status
+      ignore_errors: yes
+      tags: ntp_server_status
+    - name: display ntpd daemons
+      debug:
+        msg: "{{ check_ntpd_status }}"
+      ignore_errors: yes
+      tags: ntp_server_status
+
+
+    # restarting the chronyd service
+    - name: restarting the chronyd service
+      command: systemctl restart chronyd
+      become: true
+      register: check_chronyd_status
+      ignore_errors: yes
+      tags: ntp_server_status
+    - name: display chronyd daemons
+      debug:
+        msg: "{{ check_chronyd_status }}"
+      ignore_errors: yes
+      tags: ntp_server_status
+
+    # wait time
+    - name: wait time for chronyd up and running
+      wait_for:
+        timeout: 180
+
+    - name: check chronyc sources synchronized
+      shell: chronyc sources | grep -i biogen
+      register: check_ntp_status
+      async: 60
+      poll: 10
+      ignore_errors: yes
+      tags: ntp_server_status
+    - name: display ntp server status
+      debug:
+        msg: "{{ check_ntp_status }}"
+      ignore_errors: yes
+      tags: ntp_server_status
+    # Get NTP server Information
+    - name: Get ntp server syncing
+      shell: timedatectl | grep -i synchronized
+      register: get_ntp_server
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: ntp_server_status
+
+    - name: display ntp server syncing
+      debug:
+        msg: "{{ get_ntp_server }}"
+      ignore_errors: yes
+      tags: ntp_server_status
+    - debug:
+        msg: >
+              {% if 'yes' in get_ntp_server.stdout and check_ntp_status.stdout != ''  %}
+                NTP Synchronized: YES -> PASS
+              {% else %}
+                NTP Synchronized: NO -> FAIL
+              {% endif %}
+      tags: ntp_server_status
+
+    # check turbot
+    - name: check turbot connected
+      shell: cat /etc/ssh/sshd_config | egrep 'ec2-user|clckwrk'
+      become: true
+      register: check_turbot_connected
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: turbot
+    - name: set facts for turbot
+      set_fact:
+        turbot_status: "{{ check_turbot_connected }}"
+      ignore_errors: yes
+      tags: turbot
+    - name: check turbot success connection
+      debug:
+        msg: "server under turbot"
+      when: check_turbot_connected.rc == 0
+      ignore_errors: yes
+      tags: turbot
+    - name: check turbot failure connection
+      debug:
+        msg: "server not under turbot"
+      when: check_turbot_connected.rc != 0
+      ignore_errors: yes
+      tags: turbot
+
+
+    # check adinfo user status
+    - name: check adinfo user status
+      command: adinfo
+      become: true
+      register: check_adinfo_user_status
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: centrify
+    - debug:
+        msg: >
+            {% if check_adinfo_user_status.rc == 0 and 'connected' in check_adinfo_user_status.stdout %}
+                Authentication Mechanism: Centrify -> PASS
+            {% elif check_turbot_connected.rc == 0 %}
+                Authentication Mechanism: Turbot -> PASS
+            {% elif check_adinfo_user_status.rc == 2 %}
+                adinfo is not installed in the server
+            {% else %}
+                Authentication Mechanism: Native Authentication -> PASS
+             {% endif %}
+      ignore_errors: yes
+      tags: centrify
+
+    - debug:
+        msg: "{{ check_adinfo_user_status }}"
+
+
+
+    # Get Syslog Information
+    - name: Get Syslog Info
+      ansible.builtin.service_facts:
+      register: syslog_service
+      ignore_errors: true
+      async: 60
+      poll: 10
+      tags: get_syslog_info
+
+    - debug:
+        msg: >
+             {% if syslog_service.ansible_facts.services['rsyslog.service'].state == 'running' and syslog_service.ansible_facts.services['rsyslog.service'].status == 'enabled' %}
+                 Logging is enabled and running  -> PASS
+             {% elif  syslog_service.ansible_facts.services['rsyslog.service'].state == 'stopped' and syslog_service.ansible_facts.services['rsyslog.service'].status == 'enabled' %}
+                Logging is enabled, but not running -> FAIL
+             {% else %}
+                Logging is  not enabled and not running -> FAIL
+             {% endif %}
+      ignore_errors: true
+      tags: get_syslog_info
+
+
+    # Check nessus/ tenable installation status
+    - name: check nessus instalation status
+      shell: rpm -qa | grep -i nessus
+      register: check_nessus_installation_status
+      become: true
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: nessus_installation_status
+    - name: set facts falcon conn status
+      set_fact:
+        nessus_install_status: "{{ check_nessus_installation_status }}"
+      ignore_errors: true
+      tags: get_falcon_info
+    - name: display nessus install success status
+      debug:
+        msg: "Nessus is installed"
+      when: nessus_install_status.rc == 0
+      tags: nessus_installation_status
+    - name: display nessus install failure status
+      debug:
+        msg: "Nessus is not installed"
+      when: nessus_install_status.rc != 0
+      tags: nessus_installation_status
+
+
+    # Check nessus/ tenable installation status
+    - name: check falcon instalation status
+      shell: rpm -qa | grep -i falcon
+      register: check_falcon_installation_status
+      become: true
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: falcon_installation_status
+    - name: set facts falcon install status
+      set_fact:
+        falcon_install_status: "{{ check_falcon_installation_status }}"
+      ignore_errors: true
+      tags: falcon_installation_status
+    - name: display falcon install success status
+      debug:
+        msg: "Falcon is installed"
+      when: falcon_install_status.rc == 0
+      tags: falcon_installation_status
+    - name: display falcon install failure status
+      debug:
+        msg: "Falcon is not installed"
+      when: falcon_install_status.rc != 0
+      tags: falcon_installation_status
+
+    # Get Crowdstrike Information
+    - name: Get Crowdstrike Info
+      ansible.builtin.service_facts:
+      register: falcon_service
+      ignore_errors: true
+      async: 60
+      poll: 10
+      tags: get_falcon_info
+    - name: check display Falcon connection
+      shell: sudo netstat -tapn | grep falcon | grep -i ESTABLISHED
+      register: check_display_falcon_connection
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: get_falcon_info
+    - name: set facts falcon conn status
+      set_fact:
+        falcon_conn_status: "{{ check_display_falcon_connection }}"
+      ignore_errors: true
+      tags: get_falcon_info
+
+    - debug:
+        msg: >
+             {% if falcon_install_status.rc != 0 %}
+                Falcon is not installed -> FAIL
+             {% elif  falcon_service.ansible_facts.services['falcon-sensor.service'].state == 'running' and falcon_service.ansible_facts.services['falcon-sensor.service'].status == 'enabled' and falcon_conn_status.rc == 0 %}
+                Falcon is enabled and running -> PASS
+             {% elif  falcon_service.ansible_facts.services['falcon-sensor.service'].state == 'stopped' and falcon_service.ansible_facts.services['falcon-sensor.service'].status == 'enabled' or falcon_service.ansible_facts.services['falcon-sensor.service'].status == 'unknown' %}
+                Falcon is  enabled, but not  running -> FAIL
+             {% else %}
+                Falcon is not installed and enabled -> FAIL
+             {% endif %}
+      ignore_errors: true
+      tags: get_falcon_info
+
+
+     # Get Nessus Information
+    - name: Get Crowdstrike Info
+      ansible.builtin.service_facts:
+      register: nessusagent_service
+      async: 60
+      poll: 10
+      ignore_errors: yes
+      tags: get_nessusagent_info
+    # - debug:
+    #     msg: "nessus not installed"
+    #   when: item.ansible_facts is not defined
+    #   with_items:
+    #     - falcon-sensor.service
+    #     - nessus_agent.service
+    #   tags: get_nessusagent_info
+     # check the nessus is connected
+    - name: check nessus connectivity state
+      shell: cat /opt/nessus_agent/var/nessus/logs/backend.log | grep -i successful
+      register: check_nessus_connectivity_state
+      become: true
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: get_nessusagent_info
+    - name: set facts nessus conn status
+      set_fact:
+        nessus_conn_status: "{{ check_nessus_connectivity_state }}"
+      ignore_errors: true
+      tags: get_nessusagent_info
+    - name: display nessus connectivity success state
+      debug:
+        msg: "nessus connected successfully"
+      when: nessus_conn_status.rc == 0
+      ignore_errors: yes
+      tags: get_nessusagent_info
+    - name: display nessus connectivity failure state
+      debug:
+        msg: "nessus connection failed"
+      when: nessus_conn_status.rc != 0
+      ignore_errors: yes
+      tags: get_nessusagent_info
+
+    - debug:
+        msg: >
+
+             {% if  nessusagent_service.ansible_facts.services['nessusagent.service'].state == 'stopped' and nessusagent_service.ansible_facts.services['nessusagent.service'].status == 'unknown' %}
+                Nessus Agent is not enabled and not  running -> FAIL
+             {% elif  nessusagent_service.ansible_facts.services['nessusagent.service'].state == 'running'  and nessus_conn_status.rc == 0  %}
+                Nessus Agent is  running and connected -> PASS
+             {% else %}
+                Nessus Agent is not enabled and installed -> FAIL
+             {% endif %}
+      ignore_errors: yes
+      tags: get_nessusagent_info
+
+
+    - name: creating linux_qualify directory in tmp folder
+      file:
+        path: /tmp/linux_qualify/{{ sctask_number }}
+        state: directory
+      register: trial
+      become: true
+      ignore_errors: yes
+      delegate_to: localhost
+    # Generating overall report
+    - name: Generate the report
+      template:
+        src: templates/index.html.j2
+        dest: /tmp/linux_qualify/{{ sctask_number }}/{{ ansible_hostname }}_report.html
+      register: resrep
+      become: true
+      ignore_errors: yes
+      delegate_to: localhost
+    - name: chceking the report creation
+      debug:
+        msg: "{{ resrep}}"
+
+    - name: read the Output File
+      set_fact:
+        output: "{{lookup('file', '/tmp/linux_qualify/{{ sctask_number }}/{{ ansible_hostname }}_report.html') }}"
+      become: true
+      ignore_errors: yes
+      delegate_to: localhost
+      when: "resrep.failed == false"
+
+    - name: Generate the report as fail
+      template:
+        src: templates/index.html.j2
+        dest: /tmp/linux_qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_fail.html
+      when: (output | regex_findall('FAIL') | length) >= 1
+      register: report_content_success_status
+      become: true
+      ignore_errors: yes
+      delegate_to: localhost
+      when: "resrep.failed == false"
+    - name: Generate the pass report
+      template:
+        src: templates/index.html.j2
+        dest: /tmp/linux_qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_pass.html
+      when: (output | regex_findall('FAIL') | length) == 0
+      register: report_content_fail_status
+      become: true
+      ignore_errors: yes
+      delegate_to: localhost
+      when: "resrep.failed == false"
+
+    - name: creating {{ sctask_number }} directory in temp folder
+      file:
+        path: "/tmp/linux_qualify/{{ sctask_number }}"
+        state: directory
+      become: true
+      delegate_to: localhost
+      when: "resrep.failed == false"
+      tags: file_copy
+    - name: creating {{ sctask_number }} directory in Linux Prod Share  folder
+      file:
+        path: "/Linux_Prod/linux_qualify/{{ sctask_number }}"
+        state: directory
+      become: true
+      when: "resrep.failed == false"
+      delegate_to: localhost
+      tags: file_copy
+
+    - name: Generate report to pdf format
+      shell: /usr/local/bin/wkhtmltopdf /tmp/linux_qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_pass.html /Linux_Prod/linux_qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_pass.pdf
+      when:   (output | regex_findall('FAIL') | length) == 0
+      become: true
+      delegate_to: localhost
+      ignore_errors: yes
+      when: "resrep.failed == false"
+    - name: Generate report to pdf format
+      shell: /usr/local/bin/wkhtmltopdf /tmp/linux_qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_fail.html /Linux_Prod/linux_qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_fail.pdf
+      when: (output | regex_findall('FAIL') | length) >= 1
+      become: true
+      ignore_errors: yes
+      delegate_to: localhost
+      when: "resrep.failed == false"
+    - name: Listing the pdf files
+      shell: "ls /Linux_Prod/linux_qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_*.pdf"
+      register: list_pdf_files
+      when: "resrep.failed == false"
+      become: true
+      delegate_to: localhost
+    - debug:
+        msg: "{{ list_pdf_files.stdout }}"
+      when: "resrep.failed == false"
+
+    - name: Error Report
+      debug:
+        msg: "PDF couldn't be Generated"
+      when: "resrep.failed == true"
+
+
+
+
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+
+ec2prod/valyml
+
+---
+- name: Generating Retro qualification report
+  hosts: localhost
+  #strategy: free
+  become_method: sudo
+  tasks: 
+    - add_host:
+        hostname: "{{ server_name }}"
+        groups: ec2_server 
+- hosts: ec2_server
+  gather_facts: true
+  tasks:    
+    - name: HW info
+      vars:
+        msg: |
+          CPU Core: {{ ansible_processor_cores }}
+      debug:
+        msg: "{{ msg.split('\n') }}"
+      tags: get_hw_info
+    - name: display hardware status
+      set_fact:
+        hardware_status: >
+                          {% if ansible_processor_cores >= 1 %} 
+                           "Processor: {{ ansible_processor_cores }} -> PASS "
+                          {% else %} 
+                            "Processor: {{ ansible_processor_cores }} -> FAIL "
+                          {% endif %}
+      tags: get_hw_info
+    - debug:
+        msg: "{{ hardware_status}}"
+      tags: get_hw_info
+
+    # Get RAM Information
+    - name: Get RAM Information
+      set_fact:
+        check_memory: "{{ (ansible_memtotal_mb/1024)|float| round }}"
+      tags: get_ram_info
+    - debug:
+        msg: >
+              {% if check_memory >= 1.0 %}
+                Memory (in GB) {{ (ansible_memtotal_mb/1024)|float| round }} -> PASS 
+                {% else %}
+                Memory (in GB) {{ (ansible_memtotal_mb/1024)|float| round }} -> FAIL
+              {% endif %} 
+      tags: get_ram_info  
+    
+
+     # Get Kernel Information
+    - name: Get Kernel Info
+      vars:
+        msg: |
+          Kernel Version: {{ ansible_kernel }}
+      debug:
+        msg: "{{ msg }}"
+      tags: get_kernel_version_info
+    - name: display kernel data
+      set_fact:
+        kernel_base_version: "{{ ansible_kernel.split('.')[0]}}"
+        kernel_sub_version: "{{ ansible_kernel.split('.')[1]}}"
+      tags: get_kernel_version_info
+    - debug:
+        msg: >
+             {% if kernel_base_version == 2 and kernel_sub_version >= 4 or kernel_base_version > 2 %} 
+                "Kernel Version : {{ kernel_base_version }}.{{ kernel_sub_version }} -> PASS "
+             {% else %}
+                "Kernel Version : {{ kernel_base_version }}.{{ kernel_sub_version }} -> FAIL "
+              {% endif %}
+      tags: get_kernel_version_info
+
+    # Get Disk Information
+    - name: Get disk info
+      set_fact:
+        disk_size: "{{ item.value.size }}"      
+      with_dict:
+        - "{{ ansible_facts['devices'] }}"  
+      ignore_errors: yes    
+      tags: get_disk_info
+    - name: getting disk size info
+      shell: df -hk / | tail -n 1  | awk -F ' ' '{print $2}'
+      register: check_disk_size
+      ignore_errors: yes
+      tags: get_disk_info
+    - debug:
+        msg: "{{ check_disk_size.stdout }}"
+      ignore_errors: yes
+      tags: get_disk_info
+    - name: Get disk info
+      set_fact:
+        disk_size_value:  "{{ check_disk_size.stdout }}"
+      ignore_errors: yes
+      tags: get_disk_info
+    - debug:
+        msg: >
+             {% set mb = ((disk_size_value|int)/1024) | round(1) %}
+             {% set gb = ((disk_size_value|int)/1024/1024) | round(1) %}
+              {% set tb =  ((disk_size_value|int)/1024/1024/1024) | round(1) %} 
+                {% if gb < 10 %}   
+                    Disk Size {{ gb }} GB -> FAIL
+                {% elif gb > 10 %}
+                   Disk Size {{ gb }} GB -> PASS 
+                {% elif tb >= 1 %}
+                   Disk Size {{ tb }} TB -> PASS                  
+                {% else %}
+                   Disk Size {{ mb }} MB -> FAIL
+                {% endif %}
+            
+      tags: get_disk_info
+    
+     # Get Server Platform Information
+    - name: Get Server Platform
+      shell: uname -a | awk '{print $NF " " $3}'
+      register: get_server_platform
+      async: 60
+      poll: 10
+      tags: server_platform_info         
+    
+    # Get NTP server Information
+    - name: Get ntp server syncing
+      shell: timedatectl | grep 'NTP synchronized:'
+      register: get_ntp_server
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: ntp_server_status
+    - name: display ntp server syncing
+      debug:
+        msg: "{{ get_ntp_server }}"
+      ignore_errors: yes
+      tags: ntp_server_status
+    - name: check ntp synchronized
+      shell: chronyc sources | grep -i biogen
+      register: check_ntp_status
+      async: 60
+      poll: 10
+      ignore_errors: yes
+      tags: ntp_server_status
+    - name: display ntp server status
+      debug:
+        msg: "{{ check_ntp_status }}"
+      ignore_errors: yes
+      tags: ntp_server_status 
+    - debug:
+        msg: >
+              {% if 'yes' in get_ntp_server.stdout and check_ntp_status.stdout != ''  %}
+                NTP Synchronized: YES -> PASS           
+              {% else %} 
+                NTP Synchronized: NO -> FAIL 
+              {% endif %}
+      tags: ntp_server_status
+    
+    # check turbot
+    - name: check turbot connected
+      shell: cat /etc/ssh/sshd_config | egrep 'ec2-user|clckwrk'
+      become: true
+      register: check_turbot_connected
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: turbot
+    - name: set facts for turbot
+      set_fact:
+        turbot_status: "{{ check_turbot_connected }}"
+      ignore_errors: yes
+      tags: turbot
+    - name: check turbot success connection
+      debug:
+        msg: "server under turbot"
+      when: check_turbot_connected.rc == 0
+      ignore_errors: yes
+      tags: turbot
+    - name: check turbot failure connection
+      debug:
+        msg: "server not under turbot"
+      when: check_turbot_connected.rc != 0
+      ignore_errors: yes
+      tags: turbot    
+
+    # check adinfo user status
+    - name: check adinfo user status
+      command: adinfo
+      become: true
+      register: check_adinfo_user_status
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: centrify
+    - debug:
+        msg: >
+            {% if check_adinfo_user_status.rc == 0 and 'connected' in check_adinfo_user_status.stdout %}  
+                Authentication Mechanism: Centrify -> PASS 
+            {% elif check_turbot_connected.rc == 0 %}
+                Authentication Mechanism: Turbot -> PASS
+            {% else %}
+                Authentication Mechanism: Native Authentication -> PASS
+             {% endif %}
+      ignore_errors: yes
+      tags: centrify    
+
+    # Get Syslog Information
+    - name: Get Syslog Info
+      ansible.builtin.service_facts:
+      register: syslog_service
+      ignore_errors: true
+      async: 60
+      poll: 10
+      tags: get_syslog_info  
+   
+    - debug:
+        msg: >
+             {% if syslog_service.ansible_facts.services['rsyslog.service'].state == 'running' and syslog_service.ansible_facts.services['rsyslog.service'].status == 'enabled' %}
+                 Logging is enabled and running  -> PASS 
+             {% elif  syslog_service.ansible_facts.services['rsyslog.service'].state == 'stopped' and syslog_service.ansible_facts.services['rsyslog.service'].status == 'enabled' %}
+                Logging is enabled, but not running -> FAIL 
+             {% else %} 
+                Logging is  not enabled and not running -> FAIL
+             {% endif %}
+      ignore_errors: true
+      tags: get_syslog_info
+
+    # Check nessus/ tenable installation status
+    - name: check nessus instalation status
+      shell: rpm -qa | grep -i nessus && ls /opt | grep -i nessus
+      register: check_nessus_installation_status
+      become: true
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: nessus_installation_status
+    - name: set facts falcon conn status
+      set_fact:
+        nessus_install_status: "{{ check_nessus_installation_status }}"
+      ignore_errors: true
+      tags: get_falcon_info
+    - name: display nessus install success status
+      debug:
+        msg: "Nessus is installed" 
+      when: nessus_install_status.rc == 0
+      tags: nessus_installation_status
+    - name: display nessus install failure status
+      debug:
+        msg: "Nessus is not installed" 
+      when: nessus_install_status.rc != 0
+      tags: nessus_installation_status
+    
+    # Check nessus/ tenable installation status
+    - name: check falcon instalation status
+      shell: rpm -qa | grep -i falcon && ls /opt | grep -i falcon-sensor
+      register: check_falcon_installation_status
+      become: true
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: falcon_installation_status
+    - name: set facts falcon install status
+      set_fact:
+        falcon_install_status: "{{ check_falcon_installation_status }}"
+      ignore_errors: true
+      tags: falcon_installation_status
+    - name: display falcon install success status
+      debug:
+        msg: "Falcon is installed" 
+      when: falcon_install_status.rc == 0
+      tags: falcon_installation_status
+    - name: display falcon install failure status
+      debug:
+        msg: "Falcon is not installed" 
+      when: falcon_install_status.rc != 0
+      tags: falcon_installation_status
+
+    # Get Crowdstrike Information
+    - name: Get Crowdstrike Info
+      ansible.builtin.service_facts:
+      register: falcon_service
+      ignore_errors: true
+      async: 60
+      poll: 10
+      tags: get_falcon_info    
+    - name: check display Falcon connection
+      shell: sudo netstat -tapn | grep falcon | grep -i ESTABLISHED      
+      register: check_display_falcon_connection
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: get_falcon_info 
+    - name: set facts falcon conn status
+      set_fact:
+        falcon_conn_status: "{{ check_display_falcon_connection }}"
+      ignore_errors: true
+      tags: get_falcon_info 
+    - debug: 
+        msg: >
+             {% if falcon_conn_status.rc == 0 %} 
+                Falcon is connected -> PASS
+             {% else %}
+                Falcon is not connected -> FAIL
+              {% endif %}
+      ignore_errors: yes
+      tags: get_falcon_info
+
+    - debug:
+        msg: >
+             {% if falcon_install_status.rc != 0 %}     
+                Falcon is not installed -> FAIL
+             {% elif  falcon_service.ansible_facts.services['falcon-sensor.service'].state == 'running' and falcon_service.ansible_facts.services['falcon-sensor.service'].status == 'enabled' and falcon_conn_status.rc == 0 %} 
+                Falcon is enabled and running -> PASS 
+             {% elif  falcon_service.ansible_facts.services['falcon-sensor.service'].state == 'stopped' and falcon_service.ansible_facts.services['falcon-sensor.service'].status == 'enabled' or falcon_service.ansible_facts.services['falcon-sensor.service'].status == 'unknown' %} 
+                Falcon is  enabled, but not  running -> FAIL                     
+             {% else %} 
+                Falcon is not installed and enabled -> FAIL
+             {% endif %}
+      ignore_errors: true
+      tags: get_falcon_info
+
+     # Get Nessus Information
+    - name: Get Crowdstrike Info
+      ansible.builtin.service_facts:
+      register: nessusagent_service 
+      async: 60
+      poll: 10     
+      ignore_errors: yes
+      tags: get_nessusagent_info
+    - debug:
+        msg: "nessus not installed"
+      when: item.ansible_facts is not defined
+      with_items:
+        - falcon-sensor.service
+        - nessus_agent.service
+      tags: get_nessusagent_info
+     # check the nessus is connected
+    - name: check nessus connectivity state
+      shell: tail /opt/nessus_agent/var/nessus/logs/backend.log | grep -i successful
+      register: check_nessus_connectivity_state
+      become: true
+      ignore_errors: yes
+      async: 60
+      poll: 10
+      tags: get_nessusagent_info 
+    - name: set facts nessus conn status
+      set_fact:
+        nessus_conn_status: "{{ check_nessus_connectivity_state }}"
+      ignore_errors: true
+      tags: get_nessusagent_info 
+    - name: display nessus connectivity success state
+      debug:
+        msg: "nessus connected successfully" 
+      when: nessus_conn_status.rc == 0
+      ignore_errors: yes
+      tags: get_nessusagent_info
+    - name: display nessus connectivity failure state
+      debug:
+        msg: "nessus connection failed" 
+      when: nessus_conn_status.rc != 0
+      ignore_errors: yes
+      tags: get_nessusagent_info
+    - debug:
+        msg: >
+            {% if nessus_install_status.rc != 0 %} 
+                Nessus Agent is not installed -> FAIL 
+             {% elif  nessusagent_service.ansible_facts.services['nessusagent.service'].state == 'stopped' and nessusagent_service.ansible_facts.services['nessusagent.service'].status == 'unknown' %} 
+                Nessus Agent is not enabled and not  running -> FAIL 
+             {% elif  nessusagent_service.ansible_facts.services['nessusagent.service'].state == 'running'  and nessus_conn_status.rc == 0  %} 
+                Nessus Agent is  running and connected -> PASS
+             {% else %} 
+                Nessus Agent is not enabled and installed -> FAIL           
+             {% endif %}
+      ignore_errors: yes
+      tags: get_nessusagent_info
+    
+    - name: creating linux_qualify directory in tmp folder
+      file:
+        path: /tmp/linux_qualify/{{ sctask_number }}
+        state: directory
+      become: true
+      ignore_errors: yes
+      delegate_to: localhost
+    # Generating overall report
+    - name: Generate the report
+      template:
+        src: templates/index.html.j2
+        dest: /tmp/linux_qualify/{{ sctask_number }}/{{ ansible_hostname }}_report.html
+      become: true
+      ignore_errors: yes
+      delegate_to: localhost
+    - name: read the Output File
+      set_fact:
+        output: "{{lookup('file', '/tmp/linux_qualify/{{ sctask_number }}/{{ ansible_hostname }}_report.html') }}"  
+      become: true
+      ignore_errors: yes
+      delegate_to: localhost    
+    - name: Generate the report as fail
+      template:
+        src: templates/index.html.j2
+        dest: /tmp/linux_qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_fail.html
+      when: (output | regex_findall('FAIL') | length) >= 1
+      register: report_content_success_status
+      become: true
+      ignore_errors: yes
+      delegate_to: localhost
+    - name: Generate the pass report
+      template:
+        src: templates/index.html.j2
+        dest: /tmp/linux_qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_pass.html
+      when: (output | regex_findall('FAIL') | length) == 0
+      register: report_content_fail_status
+      become: true
+      ignore_errors: yes
+      delegate_to: localhost
+    
+    - name: creating {{ sctask_number }} directory in Linux Qualify  folder
+      file:
+        path: "/Linux_Val/qualify/{{ sctask_number }}"
+        state: directory
+      become: true
+      delegate_to: localhost
+      tags: file_copy
+    - name: Generate report to pdf format
+      shell: /usr/local/bin/wkhtmltopdf /tmp/linux_qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_pass.html /Linux_Val/qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_pass.pdf
+      when: (output | regex_findall('FAIL') | length) == 0
+      become: true
+      delegate_to: localhost
+    - name: Generate report to pdf format
+      shell: /usr/local/bin/wkhtmltopdf /tmp/linux_qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_fail.html /Linux_Val/qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_fail.pdf
+      when: (output | regex_findall('FAIL') | length) >= 1
+      become: true
+      ignore_errors: yes
+      delegate_to: localhost
+    - name: Listing the pdf files
+      shell: "ls /Linux_Val/qualify/{{ sctask_number }}/{{ ansible_default_ipv4.address }}_*.pdf"
+      register: list_pdf_files
+      become: true
+      delegate_to: localhost
+    - debug:
+        msg: "{{ list_pdf_files.stdout }}" 
+
+
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+

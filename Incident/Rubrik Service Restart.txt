@@ -1,0 +1,845 @@
+1. Get Ticket
+
+Pre Execution:
+
+var uri="https://"+Process.SnowEnv+".service-now.com/api/now/table/incident?sysparm_fields=number%2Cactive%2Csys_id%2Cincident_state%2Cdescription%2Cassigned_to=SVC-itpam@biogen.com&sysparm_limit=1&number="+Process.incidentNumber
+Process.url=uri
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket details fetched successfully"
+  Process.Output=Process[OpName].HTTPResponseContent
+  
+}
+else
+{
+  Process.ReturnCode=1;
+  Process.ReturnMessage="Failure fetching ticket details"
+}
+
+2. Second Operator (Read)
+
+Inline:
+
+var str =Process.Output
+var start=str.indexOf('[')+2;
+var end=str.indexOf(']')-1;
+var res = str.substring(start,end);
+var out1= res.split(',');
+for(var i=0;i < out1.length;i++)
+{
+  out1[i]=out1[i].replace(/\"/g,"");
+  if(out1[i].indexOf('active')>=0)
+  {Process.active=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('sys_id')>=0)
+  {Process.Sys_Id=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('description')>=0)
+  {Process.description=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('incident_state')>=0)
+  {Process.Incidentstate=(out1[i].split(':'))[1]}
+  out1[i]=(out1[i].split(':'))[1]
+}
+
+Post Execution:
+
+if(Process.active)
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket is active.";
+}
+else
+{
+  Process.ReturnCode=1;
+  Process.ReturnMessage="Ticket is inactive.";
+}
+
+3.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.SnowEnv+".service-now.com/api/now/v2/table/incident/"+Process.Sys_Id+"?sysparm_fields=incident_state"
+Process.payload = "<request><entry><assigned_to>d2f5f34bdb5efb8036c73c9b7c961900</assigned_to><incident_state>2</incident_state><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+"</work_notes></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  if(Process[OpName].HTTPResponseContent.indexOf("incident_state\":\"")>=0)
+  {
+	Process.ReturnMessage="Ticket updated successfully ";
+	if(Process.OS=="Windows")
+	{	
+	  Process.ReturnCode=0;
+	}
+	else if(Process.OS=="LINUX")
+	{
+	  Process.ReturnCode=3;
+	}
+  }
+  else
+  {
+	Process.ReturnCode=-1;
+	Process.ReturnMessage="Error occurred while  updating ticket";
+  }
+}
+else
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Failure occurred while updating ticket"
+}
+
+4.Script
+
+Inline:
+
+Param($server,
+$OS,
+$snowp,
+$snowpa,
+$SNOW_Env,
+$snowkey)
+
+$snowpass = "$snowp"+"#%4"+$snowpa+"_"
+
+if($OS -eq "WINDOWS")
+{
+    if(Test-Connection -ComputerName $server -Quiet)
+    {"True"}
+    else
+    {"False"}
+}
+elseif($OS -eq "Linux")
+{
+    [Net.ServicePointManager]::SecurityProtocol = "tls12, tls11, tls"
+    $global:headers = @{"Authorization" = "Basic "+[System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($snowkey+":"+$snowpass))}
+    
+    [Net.ServicePointManager]::SecurityProtocol = "tls12, tls11, tls"
+    
+    #$server = "testrtplinux"
+    
+    $applurl = "https://$SNOW_Env.service-now.com/api/now/table/cmdb_ci_linux_server?sysparm_query=nameLIKE"+$server
+    $result2 = Invoke-WebRequest -Uri $applurl -Headers $global:headers -Method Get -ContentType "application/json" -UseBasicParsing
+    $Log += "`nServer details fetched successfully from CMDB"
+    
+    $ciOut2 = $result2 | ConvertFrom-JSON
+    $serverIP = $ciOut2.result.ip_address
+    
+    if(Test-Connection -ComputerName $serverIP -Quiet)
+    {"True"}
+    else{"False"}
+}
+else{"False"}
+
+"$serverIP"
+
+
+Post Execution:
+
+if(Process.Ping_Check.scriptOutput.indexOf("True")>=0)
+{
+  Process.ReturnCode=0
+Process.data=Process.Ping_Check.scriptOutput
+Process.dat=Process.data.split("\n")
+Process.IPAddress = Process.dat[1]
+}
+else if(Process.Ping_Check.scriptOutput.indexOf("False")>=0)
+{
+  Process.ReturnCode=-1
+  //Process.ReturnMessage="Connection to target CI not succesful, routing Incident to “UNIX” Assignment Group"
+}
+else
+{
+Process.ReturnCode=1
+Process.returnMessage = "Fatal Error"
+}
+
+
+5.Ticket Update
+
+Success
+
+Pre Execution:
+
+Process.putURL="https://"+Process.SnowEnv+".service-now.com/api/now/v2/table/incident/"+Process.Sys_Id+"?sysparm_fields=incident_state"
+Process.PingPayload="<request><entry><work_notes>Target CI Reached Successfully</work_notes></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  if(Process[OpName].HTTPResponseContent.indexOf("incident_state\":\"")>=0)
+  {
+	Process.ReturnMessage="Ticket updated successfully ";
+  }
+  else
+  {
+	Process.ReturnCode=-1;
+	Process.ReturnMessage="Error occurred while updating ticket";
+  }
+}
+else
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Failure occurred while updating ticket"
+}
+
+Failure
+
+Pre Execution:
+
+if(Process.OS ="WINDOWS")
+{
+  Process.Assignment_Group="4e22c6b4db806f00fa0f8e5c29961927"
+  Process.returnMessage = "Ping Check Failed, Routing the ticket to Backup Restore Assignment group"
+}
+else if(Process.OS="Linux")
+{
+  Process.Assignment_Group="4e22c6b4db806f00fa0f8e5c29961927"
+  Process.returnMessage = "Ping Check Failed, Routing the ticket to Backup Restore Assignment group"
+}
+else
+{
+Process.Assignment_Group="e22c6b4db806f00fa0f8e5c29961927"
+Process.returnMessage = "Failed to Identify the OS Falvour"
+}
+
+
+Process.putURL="https://"+Process.SnowEnv+".service-now.com/api/now/v2/table/incident/"+Process.Sys_Id+"?sysparm_fields=incident_state"
+Process.PingFailPayLoad ="<request><entry><assigned_to></assigned_to><work_notes>"+Process.returnMessage+"</work_notes><assignment_group>"+Process.Assignment_Group+"</assignment_group></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  if(Process[OpName].HTTPResponseContent.indexOf("incident_state\":\"")>=0)
+  {
+	Process.ReturnCode=0;
+	Process.ReturnMessage="Ticket updated successfully ";
+  }
+  else
+  {
+	Process.ReturnCode=-1;
+	Process.ReturnMessage="Error occurred while  updating ticket";
+  }
+}
+else
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Failure occurred while updating ticket"
+}
+
+6.Script
+
+Inline:
+
+$computer=$args[0]
+$computer
+
+Post Execution:
+
+if(Process.Check_OS.scriptOutput.indexOf("WINDOWS")>=0)
+{
+  Process.ReturnCode=0
+  Process.OS = "WINDOWS"
+  Process.ReturnMessage = "Target OS is Windwos"
+}
+else if(Process.Check_OS.scriptOutput.indexOf("Linux")>=0)
+{
+  Process.OS="Linux"
+  Process.ReturnCode=1
+    Process.ReturnMessage = "Target OS Linux"
+}
+else
+{
+Process.ReturnCode=-1
+Process.returnMessage = "Fatal Error"
+}
+
+If OS is windows
+
+7.Script
+
+Inline:
+
+param($computer,
+$RDPUsername,
+$RDPPassword)
+
+$pwd = $RDPPassword | ConvertTo-SecureString -AsPlainText -Force
+$creds = New-Object pscredential -ArgumentList ($RDPUsername , $pwd)
+
+try
+{
+    $status = (Get-WmiObject -ComputerName $computer -Credential $creds -Class win32_service | ? {$_.Name -eq "Rubrik Backup Service"}).State
+    if($status -eq "Stopped")
+    {
+        Write-Host "Service is in Stopped State"
+    }
+    elseif($status -eq "Running")
+    {
+		Write-Host "Service is in Running State"
+    }
+    else
+    {
+        Write-Host "Service state is not defined"
+    }
+}
+catch
+{
+    Write-Host "Unable to fetch the Service Status"
+}
+
+Post Execution:
+
+if(Process[OpName].scriptOutput.indexOf("Service is in Stopped State")>=0)
+{
+  Process.ReturnCode=0
+  Process.ReturnMessage="Service is in Stopped State"
+}
+else if(Process[OpName].scriptOutput.indexOf("Service is in Running State")>=0)
+{
+  Process.ReturnCode=1
+  Process.ReturnMessage="Service is in Running State"
+}
+else if(Process[OpName].scriptOutput.indexOf("Unable to fetch the Service Status")>=0)
+{
+Process.ReturnMessage="Unable to Fetch the Service Status"
+Process.ReturnCode =2
+}
+else if(Process[OpName].scriptOutput.indexOf("Service state is not defined")>=0)
+{
+Process.ReturnMessage="Service state is not defined"
+Process.ReturnCode =2
+}
+else
+{
+   Process.ReturnCode =2
+   Process.ReturnMessage="Unable to Check the Service Status"
+}
+
+for close:
+
+8.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.SnowEnv+".service-now.com/api/now/v2/table/incident/"+Process.Sys_Id+"?sysparm_fields=incident_state"
+Process.Running_WIN_PayLoad="<request><entry><work_notes>Rubrik Backup Service is already in Running State, Hence Closing the ticket as Resolved</work_notes><close_code>Solved (Permanently)</close_code><u_knowledge_issues>true</u_knowledge_issues><u_knowledge_issue_type>2</u_knowledge_issue_type><close_notes>Service Already in Running State</close_notes><u_comments>Ticekt Resolved Successfully</u_comments><u_repeat_incident>No</u_repeat_incident><incident_state>6</incident_state></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  if(Process[OpName].HTTPResponseContent.indexOf("incident_state\":\"")>=0)
+  {
+	Process.ReturnCode=1;
+	Process.ReturnMessage="Ticket resolved successfully ";
+  }
+  else
+  {
+	Process.ReturnCode=-1;
+	Process.ReturnMessage="Error occurred while  resolving ticket";
+  }
+}
+else
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Failure occurred while resolving ticket"
+}
+
+For not close:
+
+9.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.SnowEnv+".service-now.com/api/now/v2/table/incident/"+Process.Sys_Id+"?sysparm_fields=incident_state"
+Process.WIN_Restarting_Service="<request><entry><work_notes>Rubrik Service is in Stopped State, Restarting the Service</work_notes></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  if(Process[OpName].HTTPResponseContent.indexOf("incident_state\":\"")>=0)
+  {
+	Process.ReturnCode=0;
+	Process.ReturnMessage="Ticket updated successfully ";
+  }
+  else
+  {
+	Process.ReturnCode=-1;
+	Process.ReturnMessage="Error occurred while  updating ticket";
+  }
+}
+else
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Failure occurred while updating ticket"
+}
+
+10.Script
+
+Inline:
+
+param($computer,
+$RDPUsername,
+$RDPPassword)
+
+$pwd = $RDPPassword | ConvertTo-SecureString -AsPlainText -Force
+$creds = New-Object pscredential -ArgumentList ($RDPUsername , $pwd)
+
+try
+{
+$session = New-PSSession -ComputerName $computer -Credential $creds
+}
+catch
+{
+    Write-Host "Failed to create a session"
+}
+try
+{
+    Invoke-Command -Session $session -ScriptBlock { Get-Service | ? {$_.Name -eq "Rubrik Backup Service"} | Start-Service } 
+    Write-Host "Service started successfully"
+}
+catch
+{
+    Write-Host "Unable to start the Service"
+}
+
+
+Post Execution:
+
+if(Process[OpName].scriptOutput.indexOf("Service started successfully")>=0)
+{
+  Process.ReturnCode=1
+  Process.ReturnMessage = "Service started successfully"
+}
+else if(Process[OpName].scriptOutput.indexOf("Failed to create a session")>=0)
+{
+  Process.ReturnCode=0
+  Process.ReturnMessage = "Failed to create a session"
+}
+else if(Process[OpName].scriptOutput.indexOf("Unable to start the Service")>=0)
+{
+   Process.ReturnCode =0
+   Process.ReturnMessage = "Unable to start the Service"
+ }
+else
+{
+  Process.ReturnCode = -1
+  Process.ReturnMessage = "Failed to Start Service"
+}
+
+11.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.SnowEnv+".service-now.com/api/now/v2/table/incident/"+Process.Sys_Id+"?sysparm_fields=incident_state"
+Process.WIN_Check_Restart="<request><entry><work_notes>Rubrik Service Restart successeful, Monitoring the Status for 2 Minutes and Checking the Service Status</work_notes></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  if(Process[OpName].HTTPResponseContent.indexOf("incident_state\":\"")>=0)
+  {
+	Process.ReturnCode=0;
+	Process.ReturnMessage="Ticket updated successfully ";
+  }
+  else
+  {
+	Process.ReturnCode=-1;
+	Process.ReturnMessage="Error occurred while  updating ticket";
+  }
+}
+else
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Failure occurred while updating ticket"
+}
+
+12.Script
+
+Inline:
+
+param($computer,
+$RDPUsername,
+$RDPPassword)
+
+$pwd = $RDPPassword | ConvertTo-SecureString -AsPlainText -Force
+$creds = New-Object pscredential -ArgumentList ($RDPUsername , $pwd)
+
+try
+{
+    $status = (Get-WmiObject -ComputerName $computer -Credential $creds -Class win32_service | ? {$_.Name -eq "Rubrik Backup Service"}).State
+    if($status -eq "Stopped")
+    {
+        Write-Host "Service is in Stopped State"
+    }
+    elseif($status -eq "Running")
+    {
+        Write-Host "Service is in Running State"
+    }
+    else
+    {
+        Write-Host "Service state is not defined"
+    }
+}
+catch
+{
+    Write-Host "Unable to fetch the Service Status"
+}
+
+Post Execution:
+
+if(Process[OpName].scriptOutput.indexOf("Service is in Stopped State")>=0)
+{
+  Process.ReturnCode=0
+  Process.ReturnMessage="Service is in Stopped State"
+}
+else if(Process[OpName].scriptOutput.indexOf("Service is in Running State")>=0)
+{
+  Process.ReturnCode=1
+  Process.ReturnMessage="Service is in Running State"
+}
+else if(Process[OpName].scriptOutput.indexOf("Unable to fetch the Service Status")>=0)
+{
+Process.ReturnMessage="Unable to Fetch the Service Status"
+Process.ReturnCode =2
+}
+else if(Process[OpName].scriptOutput.indexOf("Service state is not defined")>=0)
+{
+Process.ReturnMessage="Service state is not defined"
+Process.ReturnCode =2
+}
+else
+{
+   Process.ReturnCode =2
+   Process.ReturnMessage="Unable to Check the Service Status"
+}
+
+13.Ticket Update
+
+Success:
+
+Pre Execution:
+
+Process.putURL="https://"+Process.SnowEnv+".service-now.com/api/now/v2/table/incident/"+Process.Sys_Id+"?sysparm_fields=incident_state"
+Process.Running_PayLoad="<request><entry><close_code>Solved (Permanently)</close_code><u_knowledge_issues>true</u_knowledge_issues><u_knowledge_issue_type>2</u_knowledge_issue_type><close_notes>Rubrik Service Started Successfully</close_notes><u_comments>Ticekt Resolved Successfully</u_comments><u_repeat_incident>No</u_repeat_incident><work_notes>The Service has been started successfully. Hence resolving the Incident.</work_notes><incident_state>6</incident_state></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  if(Process[OpName].HTTPResponseContent.indexOf("incident_state\":\"")>=0)
+  {
+	Process.ReturnCode=1;
+	Process.ReturnMessage="Ticket updated successfully ";
+  }
+  else
+  {
+	Process.ReturnCode=-1;
+	Process.ReturnMessage="Error occurred while  updating ticket";
+  }
+}
+else
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Failure occurred while updating ticket"
+}
+
+Failure:
+
+Pre Execution:
+
+Process.putURL="https://"+Process.SnowEnv+".service-now.com/api/now/v2/table/incident/"+Process.Sys_Id+"?sysparm_fields=incident_state"
+Process.WIN_Final_Route ="<request><entry><assigned_to></assigned_to><work_notes>IAutomate cannot restart the service. Please perform the activity manually</work_notes><assignment_group>4e22c6b4db806f00fa0f8e5c29961927</assignment_group></entry></request>"
+
+Post Execution:
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  if(Process[OpName].HTTPResponseContent.indexOf("incident_state\":\"")>=0)
+  {
+	Process.ReturnCode=0;
+	Process.ReturnMessage="Ticket updated successfully ";
+  }
+  else
+  {
+	Process.ReturnCode=-1;
+	Process.ReturnMessage="Error occurred while  updating ticket";
+  }
+}
+else
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Failure occurred while updating ticket"
+}
+
+If OS is Linux
+
+14.Script
+
+Inline:
+
+
+param($server,
+$SSHUsername,
+$SSHPassword,
+$snowp,
+$snowpa,
+$SNOW_Env,
+$snowkey)
+$SSHUsername
+$SSHPassword
+
+$sshpass = "$SSHPassword"+"%"
+
+$pwd = $sshpass | ConvertTo-SecureString -AsPlainText -Force
+$cred = New-Object pscredential -ArgumentList ($SSHUsername , $pwd)
+
+try{
+    (New-SSHSession -ComputerName "$server" -Credential $cred -AcceptKey)
+    $SessionIds = (Get-SSHSession | select SessionID).SessionId
+   
+        $a = (Invoke-SshCommand -SessionId $SessionIds -Command  "/etc/init.d/rubrikagents status").Output
+        Remove-SSHSession -SessionId $SessionIds
+
+    $b = $a.split(" ")
+    
+    if($b.Count -eq "8")
+    {
+        $backup_agent_main = (($a.split(":"))[1]).split(" ")[2]
+        $bootstrap_agent_main = (($a.split(":"))[3]).split(" ")[2]
+        
+        if(($backup_agent_main -ne "[UP]") -and ($bootstrap_agent_main) -eq "[UP]")
+        {
+            Write-Host "Running"
+        }
+        else
+        {
+            Write-Host "Stopped"
+        }
+    }
+}
+catch
+{
+    Write-Host "Not_Reachable"
+}
+
+
+Post Execution:
+
+if(Process[OpName].scriptOutput.indexOf("Running")>=0)
+{
+  Process.ReturnCode=0
+}
+else if(Process[OpName].scriptOutput.indexOf("Stopped")>=0)
+{
+  Process.ReturnCode=1
+}
+else if(Process[OpName].scriptOutput.indexOf("Not_Reachable")>=0)
+{
+   Process.ReturnCode =2
+ }
+else
+{
+Process.ReturnCode = 2
+}
+
+15.Ticket Update
+
+Failure:
+
+Pre Execution:
+
+Process.putURL="https://"+Process.SnowEnv+".service-now.com/api/now/v2/table/incident/"+Process.Sys_Id+"?sysparm_fields=incident_state"
+Process.WIN_Final_Close="<request><entry><work_notes>Rubrik Agent is in Stopped state, Restarting the Service</work_notes></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  if(Process[OpName].HTTPResponseContent.indexOf("incident_state\":\"")>=0)
+  {
+	Process.ReturnCode=0;
+	Process.ReturnMessage="Ticket updated successfully ";
+  }
+  else
+  {
+	Process.ReturnCode=-1;
+	Process.ReturnMessage="Error occurred while  updating ticket";
+  }
+}
+else
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Failure occurred while updating ticket"
+}
+
+Success:
+
+Pre Execution:
+
+Process.putURL="https://"+Process.SnowEnv+".service-now.com/api/now/v2/table/incident/"+Process.Sys_Id+"?sysparm_fields=incident_state"
+Process.Running_WIN_PayLoad="<request><entry><work_notes>Rubrik Backup Service is already in Running State, Hence Closing the ticket as Resolved</work_notes><close_code>Solved (Permanently)</close_code><u_knowledge_issues>true</u_knowledge_issues><u_knowledge_issue_type>2</u_knowledge_issue_type><close_notes>Service Already in Running State</close_notes><u_comments>Ticekt Resolved Successfully</u_comments><u_repeat_incident>No</u_repeat_incident><incident_state>6</incident_state></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  if(Process[OpName].HTTPResponseContent.indexOf("incident_state\":\"")>=0)
+  {
+	Process.ReturnCode=1;
+	Process.ReturnMessage="Ticket resolved successfully ";
+  }
+  else
+  {
+	Process.ReturnCode=-1;
+	Process.ReturnMessage="Error occurred while  resolving ticket";
+  }
+}
+else
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Failure occurred while resolving ticket"
+}
+
+16.Script
+
+Inline:
+
+
+param($server,
+$SSHUsername,
+$SSHPassword,
+$snowp,
+$snowpa,
+$SNOW_Env,
+$snowkey)
+
+$sshpass = "$SSHPassword"+"%"
+
+$pwd = $sshpass | ConvertTo-SecureString -AsPlainText -Force
+$cred = New-Object pscredential -ArgumentList ($SSHUsername , $pwd)
+
+    (New-SSHSession -ComputerName "$server" -Credential $cred -AcceptKey)
+    $SessionIds = (Get-SSHSession | select SessionID).SessionId
+        $start = (Invoke-SshCommand -SessionId $SessionIds -Command  "sudo /etc/init.d/rubrikagents start").Output
+
+start-sleep -Seconds 60
+
+$a = (Invoke-SshCommand -SessionId $SessionIds -Command  "/etc/init.d/rubrikagents status").Output
+        Remove-SSHSession -SessionId $SessionIds
+
+    $b = $a.split(" ")
+    
+    if($b.Count -eq "8")
+    {
+        $backup_agent_main = (($a.split(":"))[1]).split(" ")[2]
+        $bootstrap_agent_main = (($a.split(":"))[3]).split(" ")[2]
+        
+        if(($backup_agent_main -eq "[UP]") -and ($bootstrap_agent_main) -eq "[UP]")
+        {
+            Write-Host "Running"
+        }
+        else
+        {
+          Write-Host "Stopped"
+        }
+    }
+
+Post Execution:
+
+if(Process[OpName].scriptOutput.indexOf("Running")>=0)
+{
+  Process.ReturnCode=0
+  Process.ReturnMessage = "Rubrik Service Restarted Successfully"
+}
+else if(Process[OpName].scriptOutput.indexOf("Stopped")>=0)
+{
+  Process.ReturnCode=1
+  Process.ReturnMessage = "Failed to start the Rubrik Service"
+}
+else if(Process[OpName].scriptOutput.indexOf("Not_Reachable")>=0)
+{
+   Process.ReturnCode =2
+   Process.ReturnMessage = "Failed to start the Rubrik Service"
+ }
+else
+{
+Process.ReturnCode = 2
+}
+
+17.Ticket Update
+
+Success:
+
+Pre Execution:
+
+Process.putURL="https://"+Process.SnowEnv+".service-now.com/api/now/v2/table/incident/"+Process.Sys_Id+"?sysparm_fields=incident_state"
+Process.WIN_Restarting_Service="<request><entry><close_code>Solved (Permanently)</close_code><u_knowledge_issues>true</u_knowledge_issues><u_knowledge_issue_type>2</u_knowledge_issue_type><close_notes>Rubrik Service Started Successfully</close_notes><u_comments>Ticekt Resolved Successfully</u_comments><u_repeat_incident>No</u_repeat_incident><work_notes>The Service has been started successfully. Hence resolving the Incident</work_notes><incident_state>6</incident_state></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  if(Process[OpName].HTTPResponseContent.indexOf("incident_state\":\"")>=0)
+  {
+	Process.ReturnCode=1;
+	Process.ReturnMessage="Ticket updated successfully ";
+  }
+  else
+  {
+	Process.ReturnCode=-1;
+	Process.ReturnMessage="Error occurred while  updating ticket";
+  }
+}
+else
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Failure occurred while updating ticket"
+}
+
+Failure:
+
+Pre Execution:
+
+
+Process.Assignment_Group="5b2d41c5dbe73e00d41dd3cb5e961955"
+
+
+Process.putURL="https://"+Process.SnowEnv+".service-now.com/api/now/v2/table/incident/"+Process.Sys_Id+"?sysparm_fields=incident_state"
+Process.WIN_Final_Route ="<request><entry><assigned_to></assigned_to><work_notes>IAutomate cannot restart the service. Please perform the activity manually</work_notes><assignment_group>"+Process.Assignment_Group+"</assignment_group></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  if(Process[OpName].HTTPResponseContent.indexOf("incident_state\":\"")>=0)
+  {
+	Process.ReturnCode=0;
+	Process.ReturnMessage="Ticket updated successfully ";
+  }
+  else
+  {
+	Process.ReturnCode=-1;
+	Process.ReturnMessage="Error occurred while  updating ticket";
+  }
+}
+else
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Failure occurred while updating ticket"
+}
+
+18.Fatal Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.SnowEnv+".service-now.com/api/now/v2/table/incident/"+Process.Sys_Id+"?sysparm_fields=incident_state"
+Process.FatalErrorPayLoad ="<request><entry><assigned_to></assigned_to><work_notes>Automation Failed, Routing the Ticket to Backup/ Restore Assignmenet Group</work_notes><assignment_group>4e22c6b4db806f00fa0f8e5c29961927</assignment_group></entry></request>"
+
+

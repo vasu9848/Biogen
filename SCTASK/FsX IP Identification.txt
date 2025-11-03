@@ -1,0 +1,240 @@
+1. Get Ticket
+
+Pre Execution:
+
+Process.url = "https://"+Process.Instance+".service-now.com/api/now/table/sc_task?number="+Process.Number
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket details fetched successfully"
+  Process.Output=Process[OpName].HTTPResponseContent
+  
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure fetching ticket details"
+}
+
+2.Second Operator
+
+Inline:
+
+var str =Process.Output
+var start=str.indexOf('[')+2;
+var end=str.indexOf(']')-1;
+var res = str.substring(start,end);
+var out1= res.split(',');
+for(var i=0;i < out1.length;i++)
+{
+  out1[i]=out1[i].replace(/\"/g,"");
+  if(out1[i].indexOf('active')>=0)
+  {Process.active=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('sys_id')>=0)
+  {Process.Sys_Id=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('description')>=0)
+  {Process.description=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('state')>=0)
+  {Process.state=(out1[i].split(':'))[1]}
+  out1[i]=(out1[i].split(':'))[1]
+}
+
+Post Execution:
+
+if(Process.active)
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket is active.";
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Ticket is inactive.";
+}
+
+3.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/table/sc_task/"+Process.Sys_Id+""
+Process.payload = "<request><entry><assigned_to>d2f5f34bdb5efb8036c73c9b7c961900</assigned_to><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+"</work_notes><state>2</state></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket worknotes updated successfully."
+
+}
+else if(Process[OpName].Reason.indexOf('non-success') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else if(Process[OpName].Reason.indexOf('failure') >= 0)
+{
+	Process.ReturnCode =2;
+    Process.ReturnMessage = Process[OpName].HTTPResponseContent
+}
+else
+{
+    Process.ReturnCode=2;
+    Process.ReturnMessage="Failure updating ticket details."
+
+}
+
+4.Linux Operator
+
+Pre Execution:
+
+Process.ansibleCommand = "ansible-playbook ~/arecord/new_fsx.yml -e ' aws_environment="+Process.env+"  aws_account_id="+Process.Account_name+"  av_zone="+Process.available_zone+" fsx_id="+Process.fsx_id+"'"
+
+//ansible-playbook new_fsx.yml -e "fsx_id=fs-076db1ba3440b79c7 av_zone=us-east-1"
+
+Post Execution:
+
+if(Process[OpName].vpcout.indexOf('Identified IP:') >= 0){
+  Process.ReturnCode = 0
+
+
+    Process.detail=Process[OpName].vpcout.split('Identified IP:')
+Process.VPC=Process.detail[1]
+
+Process.vpcid=Process.VPC.replace(/\"\S*/g, "")
+Process.splitvar=Process.vpcid.split('\n')
+Process.datavar=Process.splitvar[0]
+
+Process.ReturnMessage = "The Identified IP is "+ Process.datavar
+Process.out=Process.ReturnMessage
+
+}
+else if(Process[OpName].vpcout.indexOf('The Requested FsX is not available') >= 0){
+  Process.ReturnCode = 2
+
+Process.ReturnMessage ="The Requested FsX is not available"
+
+}
+
+else if(Process[OpName].vpcout.indexOf('Failed to fetch the Ip') >= 0){
+  Process.ReturnCode = 2
+
+Process.ReturnMessage ="Failed to fetch the Ip."
+
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+
+}
+//Identified IP
+//Failed to fetch the Ip
+
+
+5.Linux Operator
+
+Pre Execution:
+
+//Process.ansibleCommand = "ansible-playbook ~/VPC_New/final.yml -e 'number="+Process.Number+" env="+Process.env+" an="+Process.account_Name+" cidr="+Process.subnet+" az="+Process.available_zone+"'"
+Process.ansibleCommand = "ansible-playbook  ~/arecord/new_fsx.yml -e ' av_zone="+Process.available_zone+" fsx_id="+Process.fsx_id+"'"
+
+Post Execution:
+
+if(Process[OpName].vpcout.indexOf('Identified IP:') >= 0){
+  Process.ReturnCode = 0
+
+
+    Process.detail=Process[OpName].vpcout.split('Identified IP:')
+Process.VPC=Process.detail[1]
+
+Process.vpcid=Process.VPC.replace(/\"\S*/g, "")
+Process.splitvar=Process.vpcid.split('\n')
+Process.datavar=Process.splitvar[0]
+
+Process.ReturnMessage = "The Identified IP is "+ Process.datavar
+Process.out=Process.ReturnMessage
+
+}
+else if(Process[OpName].vpcout.indexOf('The Requested FsX is not available') >= 0){
+  Process.ReturnCode = 2
+
+Process.ReturnMessage ="The Requested FsX is not available"
+
+}
+
+else if(Process[OpName].vpcout.indexOf('Failed to fetch the Ip') >= 0){
+  Process.ReturnCode = 2
+
+Process.ReturnMessage ="Failed to fetch the Ip."
+
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+
+}
+//Identified IP
+//Failed to fetch the Ip
+
+6.Linux operator
+
+Pre Execution:
+
+//Process.ansibleCommand = "ansible-playbook ~/VPC_New/final.yml -e 'number="+Process.Number+" env="+Process.env+" an="+Process.account_Name+" cidr="+Process.subnet+" az="+Process.available_zone+"'"
+Process.ansibleCommand = "ansible-playbook  ~/arecord/new_fsx.yml -e ' av_zone="+Process.available_zone+" fsx_id="+Process.fsx_id+"'"
+
+Post Execution:
+
+if(Process[OpName].vpcout.indexOf('Identified IP:') >= 0){
+  Process.ReturnCode = 0
+
+
+    Process.detail=Process[OpName].vpcout.split('Identified IP:')
+Process.VPC=Process.detail[1]
+
+Process.vpcid=Process.VPC.replace(/\"\S*/g, "")
+Process.splitvar=Process.vpcid.split('\n')
+Process.datavar=Process.splitvar[0]
+
+Process.ReturnMessage = "The Identified IP is "+ Process.datavar
+Process.out=Process.ReturnMessage
+
+}
+else if(Process[OpName].vpcout.indexOf('The Requested FsX is not available') >= 0){
+  Process.ReturnCode = 2
+
+Process.ReturnMessage ="The Requested FsX is not available"
+
+}
+
+else if(Process[OpName].vpcout.indexOf('Failed to fetch the Ip') >= 0){
+  Process.ReturnCode = 2
+
+Process.ReturnMessage ="Failed to fetch the Ip."
+
+}
+else
+{
+	Process.ReturnCode = 3
+	Process.ReturnMessage = "Some error occurred while executing the Ansible Playbook."
+
+}
+//Identified IP
+//Failed to fetch the Ip
+
+7.Fatal Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.Instance+".service-now.com/api/now/table/sc_task/"+Process.Sys_Id+""
+Process.FatalErrorPayLoad ="<request><entry><state>1</state><assignment_group>d32d41c5dbe73e00d41dd3cb5e96194f</assignment_group><work_notes>"+Process.ReturnMessage+ "</work_notes></entry></request>"
+//Process.FatalErrorPayLoad ="<request><entry><assignment_group>d32d41c5dbe73e00d41dd3cb5e96194f</assignment_group><assigned_to></assigned_to><work_notes>"+Process.ReturnMessage+ "</work_notes></entry></request>"
+
+
+Ansible Playbook:
+-----------------

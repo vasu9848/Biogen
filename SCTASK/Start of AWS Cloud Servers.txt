@@ -1,0 +1,986 @@
+1.Get Ticket
+
+Pre Execution:
+
+Process.url = "https://"+Process.SNOW_Env+".service-now.com/api/now/table/sc_task?number="+Process.Number
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket details fetched successfully"
+  Process.Output=Process[OpName].HTTPResponseContent
+  
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Failure fetching ticket details"
+}
+
+2. Second Operator (Read)
+
+Inline:
+
+var str =Process.Output
+var start=str.indexOf('[')+2;
+var end=str.indexOf(']')-1;
+var res = str.substring(start,end);
+var out1= res.split(',');
+for(var i=0;i < out1.length;i++)
+{
+  out1[i]=out1[i].replace(/\"/g,"");
+  if(out1[i].indexOf('active')>=0)
+  {Process.active=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('sys_id')>=0)
+  {Process.Sys_Id=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('description')>=0)
+  {Process.description=(out1[i].split(':'))[1]}
+  else if(out1[i].indexOf('state')>=0)
+  {Process.state=(out1[i].split(':'))[1]}
+  out1[i]=(out1[i].split(':'))[1]
+}
+
+Post Execution:
+
+if(Process.active=='true')
+{
+  Process.ReturnCode=0;
+  Process.ReturnMessage="Ticket is active.";
+}
+else
+{
+  Process.ReturnCode=2;
+  Process.ReturnMessage="Ticket is inactive.";
+}
+
+3.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.SNOW_Env+".service-now.com/api/now/table/sc_task/"+Process.Sys_Id+""
+Process.payload = "<request><entry><assigned_to>d2f5f34bdb5efb8036c73c9b7c961900</assigned_to><work_notes>Automation Acknowledged. Ref ID:"+ Process.RuntimeROID+"</work_notes><state>2</state></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  if(Process[OpName].HTTPResponseContent.indexOf("state\":\"")>=0)
+  {
+	Process.ReturnCode=0;
+	Process.ReturnMessage="Ticket updated successfully ";
+  }
+  else
+  {
+	Process.ReturnCode=2;
+	Process.ReturnMessage="Error occurred while  updating ticket";
+  }
+}
+else
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Failure occurred while updating ticket."
+}
+
+4. Script
+
+Pre Execution:
+
+Process.ReturnMessage = "iAutomate is checking if the current time is within the 15-minute window from the planned schedule to proceed with the start";
+
+Inline:
+
+try{
+    $ErrorActionPreference = "Stop"
+
+	$plannedDT = $args[0]
+
+	Write-Host $plannedDT
+ 
+    #$plannedDT = "08-17-2025 05:50:12 PM"
+
+    if($plannedDT){
+        $proceed = "No"
+ 
+        $timeZone = (Get-TimeZone).Id
+        $dateTime = Get-Date -Format "MM-dd-yyyy HH:mm:ss"
+
+        if($timeZone -ne "Eastern Standard Time"){
+            $dateTimeInUTC = [System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId($dateTime, $timeZone, "UTC")
+            $estTimeZone = [System.TimeZoneInfo]::FindSystemTimeZoneById("Eastern Standard Time")
+            $dateTimeInEST = [System.TimeZoneInfo]::ConvertTimeFromUtc($dateTimeInUTC, $estTimeZone)
+            $dateTime = $dateTimeInEST.ToString('MM-dd-yyyy HH:mm:ss')
+ 
+            $proceed = "Yes"
+        }
+ 
+        if($proceed -eq "Yes"){
+            $dateTime = Get-Date -Date $dateTime -Format "MM-dd-yyyy HH:mm:ss"
+            $plannedDateTime = Get-Date -Date $plannedDT -Format "MM-dd-yyyy HH:mm:ss"
+            $bufferEndOfWindow = (Get-Date -Date $plannedDateTime).AddMinutes(15)
+            $endOfWindow = Get-Date -Date $bufferEndOfWindow -Format "MM-dd-yyyy HH:mm:ss"
+ 
+            if(($dateTime -ge $plannedDateTime) -and ($dateTime -lt $endOfWindow)){
+                Write-Host "True::iAutomate validation completed. The current time ($dateTime) falls within the 15-minute execution window (from $plannedDateTime to $endOfWindow). Proceeding with the server start."
+            }
+            else{
+                Write-Host "False::iAutomate validation completed. The current time ($dateTime) has exceeded the 15-minute execution window (ended at $endOfWindow). Server start will not proceed."
+            }
+        }
+        else{
+            Write-Host "False::iAutomate encountered an error while validating the 15-minute execution window. Failed to convert the current time zone '$timeZone' to Eastern Standard Time. Cannot proceed."
+        }
+    }
+    else{
+        Write-Host "False::iAutomate encountered an error while validating the 15-minute execution window. Planned DateTime field is empty. Cannot proceed with execution."
+    }
+}
+catch{
+    $errorMessage = $_.Exception.Message
+    Write-Host "Error due to::iAutomate encountered an unexpected error while validating the 15-minute execution window. $errorMessage"
+}
+
+Post Execution:
+
+if((Process[OpName].scriptOutput.indexOf("True") >= 0) || (Process[OpName].scriptOutput.indexOf("False") >= 0)  || (Process[OpName].scriptOutput.indexOf("Error due to") >= 0)){
+    Process.TFetchout = Process[OpName].scriptOutput.trim();
+    Process.TFetchout1 = Process.TFetchout.split("::");
+    Process.TFetchout2 = Process.TFetchout1[1];
+
+  	if(Process[OpName].scriptOutput.indexOf("True") >= 0){
+	  	Process.ReturnMessage = Process.TFetchout2;
+	  	Process.ReturnCode = 0;
+  	}
+  	else if(Process[OpName].scriptOutput.indexOf("False") >= 0){
+	  	Process.ReturnMessage = Process.TFetchout2;
+	  	Process.ReturnCode = 2;
+  	}
+  else{ 
+		Process.ReturnMessage = Process.TFetchout2;
+	  	Process.ReturnCode = 2;
+  	}
+}
+else{
+    Process.ReturnMessage = "iAutomate failed to validate whether the current time falls within the 15-minute execution window from the planned time\n" + Process[OpName].scriptOutput ;
+  	Process.ReturnCode = 2;
+}
+
+5.Ticket Update
+
+Pre Execution:
+
+Process.putURL="https://"+Process.SNOW_Env+".service-now.com/api/now/table/sc_task/"+Process.Sys_Id+""
+Process.payload = "<request><entry><work_notes>"+Process.ReturnMessage+"</work_notes></entry></request>"
+
+Post Execution:
+
+if(Process[OpName].HTTPResponseReasonPhrase=="OK" && Process[OpName].HTTPResponseStatusCode==200 )
+{
+  if(Process[OpName].HTTPResponseContent.indexOf("state\":\"")>=0)
+  {
+	Process.ReturnCode=0;
+	Process.ReturnMessage="Ticket updated successfully ";
+  }
+  else
+  {
+	Process.ReturnCode=2;
+	Process.ReturnMessage="Error occurred while  updating ticket";
+  }
+}
+else
+{
+  Process.ReturnCode=-1;
+  Process.ReturnMessage="Failure occurred while updating ticket."
+}
+
+6.Script
+
+Inline:
+
+####START_New
+
+Param(
+$Number,
+$username,
+$pass,
+$snowkey,
+$snowp,
+$snowpa,
+$SNOW_Env,
+$Prod_turbot_access_key_id,
+$Prod_turbot_secret_access_key,
+$Non_prod_turbot_access_key_id,
+$Non_prod_turbot_secret_access_key,
+$ins_ids,
+$av_zone,    
+$account,  
+$Environment,
+$IP_addressess,  
+$hosts,
+$os
+)
+
+$Number
+$username
+$pass
+$snowkey
+$snowp
+$snowpa
+$SNOW_Env
+$Prod_turbot_access_key_id
+$Prod_turbot_secret_access_key  
+$Non_prod_turbot_access_key_id
+$Non_prod_turbot_secret_access_key
+$ins_ids
+$av_zone
+$account  
+$Environment
+$IP_addressess
+$hosts
+$os
+
+Import-Module "D:\Wave 1 Scripts\Biogen_Module\Biogen_Module.psm1"
+
+$UNIX = "5b2d41c5dbe73e00d41dd3cb5e961955"
+$Windows = "d32d41c5dbe73e00d41dd3cb5e96194f"
+$snowpass = "$snowp"+"#%4"+$snowpa+"_"
+$table =  "sc_task"
+$script_name = "Server_Start_Cloud"
+$path = "D:\$script_name\$Number"
+$Kion_user = "ia-role"
+$pass = $pass +"%"
+write-host "$pass"
+
+$servers                      = @()
+$KIONS                        = @()
+$Turbots                      = @()
+$Pre_current_Status           = @()
+$current_Status               = @()
+$Non_Prod_start_Server        = @()
+$Prod_start_Server            = @()
+$Already_Stopped              = @()
+$initiate_Start               = @()
+$start_Failed                 = @()
+$start_Successful             = @()
+$Pre_Failed                   = @()
+$Pre_Running                  = @()
+$Not_Stopped                  = @()
+$current_Pre_Status           = @()
+$Pre_try_failed               = @()
+$Non_Prod_Post_current_Status = @()
+$Prod_Post_current_Status     = @()
+$start_Successful             = @()
+$Final_Success                = @()
+$Post_Failed                  = @()
+$Post_try_failed              = @()
+$Post_Status                  = @()
+
+if($os -contains "Windows")
+{
+    $assign = $Windows
+}
+elseif($os -contains "LINUX")
+{
+    $assign = $UNIX
+}
+$filePaths = "$path\Pre_log","$path\Post_log"
+foreach($filePath in $filePaths)
+{
+    If(!(test-path $filePath))
+    {
+        New-Item -ItemType Directory -Force -Path $filePath 
+    }
+    If(!(test-path "$filePath\log.txt"))
+    {
+        New-Item -ItemType File -Name "Log.txt" -Path $filePath
+    }
+}
+
+try
+{
+    [Net.ServicePointManager]::SecurityProtocol = "tls12, tls11, tls"
+    $global:headers = @{"Authorization" = "Basic "+[System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($snowkey+":"+$snowpass))}
+
+    [Net.ServicePointManager]::SecurityProtocol = "tls12, tls11, tls"
+    $get_inc = "https://$SNOW_Env.service-now.com/api/now/v2/table/sc_task?number=$Number"
+    $inc_result = Invoke-WebRequest -Uri $get_inc -Headers $global:headers -Method Get -ContentType "application/json" -UseBasicParsing
+    $incout = $inc_result | ConvertFrom-JSON
+    $inc_sysid = $incout.result.sys_id
+    $description = $incout.result.description
+}
+catch
+{
+    Write-Host "Failed to fetch Ticket details"
+    $log += "Failed to fetch Ticket details"
+    Exit
+}
+
+if($description -match ",")
+{
+    $hostname_count = ($hosts.Split(",")).Count
+    $hosts          = ($hosts.Split(",") | ?{$_ -ne ""}).Trim()
+    $insids         = ($ins_ids.Split(",") | ?{$_ -ne ""}).Trim()
+    $av_zone        = ($av_zone.Split(",") | ?{$_ -ne ""}).Trim()
+    $account        = ($account.Split(",") | ?{$_ -ne ""}).Trim()
+    $os             = ($os.Split(",") | ?{$_ -ne ""}).Trim()
+    $Environment    = ($Environment.Split(",") | ?{$_ -ne ""}).Trim()
+    $IP_address     = ($IP_addressess.Split(",") | ?{$_ -ne ""}).Trim()
+}
+else
+{
+    $hostname_count = $hosts.Count
+    $hosts          = @($hosts)
+    $insids         = @($ins_ids)
+    $av_zone        = @($av_zone)
+    $account        = @($account)
+    $os             = @($os)
+    $Environment    = @($Environment)
+    $IP_address     = @($IP_addressess)
+}
+
+#$output = Get-Content -Path "\\usawsgabb0160\Linux_Val\KION.txt"
+$output = Get-Content -Path "\\usawsgabb0082\Linux_Prod\KION.txt"
+
+for($i=0; $i -lt $hostname_count; $i++)
+{
+    $KIONS             += [PSCustomObject]@{
+        "Hosts"       = $($hosts[$i])
+        "Insids"      = $($insids[$i]) 
+        "Av_zone"     = $($av_zone[$i])
+        "account"     = $($account[$i])
+        "os"          = $($os)
+        "Environment" = $($Environment[$i])
+        "IP_address"  = $($IP_address[$i])
+    }
+    
+}
+
+function backup{
+    $cur_time = Get-date -Format dd_MM_yy_hh_mm_ss
+    Invoke-SSHCommand -SessionId $session -Command "mv /home/svc-linux-snow/.aws/config /home/svc-linux-snow/.aws/backup-config/backup_config_$($cur_time)" 
+    Invoke-SSHCommand -SessionId $session -Command "touch /home/svc-linux-snow/.aws/config"
+    Invoke-SSHCommand -SessionId $session -Command "mv /home/svc-linux-snow/.aws/credentials /home/svc-linux-snow/.aws/backup-credentials/backup_credentials_$($cur_time)"
+    Invoke-SSHCommand -SessionId $session -Command "touch /home/svc-linux-snow/.aws/credentials"
+}
+
+function timestamp{
+    Get-Date -Format "dd_MMM_yyyy_HH:mm:ss tt"
+}
+
+Add-Content -Path "$path\Pre_log\Log.txt" -Value "-----------------"
+Add-Content -Path "$path\Pre_log\Log.txt" -Value "Script Execution Started at $(timestamp)"
+Add-Content -Path "$path\Pre_log\Log.txt" -Value "Service Account used for execution is Svc-ITPAM"
+
+$Pre_current_Status           = @()
+$current_Status               = @()
+$Non_Prod_start_Server        = @()
+$Prod_start_Server            = @()
+$Already_Stopped              = @()
+$initiate_Start               = @()
+$start_Failed                 = @()
+$start_Successful             = @()
+$Pre_Failed                   = @()
+$Pre_Running                  = @()
+$Not_Stopped                  = @()
+$current_Pre_Status           = @()
+$Pre_try_failed               = @()
+$Non_Prod_Post_current_Status = @()
+$Prod_Post_current_Status     = @()
+$start_Successful             = @()
+$Final_Success                = @()
+$Post_Failed                  = @()
+$Post_try_failed              = @()
+$Post_Status                  = @()
+
+<#if($KIONS)
+{#>
+    $computer = "10.240.151.74"
+    $keyfile  = "D:\ssh.key"
+    $pwd = $pass | ConvertTo-SecureString -AsPlainText -Force
+    $credsss = New-Object pscredential -ArgumentList ($username, $pwd)
+
+    try
+    {
+        if($error)
+        {
+            $error.Clear()
+        }
+    
+        New-SSHSession -Computer $computer -Credential $credsss -AcceptKey #-Keyfile $keyfile -AcceptKey
+        $session = (Get-SSHSession).SessionId
+    
+        if($error)
+        {
+            Write-Host "Failed to establish connection with $computer"
+            $log += "Failed to establish connection with $computer"
+            try{Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to establish SSH connection." -asign_grp $assign -table $table}
+            catch{Write-Host "Failed to Route Ticket"; Exit}
+            Exit
+        }
+        Write-Host "Session Established Successfully with $computer" -ForegroundColor Green        
+        $log += "Session Established Successfully with $computer"
+	    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "SSH Session Established Successfully. `n `n $start_Successful" -table $table
+    }    
+    catch
+    {
+        Write-Host "Failed to establish connection with $computer"
+        $log += "Failed to establish connection with $computer"
+        try{Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to establish SSH connection." -asign_grp $assign -table $table}
+        catch{Write-Host "Failed to Route Ticket"; Exit}
+        Exit
+    }
+
+    foreach($KION in $KIONS)
+    {
+        $KION.hosts   
+        $KION.insids      
+        $KION.av_zone     
+        $KION.account     
+        $os         
+        $KION.Environment 
+        $KION.IP_address
+        #$region = ($KION.av_zone).Substring(0,$($KION.av_zone.length)-1)
+    
+        Add-Content -Path "$path\Pre_log\Log.txt" -Value "-----------------"
+        #Add-Content -Path "$path\Pre_log\Log.txt" -Value "Server Number is $i"
+        Add-Content -Path "$path\Pre_log\Log.txt" -Value "Hostname: $($KION.hosts)"
+        Add-Content -Path "$path\Pre_log\Log.txt" -Value "Instance ID: $($KION.insids)"
+        Add-Content -Path "$path\Pre_log\Log.txt" -Value "Availability Zone: $($KION.av_zone)"
+        Add-Content -Path "$path\Pre_log\Log.txt" -Value "AWS Account ID: $($KION.account)"
+        Add-Content -Path "$path\Pre_log\Log.txt" -Value "OS: $os"
+        Add-Content -Path "$path\Pre_log\Log.txt" -Value "Environment: $($KION.Environment)"
+        Add-Content -Path "$path\Pre_log\Log.txt" -Value "IP: $($KION.IP_address)"
+    
+        $env = ($KION.Environment)[0]
+        if($env -eq "N")
+        {
+            try
+            {
+                #$keys = (Invoke-SSHCommand -SessionId $session -Command "kion stak --print -l $($KION.account) -c $Kion_user").Output
+				$keys = (Invoke-SSHCommand -SessionId $session -Command "kion --profile nonprod stak --l $($KION.account)  --car $Kion_user -p").Output
+                $Access_key = (($keys -split "export AWS_ACCESS_KEY_ID=")[1]).Trim()
+                $secret_key = (($keys -split "export AWS_SECRET_ACCESS_KEY=")[2]).Trim()
+                $token_ID   = (($keys -split "export AWS_SESSION_TOKEN=")[3]).Trim()
+                Write-Host "AWS_ACCESS_KEY_ID $Access_key"
+                Write-Host "AWS_SECRET_ACCESS_KEY $secret_key"
+                Write-Host "AWS_SESSION_TOKEN $token_ID"
+
+                Write-Host "Setting up environment for $($KION.av_zone)"
+                Add-Content -Path "$path\Pre_log\Log.txt" -Value "Setting up environment for $($KION.av_zone)"
+                $Set_Access_key = Invoke-SSHCommand -SessionId $session -Command "aws configure set aws_access_key_id $Access_key"
+                if($Set_Access_key.ExitStatus -eq "0")
+                {
+                    $Set_Secret_key = Invoke-SSHCommand -SessionId $session -Command "aws configure set aws_secret_access_key $secret_key"
+                    if($Set_Secret_key.ExitStatus -eq "0")
+                    {
+                        $Set_Session_token = Invoke-SSHCommand -SessionId $session -Command "aws configure set aws_session_token $token_ID"
+                        if($Set_Session_token.ExitStatus -eq "0")
+                        {
+                            $Set_Region = Invoke-SSHCommand -SessionId $session -Command "aws configure set region $($KION.av_zone)"
+                            if($Set_Region.ExitStatus -eq "0")
+                            {
+                                Write-Host "Environment setup successfully for $($KION.account)"
+                                Add-Content -Path "$path\Pre_log\Log.txt" -Value  "Environment setup successfully for $($KION.av_zone)"
+                                $Pre_current_Status = Invoke-SSHCommand -SessionId $session -Command "aws ec2 describe-instances --instance-ids $($KION.insids) --output text --query 'Reservations[*].Instances[*].State.Name'"
+						        $Pre_current_Status
+                                if($Pre_current_Status.ExitStatus -eq "0")
+                                {   
+                                    $current_Status = $Pre_current_Status.Output
+                                     if($Pre_current_Status.Output -like "*stopped*")
+                                    {
+                                        Write-Host "Current Status of $($KION.hosts) is Stopped. Proceeding to Start the server."
+                                        Add-Content -Path "$path\Pre_log\Log.txt" -Value  "Current Status of $($KION.hosts) is Stopped. Proceeding to Start the server."
+                                        $Non_Prod_start_Server = Invoke-SSHCommand -SessionId $session -Command "aws ec2 start-instances --instance-ids $($KION.insids) --output text --query 'StartingInstances[*].CurrentState.Name'"
+                                        $Already_Stopped += @("$($KION.hosts) `n")
+                                        if($Non_Prod_start_Server.Output -like "*pending*")
+                                        {
+                                            Write-Host "$($KION.hosts) start initiated."
+                                            Add-Content -Path "$path\Pre_log\Log.txt" -Value  "$($KION.hosts) start initiated."
+                                            $initiate_Start += @("$($KION.hosts) `n")
+                                        }
+                                        else
+                                        {
+                                            Write-Host "Failed to initiate start for $($KION.hosts)."
+                                            Add-Content -Path "$path\Pre_log\Log.txt" -Value  "Failed to initiate start for $($KION.hosts)."
+                                            $Pre_Failed += @("$($KION.hosts) `n")
+                                        }
+                                    }
+                                    elseif($Pre_current_Status.Output -like "*unning*")
+                                    {
+                                        Write-Host "Current Status of $($KION.hosts) is $($Pre_current_Status.Output). Skipping and proceeding to the next server."
+                                        Add-Content -Path "$path\Pre_log\Log.txt" -Value  "Current Status of $($KION.hosts) is $($Pre_current_Status.Output). Skipping and proceeding to the next server."
+                                        $Pre_Running += @("$($KION.hosts) `n")
+                                    }
+                                    else
+                                    {
+                                        Write-Host "Current Status of $($KION.hosts) is $($Pre_current_Status.Output). Skipping and proceeding to the next server."
+                                        Add-Content -Path "$path\Pre_log\Log.txt" -Value  "Current Status of $($KION.hosts) is $($Pre_current_Status.Output). Skipping and proceeding to the next server."
+                                        $Not_Stopped += @("$($KION.hosts) `n")
+                                    }
+                                    $current_Pre_Status += @("$($KION.hosts) - $current_Status `n")
+                                }
+                                else
+                                {
+                                    Add-Content -Path "$path\Pre_log\Log.txt" -Value "KION Pre Status Failed for $($KION.hosts)."
+                                    $Pre_Failed += @("$($KION.hosts) `n")
+                                }
+                            }
+                            else
+                            {
+                                Add-Content -Path "$path\Pre_log\Log.txt" -Value "KION Enviroment setup Pre Failed for $($KION.hosts)."
+                                $Pre_Failed += @("$($KION.hosts) `n")
+                            }
+                        }
+                        else
+                        {
+                            Add-Content -Path "$path\Pre_log\Log.txt" -Value "KION Enviroment setup Pre Failed for $($KION.hosts)."
+                            $Pre_Failed += @("$($KION.hosts) `n")
+                        }
+                    }
+                    else
+                    {
+                        Add-Content -Path "$path\Pre_log\Log.txt" -Value "KION Enviroment setup Pre Failed for $($KION.hosts)."
+                        $Pre_Failed += @("$($KION.hosts) `n")
+                    }
+                }
+                else
+                {
+                    Add-Content -Path "$path\Pre_log\Log.txt" -Value "KION Enviroment setup Pre Failed for $($KION.hosts)."
+                    $Pre_Failed += @("$($KION.hosts) `n")
+                }
+            
+            }
+            catch
+            {
+                Write-Host "Pre Non Prod failed for $($KION.hosts)"
+                Add-Content -Path "$path\Pre_log\Log.txt" -Value  "Pre Non Prod failed"
+                $Pre_try_failed += @("$($KION.hosts) `n")
+            }
+        }
+        elseif($env -eq "P")
+        {   
+            try
+            {
+                #$keys = (Invoke-SSHCommand -SessionId $session -Command "kion stak --print -l $($KION.account) -c $Kion_user").Output
+				$keys = (Invoke-SSHCommand -SessionId $session -Command "kion --profile prod stak --l $($KION.account)  --car $Kion_user -p").Output
+                $Access_key = (($keys -split "export AWS_ACCESS_KEY_ID=")[1]).Trim()
+                $secret_key = (($keys -split "export AWS_SECRET_ACCESS_KEY=")[2]).Trim()
+                $token_ID   = (($keys -split "export AWS_SESSION_TOKEN=")[3]).Trim()
+                Write-Host "AWS_ACCESS_KEY_ID $Access_key"
+                Write-Host "AWS_SECRET_ACCESS_KEY $secret_key"
+                Write-Host "AWS_SESSION_TOKEN $token_ID"
+
+                Write-Host "Setting up environment for $($KION.av_zone)"
+                Add-Content -Path "$path\Pre_log\Log.txt" -Value  "Setting up environment for $($KION.av_zone)"
+                $Set_Access_key = Invoke-SSHCommand -SessionId $session -Command "aws configure set aws_access_key_id $Access_key"
+                if($Set_Access_key.ExitStatus -eq "0")
+                {
+                    $Set_Secret_key = Invoke-SSHCommand -SessionId $session -Command "aws configure set aws_secret_access_key $secret_key"
+                    if($Set_Secret_key.ExitStatus -eq "0")
+                    {
+                        $Set_Session_token = Invoke-SSHCommand -SessionId $session -Command "aws configure set aws_session_token $token_ID"
+                        if($Set_Session_token.ExitStatus -eq "0")
+                        {
+                            $Set_Region = Invoke-SSHCommand -SessionId $session -Command "aws configure set region $($KION.av_zone)"
+                            if($Set_Region.ExitStatus -eq "0")
+                            {
+                                Write-Host "Environment setup successfully for $($KION.av_zone)"
+                                Add-Content -Path "$path\Pre_log\Log.txt" -Value  "Environment setup successfully for $($KION.av_zone)"
+
+                                $Pre_current_Status = Invoke-SSHCommand -SessionId $session -Command "aws ec2 describe-instances --instance-ids $($KION.insids) --output text --query 'Reservations[*].Instances[*].State.Name'"
+                                $Pre_current_Status
+                                if($Pre_current_Status.ExitStatus -eq "0")
+                                {   
+                                    $current_Status = $Pre_current_Status.Output
+                                    if($Pre_current_Status.Output -like "*stopped*")
+                                    {
+                                        Write-Host "Current Status of $($KION.hosts) is Stopped. Proceeding to Start the server."
+                                        Add-Content -Path "$path\Pre_log\Log.txt" -Value  "Current Status of $($KION.hosts) is Stopped. Proceeding to Start the server."
+                                        $Prod_start_Server = Invoke-SSHCommand -SessionId $session -Command "aws ec2 start-instances --instance-ids $($KION.insids) --output text --query 'StartingInstances[*].CurrentState.Name'"
+                                        $Already_Stopped += @("$($KION.hosts) `n")
+                                    
+                                        if($Prod_start_Server.Output -like "*pending*")
+                                        {
+                                            Write-Host "$($KION.hosts) start initiated."
+                                            Add-Content -Path "$path\Pre_log\Log.txt" -Value  "$($KION.hosts) start initiated."
+                                            $initiate_Start += @("$($KION.hosts) `n")
+                                        }
+                                        else
+                                        {
+                                            Write-Host "Failed to initiate start for $($KION.hosts)."
+                                            Add-Content -Path "$path\Pre_log\Log.txt" -Value  "Failed to initiate start for $($KION.hosts)."
+                                            $Pre_Failed += @("$($KION.hosts) `n")
+                                        }
+                                    }
+                                    elseif($Pre_current_Status.Output -like "*unning*")
+                                    {
+                                        Write-Host "Current Status of $($KION.hosts) is $($Pre_current_Status.Output). Skipping and proceeding to the next server."
+                                        Add-Content -Path "$path\Pre_log\Log.txt" -Value  "Current Status of $($KION.hosts) is $($Pre_current_Status.Output). Skipping and proceeding to the next server."
+                                        $Pre_Running += @("$($KION.hosts) `n")
+                                    }
+                                    else
+                                    {
+                                        Write-Host "Current Status of $($KION.hosts) is $($Pre_current_Status.Output). Skipping and proceeding to the next server."
+                                        Add-Content -Path "$path\Pre_log\Log.txt" -Value  "Current Status of $($KION.hosts) is $($Pre_current_Status.Output). Skipping and proceeding to the next server."
+                                        $Not_Stopped += @("$($KION.hosts) `n")
+                                    }
+                                    $current_Pre_Status += @("$($KION.hosts) - $current_Status `n")
+                                }
+                                else
+                                {
+                                    Add-Content -Path "$path\Pre_log\Log.txt" -Value "KION Pre Status Failed for $($KION.hosts)."
+                                    $Pre_Failed += @("$($KION.hosts) `n")
+                                }
+                            }
+                            else
+                            {
+                                Add-Content -Path "$path\Pre_log\Log.txt" -Value "KION Enviroment setup Pre Failed for $($KION.hosts)."
+                                $Pre_Failed += @("$($KION.hosts) `n")
+                            }
+                        }
+                        else
+                        {
+                            Add-Content -Path "$path\Pre_log\Log.txt" -Value "KION Enviroment setup Pre Failed for $($KION.hosts)."
+                            $Pre_Failed += @("$($KION.hosts) `n")
+                        }
+                    }
+                    else
+                    {
+                        Add-Content -Path "$path\Pre_log\Log.txt" -Value "KION Enviroment setup Pre Failed for $($KION.hosts)."
+                        $Pre_Failed += @("$($KION.hosts) `n")
+                    }
+                }
+                else
+                {
+                    Add-Content -Path "$path\Pre_log\Log.txt" -Value "KION Enviroment setup Pre Failed for $($KION.hosts)."
+                    $Pre_Failed += @("$($KION.hosts) `n")
+                }
+            }
+            catch
+            {
+                Write-Host "Pre Prod failed $($KION.hosts)"
+                Add-Content -Path "$path\Pre_log\Log.txt" -Value "Pre Prod failed $($KION.hosts)"
+                $Pre_try_failed += @("$($KION.hosts) `n")
+            }
+        }
+        else
+        {
+            Write-Host "Environment not defined for index value $i"
+            Add-Content -Path "$path\Pre_log\Log.txt" -Value  "Environment not defined for index value $i"
+        }
+    }
+
+    Add-Content -Path "$path\Pre_log\Log.txt" -Value  "Pre Execution Ends $(timestamp)"
+    Add-Content -Path "$path\Pre_log\Log.txt" -Value  "-----------------"
+    
+    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "KION" -table $table
+
+    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Current Status of the servers are. `n `n $current_Pre_Status" -table $table
+    if($Pre_try_failed)
+    {
+        Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to get the status of below servers `n `n $Pre_try_failed" -table $table
+    }
+    if($Pre_Failed)
+    {
+        Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to Initiate start for the below servers. `n `n $Pre_Failed" -table $table
+    }
+    if($initiate_Start)
+    {
+        Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Start initiated for the below servers.`n `n $initiate_Start" -table $table
+    }
+    if($Pre_Running)
+    {
+        Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Below servers are already in running state.`n `n $Pre_Running" -table $table
+    }
+
+    start-sleep -Seconds 600
+
+    Add-Content -Path "$path\Post_log\Log.txt" -Value "-----------------"
+    Add-Content -Path "$path\Post_log\Log.txt" -Value "Script Execution Started at $(timestamp)"
+    Add-Content -Path "$path\Post_log\Log.txt" -Value "Service Account used for execution is Svc-ITPAM"
+
+    foreach($KION in $KIONS)
+    {
+        Add-Content -Path "$path\Post_log\Log.txt" -Value "-----------------"
+        Add-Content -Path "$path\Post_log\Log.txt" -Value "Server Number is $i"
+        Add-Content -Path "$path\Post_log\Log.txt" -Value "Hostname: $($KION.hosts)"
+        Add-Content -Path "$path\Post_log\Log.txt" -Value "Instance ID: $($KION.insids)"
+        Add-Content -Path "$path\Post_log\Log.txt" -Value "Availability Zone: $($KION.av_zone)"
+        Add-Content -Path "$path\Post_log\Log.txt" -Value "AWS Account ID: $($KION.account)"
+        Add-Content -Path "$path\Post_log\Log.txt" -Value "OS: $os"
+        Add-Content -Path "$path\Post_log\Log.txt" -Value "Environment: $($KION.Environment)"
+        Add-Content -Path "$path\Post_log\Log.txt" -Value "IP: $($KION.IP_address)"
+
+        $env = ($KION.Environment)[0]
+        if($env -eq "N")
+        {
+            try
+            {
+                #$keys = (Invoke-SSHCommand -SessionId $session -Command "kion stak --print -l $($KION.account) -c $Kion_user").Output
+				$keys = (Invoke-SSHCommand -SessionId $session -Command "kion --profile nonprod stak --l $($KION.account)  --car $Kion_user -p").Output
+                $Access_key = (($keys -split "export AWS_ACCESS_KEY_ID=")[1]).Trim()
+                $secret_key = (($keys -split "export AWS_SECRET_ACCESS_KEY=")[2]).Trim()
+                $token_ID   = (($keys -split "export AWS_SESSION_TOKEN=")[3]).Trim()
+                Write-Host "AWS_ACCESS_KEY_ID $Access_key"
+                Write-Host "AWS_SECRET_ACCESS_KEY $secret_key"
+                Write-Host "AWS_SESSION_TOKEN $token_ID"
+
+                Write-Host "Setting up environment for $($KION.av_zone)"
+                Add-Content -Path "$path\Pre_log\Log.txt" -Value "Setting up environment for $($KION.av_zone)"
+                $Set_Access_key = Invoke-SSHCommand -SessionId $session -Command "aws configure set aws_access_key_id $Access_key"
+                if($Set_Access_key.ExitStatus -eq "0")
+                {
+                    $Set_Secret_key = Invoke-SSHCommand -SessionId $session -Command "aws configure set aws_secret_access_key $secret_key"
+                    if($Set_Secret_key.ExitStatus -eq "0")
+                    {
+                        $Set_Session_token = Invoke-SSHCommand -SessionId $session -Command "aws configure set aws_session_token $token_ID"
+                        if($Set_Session_token.ExitStatus -eq "0")
+                        {
+                            $Set_Region = Invoke-SSHCommand -SessionId $session -Command "aws configure set region $($KION.av_zone)"
+                            if($Set_Region.ExitStatus -eq "0")
+                            {
+                                Write-Host "Environment setup successfully for $($KION.account)"
+                                Add-Content -Path "$path\Pre_log\Log.txt" -Value  "Environment setup successfully for $($KION.av_zone)"
+                                $Non_Prod_Post_current_Status = Invoke-SSHCommand -SessionId $session -Command "aws ec2 describe-instances --instance-ids $($KION.insids) --output text --query 'Reservations[*].Instances[*].State.Name'"
+                                #Invoke-SSHCommand -SessionId $session -Command "turbot-aws -a $($KION.account) --role-name=admin  ec2 describe-instances --instance-ids $($KION.insids) --region $($KION.av_zone) --output text --query 'Reservations[*].Instances[*].State.Name'"
+                                $Poststatus = $Non_Prod_Post_current_Status.Output
+                                $Post_Status += @("$($KION.hosts) - $Poststatus `n")
+                                if($Non_Prod_Post_current_Status.ExitStatus -eq "0")
+                                {   
+                                    if($Non_Prod_Post_current_Status.Output -like "*running*")
+                                    {
+                                        Write-Host "$($KION.hosts) Started successfully."
+                                        Add-Content -Path "$path\Post_log\Log.txt" -Value "$($KION.hosts) Started successfully."
+                                        $start_Successful += @("$($KION.hosts) `n")
+                                        if(Test-Connection -ComputerName $KION.IP_address -Quiet)
+                                        {
+                                            Write-Host "$($KION.hosts) Ping successful"
+                                            Add-Content -Path "$path\Post_log\Log.txt" -Value "$($KION.hosts) Ping successful"
+                                            $Final_Success += @("$($KION.hosts) `n")
+                                        }
+                                        else
+                                        {
+                                            Add-Content -Path "$path\Post_log\Log.txt" -Value "Failed to get ping response $($KION.hosts)"
+                                            $Post_Failed += @("$($KION.hosts) `n")
+                                        }
+                                    }
+                                    else
+                                    {
+                                        Write-Host "Failed to Start $($KION.hosts)."
+                                        Add-Content -Path "$path\Post_log\Log.txt" -Value "Failed to Start $($KION.hosts)."
+                                        $Post_Failed += @("$($KION.hosts) `n")
+                                    }
+                                }
+                                else
+                                {
+                                    Add-Content -Path "$path\Pre_log\Log.txt" -Value "KION Post Status Failed for $($KION.hosts)."
+                                    $Post_Failed += @("$($KION.hosts) `n")
+                                }
+                            }
+                            else
+                            {
+                                Add-Content -Path "$path\Pre_log\Log.txt" -Value "KION Enviroment setup Post Failed for $($KION.hosts)."
+                                $Post_Failed += @("$($KION.hosts) `n")
+                            }
+                        }
+                        else
+                        {
+                            Add-Content -Path "$path\Pre_log\Log.txt" -Value "KION Enviroment setup Post Failed for $($KION.hosts)."
+                            $Post_Failed += @("$($KION.hosts) `n")
+                        }
+                    }
+                    else
+                    {
+                        Add-Content -Path "$path\Pre_log\Log.txt" -Value "KION Enviroment setup Post Failed for $($KION.hosts)."
+                        $Post_Failed += @("$($KION.hosts) `n")
+                    }
+                }
+                else
+                {
+                    Add-Content -Path "$path\Pre_log\Log.txt" -Value "KION Enviroment setup Post Failed for $($KION.hosts)."
+                    $Post_Failed += @("$($KION.hosts) `n")
+                }
+            }
+            catch
+            {
+                Write-Host "Post Non Prod failed"
+                Add-Content -Path "$path\Post_log\Log.txt" -Value "Post Non Prod failed"
+                $Post_try_failed += @("$($KION.hosts) `n")
+            }
+        }
+        elseif($env -eq "P")
+        {
+            try
+            {
+                #$keys = (Invoke-SSHCommand -SessionId $session -Command "kion stak --print -l $($KION.account) -c $Kion_user").Output
+				$keys = (Invoke-SSHCommand -SessionId $session -Command "kion --profile prod stak --l $($KION.account)  --car $Kion_user -p").Output
+                $Access_key = (($keys -split "export AWS_ACCESS_KEY_ID=")[1]).Trim()
+                $secret_key = (($keys -split "export AWS_SECRET_ACCESS_KEY=")[2]).Trim()
+                $token_ID   = (($keys -split "export AWS_SESSION_TOKEN=")[3]).Trim()
+                Write-Host "AWS_ACCESS_KEY_ID $Access_key"
+                Write-Host "AWS_SECRET_ACCESS_KEY $secret_key"
+                Write-Host "AWS_SESSION_TOKEN $token_ID"
+
+                Write-Host "Setting up environment for $($KION.av_zone)"
+                Add-Content -Path "$path\Pre_log\Log.txt" -Value "Setting up environment for $($KION.av_zone)"
+                $Set_Access_key = Invoke-SSHCommand -SessionId $session -Command "aws configure set aws_access_key_id $Access_key"
+                if($Set_Access_key.ExitStatus -eq "0")
+                {
+                    $Set_Secret_key = Invoke-SSHCommand -SessionId $session -Command "aws configure set aws_secret_access_key $secret_key"
+                    if($Set_Secret_key.ExitStatus -eq "0")
+                    {
+                        $Set_Session_token = Invoke-SSHCommand -SessionId $session -Command "aws configure set aws_session_token $token_ID"
+                        if($Set_Session_token.ExitStatus -eq "0")
+                        {
+                            $Set_Region = Invoke-SSHCommand -SessionId $session -Command "aws configure set region $($KION.av_zone)"
+                            if($Set_Region.ExitStatus -eq "0")
+                            {
+                                Write-Host "Environment setup successfully for $($KION.account)"
+                                Add-Content -Path "$path\Pre_log\Log.txt" -Value  "Environment setup successfully for $($KION.av_zone)"
+                                $Prod_Post_current_Status = Invoke-SSHCommand -SessionId $session -Command "aws ec2 describe-instances --instance-ids $($KION.insids) --output text --query 'Reservations[*].Instances[*].State.Name'"
+                                $Poststatus = $Prod_Post_current_Status.Output
+                                $Post_Status += @("$($KION.hosts) - $Poststatus `n")
+                                if($Prod_Post_current_Status.ExitStatus -eq "0")
+                                {   
+                                    if($Prod_Post_current_Status.Output -like "*running*")
+                                    {
+                                        Write-Host "$($KION.hosts) Started successfully."
+                                        Add-Content -Path "$path\Post_log\Log.txt" -Value "$($KION.hosts) Started successfully."
+                                        $start_Successful += @("$($KION.hosts) `n")
+                                        if(Test-Connection -ComputerName $KION.IP_address -Quiet)
+                                        {
+                                            Write-Host "$($KION.hosts) Ping successful"
+                                            Add-Content -Path "$path\Post_log\Log.txt" -Value "$($KION.hosts) Ping successful"
+                                            $Final_Success += @("$($KION.hosts) `n")
+                                        }
+                                        else
+                                        {
+                                            Add-Content -Path "$path\Post_log\Log.txt" -Value "Failed to get ping response $($KION.hosts)"
+                                            $Post_Failed += @("$($KION.hosts) `n")
+                                        }
+                                    }
+                                    else
+                                    {
+                                        Write-Host "Failed to Start $($KION.hosts)."
+                                        Add-Content -Path "$path\Post_log\Log.txt" -Value "Failed to Start $($KION.hosts)."
+                                        $Post_Failed += @("$($KION.hosts) `n") 
+                                    }
+                                }
+                                else
+                                {
+                                    Add-Content -Path "$path\Pre_log\Log.txt" -Value "KION Post Status Failed for $($KION.hosts)."
+                                    $Post_Failed += @("$($KION.hosts) `n")
+                                }
+                            }
+                            else
+                            {
+                                Add-Content -Path "$path\Pre_log\Log.txt" -Value "KION Enviroment setup Post Failed for $($KION.hosts)."
+                                $Post_Failed += @("$($KION.hosts) `n")
+                            }
+                        }
+                        else
+                        {
+                            Add-Content -Path "$path\Pre_log\Log.txt" -Value "KION Enviroment setup Post Failed for $($KION.hosts)."
+                            $Post_Failed += @("$($KION.hosts) `n")
+                        }
+                    }
+                    else
+                    {
+                        Add-Content -Path "$path\Pre_log\Log.txt" -Value "KION Enviroment setup Post Failed for $($KION.hosts)."
+                        $Post_Failed += @("$($KION.hosts) `n")
+                    }
+                }
+                else
+                {
+                    Add-Content -Path "$path\Pre_log\Log.txt" -Value "KION Enviroment setup Post Failed for $($KION.hosts)."
+                    $Post_Failed += @("$($KION.hosts) `n")
+                }
+            }
+            catch
+            {
+                Write-Host "Post Prod failed"
+                Add-Content -Path "$path\Post_log\Log.txt" -Value "Post Prod failed"
+                $Post_try_failed += @("$($KION.hosts) `n")
+            }
+        }
+        else
+        {
+            Write-Host "Environment not defined for index value $i"
+            Add-Content -Path "$path\Post_log\Log.txt" -Value "Environment not defined for index value $i"
+        }
+    }
+
+    Add-Content -Path "$path\Post_log\Log.txt" -Value "Script Execution Ends $(timestamp)"
+    Add-Content -Path "$path\Post_log\Log.txt" -Value "-----------------"
+
+
+    Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Current status of the servers are. `n `n $Post_Status" -table $table
+    if($Post_try_failed)
+    {
+        Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to get the status of below servers `n `n $Post_try_failed" -table $table
+    }
+
+    if($Post_Failed)
+    {
+        Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to start the below server(s). `n `n $Post_Failed" -table $table
+    }
+    if($start_Successful)
+    {
+        Update-Ticket -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Below Servers are started Successfully. `n `n $start_Successful" -table $table
+    }
+
+    $KION_success = $Final_Success
+#}
+
+#$Success = $($Turbot_success.Count) + $($KION_success.Count)
+$Success = $($KION_success.Count)
+
+if($Success -eq $hostname_count)
+{
+    try{Resolve-Ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "All the requested server(s) are started successfully." -table $table}
+    catch{Write-Host "Unable to Resolve ticket `n"}
+    Exit
+}
+else
+{
+    try{Route-ticket -number $number -script_name $script_name -inc_sysid $inc_sysid -SNOW_Env $SNOW_Env -apikey $snowkey -password $snowpass -work_notes "Failed to Start all servers. Hence routing the ticket." -asign_grp $assign -table $table}
+    catch{Write-Host "Failed to Route Ticket"; Exit}
+    Exit
+}
+
+
+Post Execution:
+
+if(Process.Ping_check.scriptOutput.indexOf("Ticket Resolved Successfully")>=0)
+{
+  Process.ReturnCode=1
+  Process.ReturnMessage="Ticket Resolved Successfully. "
+}
+else if(Process.Ping_check.scriptOutput.indexOf("Assignment Group updated successfully")>=0)
+{
+  Process.ReturnCode=2
+  Process.ReturnMessage="Assignment Group updated successfully. "
+}
+else
+{
+Process.ReturnCode=-1
+Process.returnMessage = "Failed to start the server(s)"
+}
+
+7. Fatal Ticket Update
+
+Pre Execution:
+
+Process.OSType = Process.OS.toLowerCase();
+
+if(Process.OSType.indexOf("windows") >= 0){
+	Process.GroupSysId = "d32d41c5dbe73e00d41dd3cb5e96194f";
+}
+else if(Process.OSType.indexOf("linux") >= 0){
+  	Process.GroupSysId = "5b2d41c5dbe73e00d41dd3cb5e961955";
+}
+
+Process.putURL="https://"+Process.SNOW_Env+".service-now.com/api/now/table/sc_task/"+Process.Sys_Id+""
+Process.FatalErrorPayLoad ="<request><entry><assignment_group>"+Process.GroupSysId+"</assignment_group><assigned_to></assigned_to><u_automation_result>Unsuccessful</u_automation_result><state>1</state><work_notes>"+Process.returnMessage+"Hence Routing the ticket.</work_notes></entry></request>"
+

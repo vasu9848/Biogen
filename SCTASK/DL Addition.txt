@@ -1,0 +1,364 @@
+1. Get Ticket
+
+Pre Execution:
+
+Process.url = "https://biogen.service-now.com/api/now/table/sc_task?sysparm_fields=short_description%2Cdescription%2Csys_id&sysparm_limit=1&number="+Process.Number
+
+
+Post Execution:
+
+Process.out=Process.HTTP_Get_1_1.HTTPResponseContent
+//Process.HTTP_Get_1_1.HTTPResponseContent
+
+//{"result":[{"short_description":"Application Test Lead Checklist","description":"Production IQ App"}]}
+
+//Steps to fetch the status from httpresponse
+Process.firstvariable ='short_description":"';
+Process.secondvariable = '","sys_id';
+
+Process.summary= Process.out
+
+    Process.i = Process.summary.indexOf(Process.firstvariable);
+    if (Process.i >= 0) {
+        Process.summary = Process.summary.substring(i + Process.firstvariable.length);
+    }
+    else {
+        return '';
+    }
+    if (Process.secondvariable) {
+        Process.i = Process.summary.indexOf(Process.secondvariable);
+        if (Process.i >= 0) {
+            Process.summary = Process.summary.substring(0, i);
+        }
+        else {
+          return '';
+        }
+    }
+
+//Steps to fetch the status from httpresponse
+Process.firstvariable ='"sys_id":"';
+Process.secondvariable = '","description"';
+
+Process.SysId= Process.out
+
+    Process.i = Process.SysId.indexOf(Process.firstvariable);
+    if (Process.i >= 0) {
+        Process.SysID = Process.SysId.substring(i + Process.firstvariable.length);
+    }
+    else {
+        return '';
+    }
+    if (Process.secondvariable) {
+        Process.i = Process.SysId.indexOf(Process.secondvariable);
+        if (Process.i >= 0) {
+            Process.SysId = Process.SysId.substring(0, i);
+        }
+        else {
+          return '';
+        }
+    }
+//u_sub_status
+//Steps to fetch the sub status from httpresponse
+Process.fvariable =',"description":"';
+Process.svariable = '"}]}';
+
+Process.description = Process.out
+
+    Process.i = Process.description.indexOf(Process.fvariable);
+    if (Process.i >= 0) {
+        Process.description = Process.description.substring(i + Process.fvariable.length);
+    }
+    else {
+        return '';
+    }
+    if (Process.svariable) {
+        Process.i = Process.description.indexOf(Process.svariable);
+        if (Process.i >= 0) {
+            Process.description = Process.description.substring(0, i);
+        }
+        else {
+          return '';
+        }
+    }
+
+//Fetch distribution list name
+
+//What is the name of the Distribution List?=
+
+Process.fvariable ='What is the name of the Distribution List?=';
+Process.svariable = '"}]}';
+
+Process.dlname = Process.out
+
+    Process.i = Process.dlname.indexOf(Process.fvariable);
+    if (Process.i >= 0) {
+        Process.dlname = Process.dlname.substring(i + Process.fvariable.length);
+    }
+    else {
+        return '';
+    }
+    if (Process.svariable) {
+        Process.i = Process.dlname.indexOf(Process.svariable);
+        if (Process.i >= 0) {
+            Process.dlname = Process.dlname.substring(0, i);
+        }
+        else {
+          return '';
+        }
+    }
+
+//Fetch distribution list name
+
+//Primary contact name
+
+Process.fvariable ='Backup to the primary contact?=';
+Process.svariable = 'Business Reason=';
+
+Process.Owner1 = Process.out
+
+    Process.i = Process.Owner1.indexOf(Process.fvariable);
+    if (Process.i >= 0) {
+        Process.Owner1 = Process.Owner1.substring(i + Process.fvariable.length);
+    }
+    else {
+        return '';
+    }
+    if (Process.svariable) {
+        Process.i = Process.Owner1.indexOf(Process.svariable);
+        if (Process.i >= 0) {
+            Process.Owner1 = Process.Owner1.substring(0, i);
+        }
+        else {
+          return '';
+        }
+    }
+
+//Secondary contact name
+
+Process.fvariable ='The primary contact responsible for adding/removing users to/from the Distribution List?=';
+Process.svariable = 'What is the name of the Distribution List?=';
+
+Process.Owner2 = Process.out
+
+    Process.i = Process.Owner2.indexOf(Process.fvariable);
+    if (Process.i >= 0) {
+        Process.Owner2 = Process.Owner2.substring(i + Process.fvariable.length);
+    }
+    else {
+        return '';
+    }
+    if (Process.svariable) {
+        Process.i = Process.Owner2.indexOf(Process.svariable);
+        if (Process.i >= 0) {
+            Process.Owner2 = Process.Owner2.substring(0, i);
+        }
+        else {
+          return '';
+        }
+    }
+
+
+2.Ticket Update
+
+Post Execution:
+
+Process.ReturnCode = 51
+Process.ReturnMessage = "IAutomate: In Progress"
+
+3.Script
+
+Inline:
+
+$dlname = $args[0]
+$Owner1 = $args[1]
+$Owner2 = $args[2]
+$Owner11 = $Owner1.Replace("\r\n"," ")
+$Owner111 = $Owner11.trim()
+$Owner22 = $Owner2.Replace("\r\n"," ")
+$Owner222 = $Owner22.trim()
+$Owners = @($Owner111,$Owner222)
+
+$password = ConvertTo-SecureString “Hs2n7MB7o3JmB2G4” -AsPlainText -Force
+
+$Creds = New-Object System.Management.Automation.PSCredential (“SVC-itpam”, $password)
+
+Invoke-Command -ComputerName "exch2016vmp03" -Credential $creds -ScriptBlock { 
+param($dlname, $Owners)
+
+$Username = “SVC-ITPAM-EUC@biogen.com”
+$Password = ConvertTo-SecureString –String "94msYE14ASkrAe83M13QkAnr"  –AsPlainText -Force
+$o365AdminCredential = New-Object –TypeName System.Management.Automation.PSCredential –ArgumentList $Username, $Password
+
+$Session = New-PSSession -ConfigurationName Microsoft.Exchange -ConnectionUri https://outlook.office365.com/powershell-liveid/ -Credential $o365AdminCredential -Authentication Basic -AllowRedirection
+Import-PSSession $Session -AllowClobber
+
+<#
+$DLName = "Dummy2"
+$DLDisplayName = "DL-"+$DLName
+$Owner1 = "Gayathri Ramu"
+$Owner2 = "Balaji Prabhu"
+#>
+$DLName = $dlname
+$DLDisplayName = "DL-"+$DLName
+$Owner1 = $Owners[0]
+$Owner2 = $Owners[1]
+
+
+$REPLACEMENTARRAY = "/", "\", "(", ")", "{", "}", "[", "]", ".", ",", "<", ">", "?", "|", "+", "_", "!", "@", "#", "$", "%", "^", "&", "=", " "
+for ($i = 0; $i -le $REPLACEMENTARRAY.Count; $i++)
+{ $DisplayName = $DLName.Replace($REPLACEMENTARRAY[$i], $null) }
+
+$EmailAddress = $DisplayName + "@biogen.com"
+
+$Alias = "Alias" + "-" + $DisplayName
+
+$TargetGroup = Get-DistributionGroup -Identity $DLDisplayName -ea 0
+if($TargetGroup){
+	write-host "$DLDisplayName"
+    #write-host "The DL Name exists"
+    $Err = "The DL Name exists"
+}
+else
+{
+    if(Get-Recipient $Owner1 -ea 0)
+    {
+        if(Get-Recipient $Owner2 -ea 0){
+			write-host "$DLDisplayName"
+            #write-host "The DL Name does not exist"
+			$Err = "The DL Name does not exist"
+            New-DistributionGroup -PrimarySmtpAddress $EmailAddress -Name ($DLDisplayName) -DisplayName ($DLDisplayName) -Alias $Alias -ManagedBy "sg-ExchDLAdmins" -MemberDepartRestriction "Closed" -RequireSenderAuthenticationEnabled $false -MemberJoinRestriction "Open"
+            Start-Sleep -s 2
+			write-host "DL created"
+            Set-DistributionGroup -Identity $EmailAddress -ManagedBy @{ add = $Owner1 } -BypassSecurityGroupManagerCheck -Verbose
+            Start-Sleep -s 2
+            Set-DistributionGroup -Identity $EmailAddress -ManagedBy @{ add = $Owner2 } -BypassSecurityGroupManagerCheck -Verbose
+        }
+        else{
+        write-host "Owner2 $Owner2 email address seems incorrect"
+        $Err = "Owner2 $Owner2 email address seems incorrect"
+        }
+    }
+    else{
+        write-host "Owner1 $Owner1 email address seems incorrect"
+        $Err = "Owner1 $Owner1 email address seems incorrect"
+    }
+}
+
+return $Err
+
+} -ArgumentList $dlname,$Owners
+
+Post Execution:
+
+Process.Output = Process.Run_Script_1_1.scriptOutput
+
+if((Process.Output.indexOf("New! Microsoft 365 Groups are the next generation of distribution lists.")>=0))
+{
+  Process.ReturnCode=1;
+  Process.ReturnMessage="DL create and mail sending";
+}
+else{
+  Process.ReturnCode=99;
+  Process.ReturnMessage="DL not created";
+}
+
+4.Script
+
+Inline:
+$dlname = $args[0]
+$Owner1 = $args[1]
+$Owner2 = $args[2]
+$Owner11 = $Owner1.Replace("\n"," ")
+$Owner111 = $Owner11.trim()
+$Owner22 = $Owner2.Replace("\n"," ")
+$Owner222 = $Owner22.trim()
+$Owners = @($Owner111,$Owner222)
+write-host $Owners
+
+$password = ConvertTo-SecureString “Hs2n7MB7o3JmB2G4” -AsPlainText -Force
+
+$Creds = New-Object System.Management.Automation.PSCredential (“SVC-itpam”, $password)
+
+Invoke-Command -ComputerName "exch2016vmp03" -Credential $creds -ScriptBlock { 
+param($dlname, $Owners)
+$displayname = $dlname
+write-host $dlname
+
+write-host $Owners
+
+$Username = “SVC-ITPAM-EUC@biogen.com”
+					$Password = ConvertTo-SecureString –String "94msYE14ASkrAe83M13QkAnr"  –AsPlainText -Force
+					$o365AdminCredential = New-Object –TypeName System.Management.Automation.PSCredential –ArgumentList $Username, $Password
+
+Function Connect-ExchangeOnline ($o365AdminCredential)
+{
+	try
+	{
+		Write-host "Attempting to connect to Exchange Online."
+		New-PSSession -ConfigurationName Microsoft.Exchange -ConnectionUri 'https://outlook.office365.com/powershell-liveid/?proxymethod=rps' -Credential $o365AdminCredential -Authentication Basic -AllowRedirection -Name "ExchangeOnlineSession" -ErrorAction 'Stop'
+		Write-host "Success"
+	}
+    catch
+    {
+    Write-host 'Could not connect to Exchange Online. Exiting.'
+    $ErrorMessage = $_.Exception.Message
+    Write-host ""
+    Write-host "$ErrorMessage " 
+    }
+
+}
+
+$ExchangeOnlineSession = Connect-ExchangeOnline -o365AdminCredential $o365AdminCredential
+
+foreach ($Owner in $Owners)
+				{
+
+					Write-host "sending $Owner mail"
+                    $SendTo = (Invoke-Command -Session $ExchangeOnlineSession -ScriptBlock { param($Owner) Get-Mailbox $Owner }-ArgumentList $Owner -ErrorAction 'Continue').PrimarySmtpAddress
+$Username = “balaji.prabhu@biogen.com”
+$Password = ConvertTo-SecureString –String "BiogenandHcl#2020"  –AsPlainText -Force
+$o365AdminCredential = New-Object –TypeName System.Management.Automation.PSCredential –ArgumentList $Username, $Password
+
+$Subject = $dlname + " Distribution List is ready"
+$Body = (Invoke-WebRequest -Uri "https://webmail.biogen.com/templates/distributionlists/email.html" -UseBasicParsing | Select-Object -ExpandProperty Content)
+$Body = $Body.Replace("`$DisplayName", $dlname)
+$Body = $Body.Replace("`$EmailAddress", $owner)
+#$SendTo = "balaji.prabhu@biogen.com"
+#$SendFrom = "gayathrir@hcl.com"
+$SendFrom = "gayathri.ramu@biogen.com"
+[System.Management.Automation.CredentialAttribute()]$credentials = $o365AdminCredential
+
+#Send-MailMessage -SmtpServer "smtp.office365.com"  -from $SendTo -to $Sendto -Subject $Subject -Body $Body -BodyAsHtml
+Import-Module EWS
+Write-Verbose "Connecting to Office 365 EWS Service"
+$service = Connect-EWSService -Mailbox svc-exchadmin-o365@biogen.com -ServiceUrl "https://outlook.office365.com/EWS/Exchange.asmx" -Credential $credentials
+Write-Verbose "Success"
+$service.ImpersonatedUserId = New-Object Microsoft.Exchange.WebServices.Data.ImpersonatedUserId([Microsoft.Exchange.WebServices.Data.ConnectingIdType]::SmtpAddress, $SendFrom)
+#throw it into a variable to suppress output. Still sends and saves a copy of the message
+Write-Verbose "Sending E-mail"
+$message = New-EWSMessage -to $SendFrom -Subject $subject -Body $body -BodyType HTML -Service $service
+Write-Verbose "Success"
+
+				}
+
+}-ArgumentList $dlname,$Owners
+
+5.Ticket Update
+
+Pre Execution:
+
+Process.worknotes = "DLname" + Process.dlname + "is not created"
+
+Post Execution:
+
+Process.ReturnCode = -51
+Process.ReturnMessage = "Iautomate: Successfully Resolved"
+
+6.Ticket Update
+
+
+Post Execution:
+
+Process.ReturnCode = 52
+Process.ReturnMessage = "Iautomate: Successfully Transferred Issue not Resolved"
+
